@@ -1,32 +1,24 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import * as Dialog from "@radix-ui/react-dialog";
-import * as Label from "@radix-ui/react-label";
-import * as Select from "@radix-ui/react-select";
-import * as Tabs from "@radix-ui/react-tabs";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import type { RecentBook, TranslationSettings } from "../types";
+import {
+  SettingsDialogContent,
+  type SettingsDialogContentProps,
+} from "../components/settings/SettingsDialogContent";
+import { ThemeToggleButton } from "../components/ThemeToggleButton";
+import type { RecentBook, ThemeMode } from "../types";
 import appIcon from "../../appicon.png";
 
 type HomeViewProps = {
   onOpenBook: (book: RecentBook) => void;
   onOpenFile: () => void;
-  settings: TranslationSettings;
-  onSettingsChange: (settings: TranslationSettings) => void;
+  theme: ThemeMode;
+  onThemeToggle: () => void;
+  settingsDialogProps: SettingsDialogContentProps;
 };
-
-const LANGUAGE_PRESETS = [
-  { label: "Chinese (Simplified)", code: "zh-CN" },
-  { label: "Chinese (Traditional)", code: "zh-TW" },
-  { label: "Japanese", code: "ja" },
-  { label: "Korean", code: "ko" },
-  { label: "Spanish", code: "es" },
-  { label: "French", code: "fr" },
-  { label: "German", code: "de" },
-  { label: "Italian", code: "it" },
-];
 
 function SettingsIcon() {
   return (
@@ -119,19 +111,17 @@ function formatRelativeTime(dateString: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export function HomeView({ onOpenBook, onOpenFile, settings, onSettingsChange }: HomeViewProps) {
+export function HomeView({
+  onOpenBook,
+  onOpenFile,
+  theme,
+  onThemeToggle,
+  settingsDialogProps,
+}: HomeViewProps) {
   const [books, setBooks] = useState<RecentBook[]>([]);
   const [loading, setLoading] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"translation" | "appearance" | "api">("appearance");
-  const [languageListOpen, setLanguageListOpen] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [apiKeyStatus, setApiKeyStatus] = useState("");
-  const [apiKeySaving, setApiKeySaving] = useState(false);
-  const [apiKeyExists, setApiKeyExists] = useState(false);
-  const [apiKeyTesting, setApiKeyTesting] = useState(false);
   const [quote] = useState(() => getRandomQuote());
-  const settingsTabsRef = useRef<HTMLDivElement | null>(null);
 
   const loadBooks = useCallback(async () => {
     try {
@@ -161,16 +151,6 @@ export function HomeView({ onOpenBook, onOpenFile, settings, onSettingsChange }:
     loadBooks();
   }, [loadBooks]);
 
-  useEffect(() => {
-    if (!settingsOpen) return;
-    setSettingsTab("appearance");
-    setLanguageListOpen(false);
-    setApiKeyStatus("");
-    invoke<{ exists: boolean }>("get_openrouter_key_info")
-      .then((info) => setApiKeyExists(info.exists))
-      .catch(() => setApiKeyExists(false));
-  }, [settingsOpen]);
-
   const handleRemove = useCallback(async (book: RecentBook) => {
     try {
       await invoke("remove_recent_book", { id: book.id });
@@ -182,24 +162,26 @@ export function HomeView({ onOpenBook, onOpenFile, settings, onSettingsChange }:
 
   const hasBooks = !loading && books.length > 0;
 
-  const handleSettingsTabChange = useCallback((value: string) => {
-    const nextTab = value as "translation" | "appearance" | "api";
-    setSettingsTab(nextTab);
-    if (nextTab !== "translation") {
-      setLanguageListOpen(false);
-    }
-    window.requestAnimationFrame(() => {
-      const activeContent = settingsTabsRef.current?.querySelector<HTMLElement>(
-        ".settings-content[data-state='active']"
-      );
-      activeContent?.scrollTo({ top: 0, behavior: "auto" });
-    });
-  }, []);
-
   return (
     <Tooltip.Provider delayDuration={400}>
       <div className="home">
         <header className="home-header">
+          <div className="home-header-actions">
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <ThemeToggleButton
+                  className="home-settings-btn"
+                  theme={theme}
+                  onToggle={onThemeToggle}
+                />
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content className="tooltip-content" sideOffset={5}>
+                  Theme
+                  <Tooltip.Arrow className="tooltip-arrow" />
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
           <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
             <Tooltip.Root>
               <Tooltip.Trigger asChild>
@@ -221,197 +203,16 @@ export function HomeView({ onOpenBook, onOpenFile, settings, onSettingsChange }:
               <Dialog.Content className="dialog-content dialog-content-settings">
                 <Dialog.Title className="dialog-title">Settings</Dialog.Title>
                 <Dialog.Description className="dialog-description">
-                  Configure translation and appearance.
+                  Configure your default language and saved translation presets.
                 </Dialog.Description>
-                <Tabs.Root
-                  ref={settingsTabsRef}
-                  className="settings-tabs"
-                  value={settingsTab}
-                  onValueChange={handleSettingsTabChange}
-                >
-                  <Tabs.List className="settings-tabs-list" aria-label="Settings sections">
-                    <Tabs.Trigger className="settings-tab-trigger" value="translation">
-                      Translation
-                    </Tabs.Trigger>
-                    <Tabs.Trigger className="settings-tab-trigger" value="appearance">
-                      Appearance
-                    </Tabs.Trigger>
-                    <Tabs.Trigger className="settings-tab-trigger" value="api">
-                      API
-                    </Tabs.Trigger>
-                  </Tabs.List>
-
-                  <Tabs.Content className="settings-content" value="translation">
-                    <div className="settings-section">
-                      <div className="settings-section-header">Translation</div>
-                      <div className="settings-item">
-                        <Label.Root className="settings-label">Target Language</Label.Root>
-                        <button
-                          type="button"
-                          className="settings-language-toggle"
-                          onClick={() => setLanguageListOpen((prev) => !prev)}
-                        >
-                          {languageListOpen ? "Hide language presets" : "Choose from presets"}
-                        </button>
-                        {languageListOpen ? (
-                          <ScrollArea.Root className="settings-language-scroll">
-                            <ScrollArea.Viewport className="settings-language-list">
-                              {LANGUAGE_PRESETS.map((preset) => (
-                                <button
-                                  key={preset.code}
-                                  className={`settings-language-item ${
-                                    preset.code === settings.targetLanguage.code ? "is-selected" : ""
-                                  }`}
-                                  type="button"
-                                  onClick={() => {
-                                    onSettingsChange({
-                                      ...settings,
-                                      targetLanguage: { label: preset.label, code: preset.code },
-                                    });
-                                    setLanguageListOpen(false);
-                                  }}
-                                >
-                                  <span>{preset.label}</span>
-                                </button>
-                              ))}
-                            </ScrollArea.Viewport>
-                            <ScrollArea.Scrollbar orientation="vertical" className="scrollbar">
-                              <ScrollArea.Thumb className="scrollbar-thumb" />
-                            </ScrollArea.Scrollbar>
-                          </ScrollArea.Root>
-                        ) : null}
-                        <span className="settings-hint">
-                          Selected: {settings.targetLanguage.label}
-                        </span>
-                      </div>
-                      <div className="settings-item">
-                        <Label.Root className="settings-label" htmlFor="home-language-label-input">
-                          Language Label
-                        </Label.Root>
-                        <input
-                          id="home-language-label-input"
-                          className="input"
-                          value={settings.targetLanguage.label}
-                          onChange={(e) =>
-                            onSettingsChange({
-                              ...settings,
-                              targetLanguage: { ...settings.targetLanguage, label: e.target.value },
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="settings-item">
-                        <Label.Root className="settings-label" htmlFor="home-model-input">
-                          Model
-                        </Label.Root>
-                        <input
-                          id="home-model-input"
-                          className="input"
-                          value={settings.model}
-                          onChange={(e) => onSettingsChange({ ...settings, model: e.target.value })}
-                        />
-                        <span className="settings-hint">e.g. openai/gpt-4o-mini</span>
-                      </div>
-                    </div>
-                  </Tabs.Content>
-
-                  <Tabs.Content className="settings-content" value="appearance">
-                    <div className="settings-section">
-                      <div className="settings-section-header">Appearance</div>
-                      <div className="settings-item">
-                        <Label.Root className="settings-label">Theme</Label.Root>
-                        <Select.Root
-                          value={settings.theme}
-                          onValueChange={(value) =>
-                            onSettingsChange({ ...settings, theme: value as TranslationSettings["theme"] })
-                          }
-                        >
-                          <Select.Trigger className="select-trigger">
-                            <Select.Value />
-                          </Select.Trigger>
-                          <Select.Content className="select-content" position="popper">
-                            <Select.Item value="system" className="select-item">
-                              <Select.ItemText>System</Select.ItemText>
-                            </Select.Item>
-                            <Select.Item value="light" className="select-item">
-                              <Select.ItemText>Light</Select.ItemText>
-                            </Select.Item>
-                            <Select.Item value="dark" className="select-item">
-                              <Select.ItemText>Dark</Select.ItemText>
-                            </Select.Item>
-                          </Select.Content>
-                        </Select.Root>
-                      </div>
-                    </div>
-                  </Tabs.Content>
-
-                  <Tabs.Content className="settings-content" value="api">
-                    <div className="settings-section">
-                      <div className="settings-section-header">API</div>
-                      <div className="settings-item">
-                        <Label.Root className="settings-label">OpenRouter Key</Label.Root>
-                        <div className="api-key-row">
-                          <input
-                            className="input"
-                            type="password"
-                            placeholder="sk-or-..."
-                            value={apiKeyInput}
-                            onChange={(e) => setApiKeyInput(e.target.value)}
-                          />
-                          <button
-                            className="btn"
-                            disabled={apiKeySaving}
-                            onClick={async () => {
-                              if (!apiKeyInput.trim()) return;
-                              setApiKeySaving(true);
-                              try {
-                                await invoke("save_openrouter_key", { key: apiKeyInput });
-                                setApiKeyStatus("Saved");
-                                setApiKeyInput("");
-                                const info = await invoke<{ exists: boolean }>("get_openrouter_key_info");
-                                setApiKeyExists(info.exists);
-                              } catch {
-                                setApiKeyStatus("Failed");
-                              } finally {
-                                setApiKeySaving(false);
-                              }
-                            }}
-                          >
-                            Save
-                          </button>
-                          <button
-                            className="btn"
-                            disabled={apiKeyTesting}
-                            onClick={async () => {
-                              setApiKeyTesting(true);
-                              try {
-                                await invoke("test_openrouter_key");
-                                setApiKeyStatus("OK");
-                              } catch {
-                                setApiKeyStatus("Failed");
-                              } finally {
-                                setApiKeyTesting(false);
-                              }
-                            }}
-                          >
-                            Test
-                          </button>
-                        </div>
-                        <div className="api-key-status">
-                          {apiKeyExists ? <span className="status-ok">Key saved</span> : <span className="status-warn">No key</span>}
-                          {apiKeyStatus && <span className="status-message">{apiKeyStatus}</span>}
-                        </div>
-                        <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="settings-link">Get API Key →</a>
-                      </div>
-                    </div>
-                  </Tabs.Content>
-                </Tabs.Root>
+                <SettingsDialogContent {...settingsDialogProps} />
                 <Dialog.Close asChild>
                   <button className="btn btn-primary">Done</button>
                 </Dialog.Close>
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>
+          </div>
         </header>
 
         <main className="home-main">
@@ -431,6 +232,10 @@ export function HomeView({ onOpenBook, onOpenFile, settings, onSettingsChange }:
                 <span className="home-dropzone-hint">Click to browse or drag file here</span>
               </div>
               <span className="home-dropzone-shortcut">⌘O</span>
+            </div>
+
+            <div className="home-disclaimer">
+              Translation quality depends on the provider, model, and the quality of the PDF or OCR text.
             </div>
 
             {/* Recent files */}
