@@ -25,7 +25,10 @@ describe("branding", () => {
     expect(appSource).toContain("getCurrentWindow().setTitle(nextWindowTitle)");
     expect(defaultCapability).toContain('"core:window:allow-set-title"');
 
-    expect(homeView).toContain('alt="readani"');
+    expect(homeView).toContain('import readaniBannerForDarkTheme');
+    expect(homeView).toContain('import readaniBannerForLightTheme');
+    expect(homeView).toContain('className="home-logo-img home-logo-img--light"');
+    expect(homeView).toContain('className="home-logo-img home-logo-img--dark"');
     expect(homeView).not.toContain('className="home-title"');
     expect(homeView).toContain("Language barriers removed.");
     expect(homeView).not.toContain("PDFRead");

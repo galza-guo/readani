@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import appCss from "../App.css?raw";
+import homeViewSource from "./HomeView.tsx?raw";
 
 describe("HomeView layout", () => {
   test("uses root-height layout primitives to avoid phantom window scrollbars", () => {
@@ -22,24 +23,77 @@ describe("HomeView layout", () => {
 
   test("styles the landing hero around the enlarged wordmark and footer fine print", () => {
     const contentRule = appCss.match(/\.home-content\s*\{([^}]*)\}/)?.[1] ?? "";
+    const logoWrapRule = appCss.match(/\.home-logo\s*\{([^}]*)\}/)?.[1] ?? "";
     const logoRule = appCss.match(/\.home-logo-img\s*\{([^}]*)\}/)?.[1] ?? "";
+    const logoDarkRule = appCss.match(/\.home-logo-img--dark\s*\{([^}]*)\}/)?.[1] ?? "";
+    const darkThemeLightLogoRule =
+      appCss.match(/\[data-theme="dark"\]\s*\.home-logo-img--light\s*\{([^}]*)\}/)?.[1] ?? "";
+    const darkThemeDarkLogoRule =
+      appCss.match(/\[data-theme="dark"\]\s*\.home-logo-img--dark\s*\{([^}]*)\}/)?.[1] ?? "";
     const subtitleRule = appCss.match(/\.home-subtitle\s*\{([^}]*)\}/)?.[1] ?? "";
     const disclaimerRule = appCss.match(/\.home-disclaimer\s*\{([^}]*)\}/)?.[1] ?? "";
+    const sectionTitleRule = appCss.match(/\.type-section-title\s*\{([^}]*)\}/)?.[1] ?? "";
+    const dialogTitleRule = appCss.match(/\.type-title-large\s*\{([^}]*)\}/)?.[1] ?? "";
 
     expect(contentRule).toContain("display: flex");
     expect(contentRule).toContain("flex-direction: column");
     expect(contentRule).toContain("min-height: 100%");
 
-    expect(logoRule).toContain("width: min(100%, 280px)");
-    expect(logoRule).toContain("height: auto");
+    expect(logoWrapRule).toContain("width: min(100%, 280px)");
+    expect(logoWrapRule).toContain("margin-bottom: 16px");
 
-    expect(subtitleRule).toContain("font-size: 18px");
-    expect(subtitleRule).toContain("font-weight: 500");
+    expect(logoRule).toContain("width: 100%");
+    expect(logoRule).toContain("height: auto");
+    expect(logoDarkRule).toContain("display: none");
+    expect(darkThemeLightLogoRule).toContain("display: none");
+    expect(darkThemeDarkLogoRule).toContain("display: block");
+
+    expect(subtitleRule).toContain("font-size: var(--type-size-title-large)");
+    expect(subtitleRule).toContain("font-weight: var(--type-weight-medium)");
+    expect(subtitleRule).toContain("letter-spacing: 0");
+
+    expect(sectionTitleRule).toContain("font-size: var(--type-size-section-title)");
+    expect(sectionTitleRule).toContain("font-weight: var(--type-weight-semibold)");
+    expect(sectionTitleRule).not.toContain("text-transform");
+
+    expect(dialogTitleRule).toContain("font-size: var(--type-size-title-large)");
+    expect(dialogTitleRule).toContain("font-weight: var(--type-weight-semibold)");
 
     expect(disclaimerRule).toContain("margin-top: auto");
     expect(disclaimerRule).toContain("font-style: italic");
     expect(disclaimerRule).toContain("color: var(--ink-subtle)");
     expect(disclaimerRule).not.toContain("background:");
     expect(disclaimerRule).not.toContain("border:");
+  });
+
+  test("uses shared typography classes for home section titles", () => {
+    expect(homeViewSource).toContain('className="home-dropzone-title type-section-title"');
+    expect(homeViewSource).toContain('className="home-recent-title type-section-title"');
+  });
+
+  test("renders theme-specific light and dark home banners", () => {
+    expect(homeViewSource).toContain('import readaniBannerForDarkTheme');
+    expect(homeViewSource).toContain('import readaniBannerForLightTheme');
+    expect(homeViewSource).toContain('className="home-logo"');
+    expect(homeViewSource).toContain('className="home-logo-img home-logo-img--light"');
+    expect(homeViewSource).toContain('className="home-logo-img home-logo-img--dark"');
+    expect(homeViewSource).not.toContain('import appIcon');
+  });
+
+  test("matches the reader header's expanding theme and settings buttons", () => {
+    expect(homeViewSource).toContain("showHoverLabel={true}");
+    expect(homeViewSource).toContain('labelDirection="left"');
+    expect(homeViewSource).toContain("ExpandableIconButton");
+    expect(homeViewSource).toContain('label="Settings"');
+    expect(homeViewSource).not.toContain('className="home-settings-btn"');
+  });
+
+  test("delegates settings dialog ownership to app and only renders the trigger on home", () => {
+    expect(homeViewSource).toContain("onOpenSettings");
+    expect(homeViewSource).toContain("onClick={onOpenSettings}");
+    expect(homeViewSource).not.toContain("* as Dialog");
+    expect(homeViewSource).not.toContain("SettingsDialogContent");
+    expect(homeViewSource).not.toContain("settings-dialog-header");
+    expect(homeViewSource).not.toContain("<Dialog.Content");
   });
 });
