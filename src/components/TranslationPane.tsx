@@ -382,8 +382,8 @@ function PdfTranslationPane({
         <div className="page-translation-shell">
           {pageTranslation?.status === "unavailable" ? (
             <div className="page-translation-empty">
-              This PDF does not contain usable text yet. Please OCR it first, then
-              reopen it in Readany.
+              This page does not contain any usable text yet. Please OCR it first, then
+              reopen it in <span className="page-translation-empty-brand">readani</span>.
             </div>
           ) : pageTranslation?.status === "error" ? (
             <div className="page-translation-error">

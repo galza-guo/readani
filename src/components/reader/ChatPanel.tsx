@@ -26,14 +26,6 @@ function SendIcon() {
   );
 }
 
-function SparkleIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4" />
-    </svg>
-  );
-}
-
 function TrashIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -139,9 +131,6 @@ export function ChatPanel({
     <div className="chat-panel">
       <div className="chat-header rail-pane-header">
         <div className="chat-title rail-pane-title-row">
-          <span className="rail-pane-title-icon" aria-hidden="true">
-            <SparkleIcon />
-          </span>
           <span className="rail-pane-title">AI Assistant</span>
         </div>
         <div className="chat-header-actions rail-pane-header-actions">
