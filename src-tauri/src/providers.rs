@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
 pub enum ProviderKind {
+    #[serde(rename = "openrouter", alias = "open-router")]
     OpenRouter,
+    #[serde(rename = "deepseek", alias = "deep-seek")]
     DeepSeek,
+    #[serde(rename = "openai-compatible", alias = "open-ai-compatible")]
     OpenAiCompatible,
 }
 
@@ -350,6 +352,7 @@ pub async fn list_models(provider: &ProviderConfig) -> Result<Vec<String>, Strin
 #[cfg(test)]
 mod tests {
     use super::{ProviderConfig, ProviderKind};
+    use serde_json::{from_str, to_string};
 
     #[test]
     fn openrouter_uses_fixed_models_endpoint() {
@@ -376,6 +379,23 @@ mod tests {
         assert_eq!(
             provider.validate_for_request().unwrap_err(),
             "Custom API key is missing."
+        );
+    }
+
+    #[test]
+    fn provider_kind_accepts_legacy_values_and_serializes_canonical_frontend_values() {
+        assert_eq!(from_str::<ProviderKind>("\"open-router\"").unwrap(), ProviderKind::OpenRouter);
+        assert_eq!(from_str::<ProviderKind>("\"deep-seek\"").unwrap(), ProviderKind::DeepSeek);
+        assert_eq!(
+            from_str::<ProviderKind>("\"open-ai-compatible\"").unwrap(),
+            ProviderKind::OpenAiCompatible
+        );
+
+        assert_eq!(to_string(&ProviderKind::OpenRouter).unwrap(), "\"openrouter\"");
+        assert_eq!(to_string(&ProviderKind::DeepSeek).unwrap(), "\"deepseek\"");
+        assert_eq!(
+            to_string(&ProviderKind::OpenAiCompatible).unwrap(),
+            "\"openai-compatible\""
         );
     }
 }
