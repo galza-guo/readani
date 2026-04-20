@@ -22,6 +22,7 @@ export type PageDoc = {
   paragraphs: Paragraph[];
   watermarks?: string[];
   title?: string; // Optional title for the page (e.g., chapter name for EPUB)
+  isExtracted?: boolean;
 };
 
 export type TargetLanguage = {
@@ -29,18 +30,64 @@ export type TargetLanguage = {
   code: string;
 };
 
-export type TranslationMode = "window" | "chunk";
-
 export type ThemeMode = "system" | "light" | "dark";
 
-export type TranslationSettings = {
-  targetLanguage: TargetLanguage;
+export type TranslationProviderKind = "openrouter" | "deepseek" | "openai-compatible";
+
+export type TranslationPreset = {
+  id: string;
+  label: string;
+  providerKind: TranslationProviderKind;
+  baseUrl?: string;
+  apiKey?: string;
+  apiKeyConfigured?: boolean;
   model: string;
-  temperature: number;
-  mode: TranslationMode;
-  radius: number;
-  chunkSize: number;
+};
+
+export type TranslationProvider = TranslationPreset;
+
+export type TranslationProvidersState = {
+  activeProviderId: string;
+  providers: TranslationPreset[];
+};
+
+export type TranslationSettings = {
+  activePresetId: string;
+  defaultLanguage: TargetLanguage;
   theme: ThemeMode;
+  presets: TranslationPreset[];
+};
+
+export type PresetTestResult = {
+  presetId: string;
+  label: string;
+  ok: boolean;
+  message: string;
+};
+
+export type PageTranslationState = {
+  page: number;
+  displayText: string;
+  previousContext: string;
+  nextContext: string;
+  translatedText?: string;
+  status: "idle" | "loading" | "done" | "error" | "unavailable";
+  isCached?: boolean;
+  error?: string;
+};
+
+export type PageTranslationResult = {
+  page: number;
+  translatedText: string;
+  isCached: boolean;
+};
+
+export type SelectionTranslation = {
+  text: string;
+  translation?: string;
+  position: { x: number; y: number };
+  isLoading?: boolean;
+  error?: string;
 };
 
 export type WordDefinition = {
