@@ -31,7 +31,9 @@ describe("HomeView layout", () => {
     const darkThemeDarkLogoRule =
       appCss.match(/\[data-theme="dark"\]\s*\.home-logo-img--dark\s*\{([^}]*)\}/)?.[1] ?? "";
     const subtitleRule = appCss.match(/\.home-subtitle\s*\{([^}]*)\}/)?.[1] ?? "";
+    const shortcutRule = appCss.match(/\.home-dropzone-shortcut\s*\{([^}]*)\}/)?.[1] ?? "";
     const disclaimerRule = appCss.match(/\.home-disclaimer\s*\{([^}]*)\}/)?.[1] ?? "";
+    const fileNameRule = appCss.match(/\.home-file-name\s*\{([^}]*)\}/)?.[1] ?? "";
     const sectionTitleRule = appCss.match(/\.type-section-title\s*\{([^}]*)\}/)?.[1] ?? "";
     const dialogTitleRule = appCss.match(/\.type-title-large\s*\{([^}]*)\}/)?.[1] ?? "";
 
@@ -49,7 +51,7 @@ describe("HomeView layout", () => {
     expect(darkThemeDarkLogoRule).toContain("display: block");
 
     expect(subtitleRule).toContain("font-size: var(--type-size-title-large)");
-    expect(subtitleRule).toContain("font-weight: var(--type-weight-medium)");
+    expect(subtitleRule).toContain("font-weight: var(--type-weight-regular)");
     expect(subtitleRule).toContain("letter-spacing: 0");
 
     expect(sectionTitleRule).toContain("font-size: var(--type-size-section-title)");
@@ -59,7 +61,17 @@ describe("HomeView layout", () => {
     expect(dialogTitleRule).toContain("font-size: var(--type-size-title-large)");
     expect(dialogTitleRule).toContain("font-weight: var(--type-weight-semibold)");
 
+    expect(fileNameRule).toContain("font-size: var(--type-size-label)");
+    expect(fileNameRule).toContain("font-weight: 500");
+
+    expect(shortcutRule).toContain("font-size: 11px");
+    expect(shortcutRule).toContain("color: var(--ink-subtle)");
+    expect(shortcutRule).not.toContain("background:");
+    expect(shortcutRule).not.toContain("padding:");
+    expect(shortcutRule).not.toContain("border-radius:");
+
     expect(disclaimerRule).toContain("margin-top: auto");
+    expect(disclaimerRule).toContain("font-size: var(--type-size-meta)");
     expect(disclaimerRule).toContain("font-style: italic");
     expect(disclaimerRule).toContain("color: var(--ink-subtle)");
     expect(disclaimerRule).not.toContain("background:");
