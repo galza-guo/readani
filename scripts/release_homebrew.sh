@@ -14,7 +14,13 @@ NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-}"
 APPLE_ID="${APPLE_ID:-}"
 APPLE_TEAM_ID="${APPLE_TEAM_ID:-}"
 APPLE_APP_SPECIFIC_PASSWORD="${APPLE_APP_SPECIFIC_PASSWORD:-${APPLE_PASSWORD:-${APP_SPECIFIC_PASSWORD:-}}}"
-VERSION_FILES=("package.json" "src-tauri/Cargo.toml" "src-tauri/tauri.conf.json")
+VERSION_FILES=(
+  "package.json"
+  "package-lock.json"
+  "src-tauri/Cargo.toml"
+  "src-tauri/Cargo.lock"
+  "src-tauri/tauri.conf.json"
+)
 SKIP_BUMP="${SKIP_BUMP:-0}"
 
 read_version() {
@@ -40,8 +46,30 @@ console.log(pkg.version);
 update_tauri_version() {
   local old_version="$1"
   local new_version="$2"
+  OLD_VERSION="$old_version" NEW_VERSION="$new_version" REPO_DIR="$REPO_DIR" node - <<'EOF'
+const fs = require("fs");
+const path = require("path");
+
+const repoDir = process.env.REPO_DIR;
+const oldVersion = process.env.OLD_VERSION;
+const newVersion = process.env.NEW_VERSION;
+
+const packageLockPath = path.join(repoDir, "package-lock.json");
+const tauriConfigPath = path.join(repoDir, "src-tauri", "tauri.conf.json");
+
+const packageLock = JSON.parse(fs.readFileSync(packageLockPath, "utf8"));
+packageLock.version = newVersion;
+if (packageLock.packages && packageLock.packages[""]) {
+  packageLock.packages[""].version = newVersion;
+}
+fs.writeFileSync(packageLockPath, JSON.stringify(packageLock, null, 2) + "\n");
+
+const tauriConfig = JSON.parse(fs.readFileSync(tauriConfigPath, "utf8"));
+tauriConfig.version = newVersion;
+fs.writeFileSync(tauriConfigPath, JSON.stringify(tauriConfig, null, 2) + "\n");
+EOF
   sed -i '' "s/^version = \"$old_version\"/version = \"$new_version\"/" "$REPO_DIR/src-tauri/Cargo.toml"
-  sed -i '' "s/\"version\": \"$old_version\"/\"version\": \"$new_version\"/" "$REPO_DIR/src-tauri/tauri.conf.json"
+  perl -0pi -e "s/name = \"readani\"\nversion = \"$old_version\"/name = \"readani\"\nversion = \"$new_version\"/" "$REPO_DIR/src-tauri/Cargo.lock"
 }
 
 create_homebrew_tauri_config() {

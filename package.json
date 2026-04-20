@@ -1,7 +1,9 @@
 {
   "name": "readani",
   "private": true,
-  "version": "0.1.8",
+  "version": "1.0.0",
+  "description": "Desktop bilingual PDF and EPUB reader for side-by-side translation.",
+  "author": "Gallant GUO <glt@gallantguo.com>",
   "type": "module",
   "scripts": {
     "dev": "vite",
