@@ -1,9 +1,13 @@
 import type { ThemeMode } from "../types";
+import { ExpandableIconButton } from "./reader/ExpandableIconButton";
 
 type ThemeToggleButtonProps = {
   theme: ThemeMode;
   onToggle: () => void;
   className?: string;
+  showHoverLabel?: boolean;
+  labelDirection?: "left" | "right";
+  hoverLabel?: string;
 };
 
 function SystemIcon() {
@@ -44,17 +48,33 @@ export function ThemeToggleButton({
   theme,
   onToggle,
   className,
+  showHoverLabel = false,
+  labelDirection = "left",
+  hoverLabel = "Theme",
 }: ThemeToggleButtonProps) {
   const icon =
     theme === "light" ? <SunIcon /> : theme === "dark" ? <MoonIcon /> : <SystemIcon />;
   const label =
     theme === "light" ? "Theme: Light" : theme === "dark" ? "Theme: Dark" : "Theme: System";
 
+  if (showHoverLabel) {
+    return (
+      <ExpandableIconButton
+        className={className}
+        onClick={onToggle}
+        aria-label={label}
+        label={hoverLabel}
+        labelDirection={labelDirection}
+      >
+        {icon}
+      </ExpandableIconButton>
+    );
+  }
+
   return (
     <button
       className={className}
       onClick={onToggle}
-      title={label}
       aria-label={label}
       type="button"
     >

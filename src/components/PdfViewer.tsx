@@ -18,7 +18,9 @@ import {
   resolvePdfScale,
   type PdfZoomMode,
 } from "../lib/readerLayout";
+import { DocumentStatusSurface } from "./document/DocumentStatusSurface";
 import { PdfPage } from "./PdfPage";
+import { PageNavigationToolbar } from "./reader/PageNavigationToolbar";
 
 const PDF_ZOOM_SLIDER_MIN = 0.5;
 const PDF_ZOOM_SLIDER_MAX = 2.5;
@@ -36,25 +38,12 @@ type PdfViewerProps = {
   onZoomModeChange: (mode: PdfZoomMode) => void;
   onManualScaleChange: (scale: number) => void;
   onResolvedScaleChange: (scale: number) => void;
+  defaultZoomPopoverOpen?: boolean;
+  overlayStatusMessage?: string | null;
+  overlayProgress?: number | null;
   onSelectionText: (selection: { text: string; position: { x: number; y: number } }) => void;
   onClearSelection: () => void;
 };
-
-function ChevronLeftIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M15 18l-6-6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronRightIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 function ZoomIcon() {
   return (
@@ -78,6 +67,9 @@ export function PdfViewer({
   onZoomModeChange,
   onManualScaleChange,
   onResolvedScaleChange,
+  defaultZoomPopoverOpen = false,
+  overlayStatusMessage,
+  overlayProgress,
   onSelectionText,
   onClearSelection,
 }: PdfViewerProps) {
@@ -87,7 +79,7 @@ export function PdfViewer({
   const zoomPopoverCloseTimeoutRef = useRef<number | null>(null);
   const [viewerSize, setViewerSize] = useState({ width: 0, height: 0 });
   const [pageInputValue, setPageInputValue] = useState(String(currentPage));
-  const [isZoomPopoverOpen, setIsZoomPopoverOpen] = useState(false);
+  const [isZoomPopoverOpen, setIsZoomPopoverOpen] = useState(defaultZoomPopoverOpen);
   const pageSize = pageSizes[currentPage - 1];
 
   const effectiveScale = useMemo(() => {
@@ -312,17 +304,14 @@ export function PdfViewer({
 
   return (
     <div className="pdf-reader-main">
-      <div className="pdf-panel-toolbar pdf-page-toolbar">
-        <button
-          type="button"
-          className="btn btn-ghost btn-icon-only pdf-toolbar-icon-btn"
-          onClick={() => onNavigateToPage(currentPage - 1)}
-          disabled={currentPage <= 1}
-          aria-label="Previous page"
-          title="Previous page"
-        >
-          <ChevronLeftIcon />
-        </button>
+      <PageNavigationToolbar
+        previousLabel="Previous page"
+        nextLabel="Next page"
+        previousDisabled={currentPage <= 1}
+        nextDisabled={currentPage >= pageSizes.length}
+        onPrevious={() => onNavigateToPage(currentPage - 1)}
+        onNext={() => onNavigateToPage(currentPage + 1)}
+      >
         <label className="pdf-page-jump">
           <span className="pdf-page-jump-label">Page</span>
           <input
@@ -338,19 +327,9 @@ export function PdfViewer({
           />
           <span className="pdf-page-jump-total">of {pageSizes.length}</span>
         </label>
-        <button
-          type="button"
-          className="btn btn-ghost btn-icon-only pdf-toolbar-icon-btn"
-          onClick={() => onNavigateToPage(currentPage + 1)}
-          disabled={currentPage >= pageSizes.length}
-          aria-label="Next page"
-          title="Next page"
-        >
-          <ChevronRightIcon />
-        </button>
-      </div>
+      </PageNavigationToolbar>
 
-      <div className="pdf-viewer-shell">
+      <div className="pdf-viewer-shell document-viewer-shell">
         <div ref={scrollerRef} className="pdf-viewer" onWheel={handleWheel}>
           <div className="pdf-page-wrapper">
             <PdfPage
@@ -364,9 +343,18 @@ export function PdfViewer({
             />
           </div>
         </div>
+        {overlayStatusMessage ? (
+          <div className="document-status-dock">
+            <DocumentStatusSurface
+              message={overlayStatusMessage}
+              progress={overlayProgress}
+              variant="overlay"
+            />
+          </div>
+        ) : null}
         <div
           ref={zoomDockRef}
-          className="pdf-zoom-dock"
+          className="pdf-zoom-dock document-zoom-dock"
           onPointerEnter={clearZoomPopoverCloseTimer}
           onPointerLeave={() => {
             if (isZoomPopoverOpen) {
@@ -374,49 +362,48 @@ export function PdfViewer({
             }
           }}
         >
-          <button
-            type="button"
-            className="btn pdf-zoom-trigger"
-            aria-label="Open zoom controls"
-            title="Zoom controls"
-            aria-expanded={isZoomPopoverOpen}
-            onClick={() => {
-              clearZoomPopoverCloseTimer();
-              setIsZoomPopoverOpen((prev) => !prev);
-            }}
-          >
-            <ZoomIcon />
-            <span>{displayedZoomPercent}%</span>
-          </button>
           {isZoomPopoverOpen ? (
-            <div className="pdf-zoom-panel">
-              <div className="pdf-zoom-popover-row">
-                <select
-                  className="pdf-zoom-mode-select"
-                  value={selectedZoomOption || ""}
-                  onChange={handleZoomOptionChange}
-                  aria-label="Zoom preset"
-                >
-                  <option value="">Custom</option>
-                  <option value="fit-width">Fit width</option>
-                  <option value="fit-height">Fit height</option>
-                  <option value="100">100%</option>
-                  <option value="150">150%</option>
-                </select>
-                <input
-                  className="pdf-zoom-slider"
-                  type="range"
-                  min={PDF_ZOOM_SLIDER_MIN}
-                  max={PDF_ZOOM_SLIDER_MAX}
-                  step={PDF_ZOOM_SLIDER_STEP}
-                  value={sliderValue}
-                  onChange={handleZoomSliderChange}
-                  aria-label="PDF zoom"
-                />
-                <div className="pdf-zoom-readout">{displayedZoomPercent}%</div>
-              </div>
+            <div className="pdf-zoom-expanded pdf-zoom-panel">
+              <select
+                className="pdf-zoom-mode-select"
+                value={selectedZoomOption || ""}
+                onChange={handleZoomOptionChange}
+                aria-label="Zoom preset"
+              >
+                <option value="">Custom</option>
+                <option value="fit-width">Fit width</option>
+                <option value="fit-height">Fit height</option>
+                <option value="100">100%</option>
+                <option value="150">150%</option>
+              </select>
+              <input
+                className="pdf-zoom-slider"
+                type="range"
+                min={PDF_ZOOM_SLIDER_MIN}
+                max={PDF_ZOOM_SLIDER_MAX}
+                step={PDF_ZOOM_SLIDER_STEP}
+                value={sliderValue}
+                onChange={handleZoomSliderChange}
+                aria-label="PDF zoom"
+              />
+              <div className="pdf-zoom-readout">{displayedZoomPercent}%</div>
             </div>
-          ) : null}
+          ) : (
+            <button
+              type="button"
+              className="btn pdf-zoom-trigger"
+              aria-label="Open zoom controls"
+              title="Zoom controls"
+              aria-expanded={false}
+              onClick={() => {
+                clearZoomPopoverCloseTimer();
+                setIsZoomPopoverOpen(true);
+              }}
+            >
+              <ZoomIcon />
+              <span>{displayedZoomPercent}%</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

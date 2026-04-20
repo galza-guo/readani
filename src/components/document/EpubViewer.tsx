@@ -26,6 +26,8 @@ type EpubViewerProps = {
 export type EpubViewerHandle = {
   navigateTo: (pid: string) => void;
   navigateToHref: (href: string) => void;
+  goToPreviousPage: () => void;
+  goToNextPage: () => void;
 };
 
 export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubViewer({
@@ -45,7 +47,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
   const tocRef = useRef<NavItem[]>([]);
   const paragraphMapRef = useRef<Map<string, string>>(new Map()); // pid -> href
   const paragraphSourceRef = useRef<Map<string, string>>(new Map()); // pid -> source text
-  const [currentChapter, setCurrentChapter] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
   // Store callbacks in refs to avoid dependency issues
@@ -135,6 +136,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
         onHrefChangeRef.current?.(href);
       }
     },
+    goToPreviousPage: () => {
+      renditionRef.current?.prev();
+    },
+    goToNextPage: () => {
+      renditionRef.current?.next();
+    },
   }), []);
 
   // Load book only when fileData changes
@@ -217,7 +224,6 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
               return matchesHref(href, item.href);
             });
             if (chapter) {
-              setCurrentChapter(chapter.label);
               onCurrentChapterChangeRef.current?.(chapter.label);
             }
           }
@@ -348,28 +354,11 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
     onParagraphsExtractedRef.current(paragraphs);
   };
 
-  const handlePrev = useCallback(() => {
-    renditionRef.current?.prev();
-  }, []);
-
-  const handleNext = useCallback(() => {
-    renditionRef.current?.next();
-  }, []);
-
   return (
     <div className="epub-viewer">
       <div className="epub-content">
         {loading && <div className="epub-loading">Loading EPUB...</div>}
         <div ref={containerRef} className="epub-container" />
-        <div className="epub-nav">
-          <button className="btn btn-ghost" onClick={handlePrev}>
-            Previous
-          </button>
-          <span className="epub-chapter">{currentChapter}</span>
-          <button className="btn btn-ghost" onClick={handleNext}>
-            Next
-          </button>
-        </div>
       </div>
     </div>
   );

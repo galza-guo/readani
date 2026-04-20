@@ -2,9 +2,9 @@ import * as Toolbar from "@radix-ui/react-toolbar";
 import type { ReaderPanelKey, ReaderPanelsState } from "../../lib/readerWorkspace";
 
 const PANEL_CONTROLS: Array<{ key: ReaderPanelKey; label: string; shortLabel: string }> = [
-  { key: "navigation", label: "Navigation", shortLabel: "Nav" },
+  { key: "navigation", label: "Navigate", shortLabel: "Navigate" },
   { key: "original", label: "Original", shortLabel: "Original" },
-  { key: "translation", label: "Translation", shortLabel: "Translation" },
+  { key: "translation", label: "Translate", shortLabel: "Translate" },
   { key: "chat", label: "AI Chat", shortLabel: "Chat" },
 ];
 

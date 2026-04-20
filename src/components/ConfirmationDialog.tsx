@@ -28,8 +28,8 @@ export function ConfirmationDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
         <Dialog.Content className="dialog-content">
-          <Dialog.Title className="dialog-title">{title}</Dialog.Title>
-          <Dialog.Description className="dialog-description">
+          <Dialog.Title className="dialog-title type-title-large">{title}</Dialog.Title>
+          <Dialog.Description className="dialog-description type-meta">
             {description}
           </Dialog.Description>
           <div className="dialog-actions">

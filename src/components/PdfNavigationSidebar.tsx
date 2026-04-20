@@ -37,16 +37,12 @@ export function PdfNavigationSidebar({
 
   return (
     <aside className="pdf-sidebar" aria-label="PDF navigation">
-      <div className="pdf-sidebar-header">
-        <div className="pdf-sidebar-title">Navigate</div>
-      </div>
-
       <Tabs.Root
         className="pdf-sidebar-tabs"
         value={activeTab}
         onValueChange={(value) => onTabChange(value as PdfNavTab)}
       >
-        <Tabs.List className="pdf-sidebar-tabs-list" aria-label="PDF navigation tabs">
+        <Tabs.List className="pdf-sidebar-tabs-list" aria-label="PDF navigation views">
           <Tabs.Trigger className="pdf-sidebar-tab-trigger" value="thumbnails">
             Thumbnails
           </Tabs.Trigger>

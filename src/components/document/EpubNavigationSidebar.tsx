@@ -14,7 +14,7 @@ export function EpubNavigationSidebar({
 }: EpubNavigationSidebarProps) {
   return (
     <aside className="epub-sidebar" aria-label="EPUB navigation">
-      <div className="epub-sidebar-title">Contents</div>
+      <div className="epub-sidebar-title type-section-title">Contents</div>
       <ScrollArea.Root className="epub-toc-scroll">
         <ScrollArea.Viewport className="epub-toc-viewport">
           <div className="epub-toc">

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { normalizeSelectionText } from "../lib/pageText";
+import {
+  loadPdfPageViewport,
+  renderPdfPageToScratchCanvas,
+  syncCanvasToViewport,
+} from "../lib/pdfPageRender";
 
 const TEXT_LAYER_CLASS = "pdf-text-layer";
 
@@ -38,22 +43,53 @@ export function PdfPage({
       let page = null;
 
       try {
-        page = await pdfDoc.getPage(pageNumber);
-        const viewport = page.getViewport({ scale });
+        const loadedPage = await loadPdfPageViewport({
+          loadPage: (targetPageNumber) => pdfDoc.getPage(targetPageNumber),
+          pageNumber,
+          scale,
+          isCancelled: () => cancelled,
+        });
+
+        if (!loadedPage) {
+          return;
+        }
+
+        page = loadedPage.page;
+        const { viewport } = loadedPage;
 
         if (canvasRef.current) {
-          const canvas = canvasRef.current;
-          const context = canvas.getContext("2d");
-          if (!context) return;
-
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          canvas.style.width = `${viewport.width}px`;
-          canvas.style.height = `${viewport.height}px`;
-
-          renderTask = page.render({ canvasContext: context, viewport });
-          await renderTask.promise;
+          syncCanvasToViewport({
+            canvas: canvasRef.current,
+            viewport,
+          });
         }
+
+        const scratchCanvas = await renderPdfPageToScratchCanvas({
+          page,
+          viewport,
+          renderPage: (currentPage, options) => currentPage.render(options as any),
+          createCanvas: () => document.createElement("canvas"),
+          isCancelled: () => cancelled,
+          onRenderTaskCreated: (task) => {
+            renderTask = task;
+          },
+        });
+
+        if (!scratchCanvas || !canvasRef.current) {
+          return;
+        }
+
+        const canvas = canvasRef.current;
+        const context = canvas.getContext("2d");
+        if (!context) {
+          return;
+        }
+
+        syncCanvasToViewport({
+          canvas,
+          viewport,
+        });
+        context.drawImage(scratchCanvas, 0, 0);
 
         if (cancelled || !textLayerRef.current) {
           return;

@@ -21,9 +21,9 @@ describe("PanelToggleGroup", () => {
     );
 
     expect(html).toContain('class="panel-toggle-group"');
-    expect(html).toContain(">Nav<");
+    expect(html).toContain(">Navigate<");
     expect(html).toContain(">Original<");
-    expect(html).toContain(">Translation<");
+    expect(html).toContain(">Translate<");
     expect(html).toContain(">Chat<");
     expect(html).toContain('class="panel-toggle-btn is-active"');
     expect(html).toContain('aria-pressed="true"');
@@ -61,5 +61,31 @@ describe("PanelToggleGroup", () => {
     expect(pressedRule).toContain("box-shadow");
     expect(pressedRule).not.toContain("inset 0 0 0 1px");
     expect(pressedRule).not.toContain("translateY");
+  });
+
+  test("keeps the reader header flush with the shell background", () => {
+    const headerRule = appCss.match(/\.app-header\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(headerRule).not.toContain("background");
+    expect(headerRule).not.toContain("border-bottom");
+  });
+
+  test("pins the panel toggle row to the true horizontal center of the toolbar", () => {
+    const headerRule = appCss.match(/\.app-header\s*\{([^}]*)\}/)?.[1] ?? "";
+    const leftRule = appCss.match(/\.header-left\s*\{([^}]*)\}/)?.[1] ?? "";
+    const centerRule = appCss.match(/\.header-center\s*\{([^}]*)\}/)?.[1] ?? "";
+    const rightRule = appCss.match(/\.header-right\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(headerRule).toContain("display: grid");
+    expect(headerRule).toContain(
+      "grid-template-columns: minmax(180px, 1fr) minmax(440px, 1.5fr) minmax(180px, 1fr)"
+    );
+    expect(leftRule).toContain("width: 100%");
+    expect(leftRule).toContain("justify-content: flex-start");
+    expect(centerRule).toContain("grid-column: 2");
+    expect(centerRule).toContain("width: 100%");
+    expect(centerRule).toContain("justify-content: center");
+    expect(rightRule).toContain("width: 100%");
+    expect(rightRule).toContain("justify-content: flex-end");
   });
 });

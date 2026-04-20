@@ -34,6 +34,15 @@ function SparkleIcon() {
   );
 }
 
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </svg>
+  );
+}
+
 export function ChatPanel({
   isVisible,
   model,
@@ -128,38 +137,45 @@ export function ChatPanel({
 
   return (
     <div className="chat-panel">
-      <div className="chat-header">
-        <div className="chat-title">
-          <SparkleIcon />
-          <span>AI Assistant</span>
+      <div className="chat-header rail-pane-header">
+        <div className="chat-title rail-pane-title-row">
+          <span className="rail-pane-title-icon" aria-hidden="true">
+            <SparkleIcon />
+          </span>
+          <span className="rail-pane-title">AI Assistant</span>
         </div>
-        <div className="chat-header-actions">
+        <div className="chat-header-actions rail-pane-header-actions">
           {messages.length > 0 && (
-            <button className="btn btn-ghost btn-small" onClick={handleClearChat}>
-              Clear
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon-only"
+              aria-label="Clear chat"
+              title="Clear chat"
+              onClick={handleClearChat}
+            >
+              <TrashIcon />
             </button>
           )}
         </div>
-      </div>
-
-      <div className="chat-presets">
-        {PRESET_QUESTIONS.map((preset, index) => (
-          <button
-            key={index}
-            className="chat-preset-btn"
-            onClick={() => handlePresetQuestion(preset)}
-            disabled={isLoading}
-          >
-            {preset.label}
-          </button>
-        ))}
       </div>
 
       <ScrollArea.Root className="chat-messages-scroll">
         <ScrollArea.Viewport ref={scrollRef} className="chat-messages">
           {messages.length === 0 ? (
             <div className="chat-empty">
-              <p>Ask questions about the current page or use the presets above.</p>
+              <p>Ask about this page or pick a prompt.</p>
+              <div className="chat-presets">
+                {PRESET_QUESTIONS.map((preset, index) => (
+                  <button
+                    key={index}
+                    className="chat-preset-btn"
+                    onClick={() => handlePresetQuestion(preset)}
+                    disabled={isLoading}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
             messages.map((msg) => (
@@ -191,7 +207,7 @@ export function ChatPanel({
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={isLoading}
-          rows={2}
+          rows={1}
         />
         <button
           type="submit"
