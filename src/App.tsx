@@ -10,7 +10,6 @@ import {
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { NavItem } from "epubjs";
-import pdfjsWorker from "pdfjs-dist/legacy/build/pdf.worker.mjs?worker";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -24,6 +23,7 @@ import { TranslationPane } from "./components/TranslationPane";
 import { EpubNavigationSidebar } from "./components/document/EpubNavigationSidebar";
 import { EpubViewer, type EpubParagraph, type EpubViewerHandle } from "./components/document/EpubViewer";
 import { ChatPanel } from "./components/reader/ChatPanel";
+import { PanelToggleGroup } from "./components/reader/PanelToggleGroup";
 import { SettingsDialogContent } from "./components/settings/SettingsDialogContent";
 import { ThemeToggleButton } from "./components/ThemeToggleButton";
 import { HomeView } from "./views/HomeView";
@@ -69,6 +69,7 @@ import {
   type ReaderRailSectionKey,
   type ReaderRailSectionWeightsByLayout,
 } from "./lib/readerWorkspace";
+import { getPdfJsWorkerPort } from "./lib/pdfWorker";
 import { buildPageTranslationPayload, hasUsablePageText } from "./lib/pageText";
 import { clampPage, getPagesToTranslate } from "./lib/pageQueue";
 import {
@@ -96,7 +97,7 @@ import type {
 } from "./types";
 import "./App.css";
 
-pdfjsLib.GlobalWorkerOptions.workerPort = new pdfjsWorker();
+pdfjsLib.GlobalWorkerOptions.workerPort = getPdfJsWorkerPort();
 (window as any).pdfjsLib = pdfjsLib;
 
 const DEFAULT_SETTINGS: TranslationSettings = {
@@ -184,6 +185,7 @@ export default function App() {
   const pdfTranslationSessionRef = useRef(0);
   const cachedPageLookupRequestIdRef = useRef(0);
   const pdfOutlineRequestIdRef = useRef(0);
+  const pdfLoadRequestIdRef = useRef(0);
   const epubScrollRequestIdRef = useRef(0);
   const readerShellRef = useRef<HTMLDivElement | null>(null);
   const readerHeaderRef = useRef<HTMLDivElement | null>(null);
@@ -263,6 +265,40 @@ export default function App() {
     settingsRef.current = settings;
   }, [settings]);
 
+  const releasePdfDocument = useCallback((doc: PDFDocumentProxy | null) => {
+    if (!doc) {
+      return;
+    }
+
+    try {
+      doc.cleanup();
+    } catch {
+      // Ignore cleanup failures during teardown.
+    }
+
+    void doc.destroy().catch(() => {
+      // Ignore destroy failures during teardown.
+    });
+  }, []);
+
+  const lastCommittedPdfDocRef = useRef<PDFDocumentProxy | null>(null);
+
+  useEffect(() => {
+    const previousDoc = lastCommittedPdfDocRef.current;
+    lastCommittedPdfDocRef.current = pdfDoc;
+
+    if (previousDoc && previousDoc !== pdfDoc) {
+      releasePdfDocument(previousDoc);
+    }
+  }, [pdfDoc, releasePdfDocument]);
+
+  useEffect(() => {
+    return () => {
+      pdfLoadRequestIdRef.current += 1;
+      releasePdfDocument(lastCommittedPdfDocRef.current);
+    };
+  }, [releasePdfDocument]);
+
   useEffect(() => {
     docIdRef.current = docId;
   }, [docId]);
@@ -320,11 +356,6 @@ export default function App() {
     currentFileType === "pdf" &&
     allPdfPagesExtracted &&
     pageTranslationProgress.totalCount > 0;
-
-  const visiblePanelCount = useMemo(
-    () => Object.values(readerPanels).filter(Boolean).length,
-    [readerPanels]
-  );
 
   const visibleReaderColumns = useMemo(
     () => getVisibleReaderColumns(readerPanels),
@@ -798,6 +829,12 @@ export default function App() {
 
   const loadPdfFromPath = useCallback(async (filePath: string, startPage?: number) => {
     const outlineRequestId = ++pdfOutlineRequestIdRef.current;
+    const loadRequestId = ++pdfLoadRequestIdRef.current;
+    let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
+    let loadedDoc: PDFDocumentProxy | null = null;
+    let committedDoc = false;
+    const isStaleLoad = () => pdfLoadRequestIdRef.current !== loadRequestId;
+
     setAppView("reader");
     setCurrentFilePath(filePath);
     setCurrentFileType("pdf");
@@ -845,17 +882,34 @@ export default function App() {
       const hash = await hashBuffer(buffer);
       const nextDocId = hash.slice(0, 12);
 
+      if (isStaleLoad()) {
+        return;
+      }
+
       setLoadingProgress(15);
-      const loadingTask = pdfjsLib.getDocument({ data: bytes });
+      loadingTask = pdfjsLib.getDocument({ data: bytes });
       const doc = await loadingTask.promise;
+      loadedDoc = doc;
+
+      if (isStaleLoad()) {
+        return;
+      }
 
       setLoadingProgress(25);
       const sizes: { width: number; height: number }[] = [];
       for (let i = 1; i <= doc.numPages; i += 1) {
         const page = await doc.getPage(i);
-        const viewport = page.getViewport({ scale: 1 });
-        sizes.push({ width: viewport.width, height: viewport.height });
-        setLoadingProgress(25 + Math.round((i / doc.numPages) * 25));
+        try {
+          if (isStaleLoad()) {
+            return;
+          }
+
+          const viewport = page.getViewport({ scale: 1 });
+          sizes.push({ width: viewport.width, height: viewport.height });
+          setLoadingProgress(25 + Math.round((i / doc.numPages) * 25));
+        } finally {
+          page.cleanup();
+        }
       }
 
       const initialPages: PageDoc[] = sizes.map((_, index) => ({
@@ -884,7 +938,12 @@ export default function App() {
         console.error("Failed to add to recent books:", error);
       }
 
+      if (isStaleLoad()) {
+        return;
+      }
+
       setPdfDoc(doc);
+      committedDoc = true;
       void doc
         .getOutline()
         .then((outline) =>
@@ -909,28 +968,63 @@ export default function App() {
 
       for (let i = 1; i <= doc.numPages; i += 1) {
         const page = await doc.getPage(i);
-        const { paragraphs, watermarks } = await extractPageParagraphs(page, nextDocId, i - 1);
-        setPages((prev) =>
-          prev.map((entry) =>
-            entry.page === i
-              ? { ...entry, paragraphs, watermarks, isExtracted: true }
-              : entry
-          )
-        );
-        setLoadingProgress(50 + Math.round((i / doc.numPages) * 50));
+        try {
+          if (isStaleLoad()) {
+            return;
+          }
+
+          const { paragraphs, watermarks } = await extractPageParagraphs(page, nextDocId, i - 1);
+
+          if (isStaleLoad()) {
+            return;
+          }
+
+          setPages((prev) =>
+            prev.map((entry) =>
+              entry.page === i
+                ? { ...entry, paragraphs, watermarks, isExtracted: true }
+                : entry
+            )
+          );
+          setLoadingProgress(50 + Math.round((i / doc.numPages) * 50));
+        } finally {
+          page.cleanup();
+        }
       }
+
+      if (isStaleLoad()) {
+        return;
+      }
+
       setLoadingProgress(null);
       setStatusMessage("Ready. Read page by page and select text for quick help.");
     } catch (error) {
+      if (isStaleLoad()) {
+        return;
+      }
+
       console.error("Failed to load PDF:", error);
       setLoadingProgress(null);
       setStatusMessage("Failed to load PDF. The file may have been moved or deleted.");
       setAppView("home");
+    } finally {
+      if (!committedDoc) {
+        if (loadedDoc) {
+          releasePdfDocument(loadedDoc);
+        } else if (loadingTask) {
+          try {
+            loadingTask.destroy();
+          } catch {
+            // Ignore loading-task teardown failures during cancellation.
+          }
+        }
+      }
     }
-  }, []);
+  }, [releasePdfDocument]);
 
   const loadEpubFromPath = useCallback(async (filePath: string, startPage?: number) => {
     pdfOutlineRequestIdRef.current += 1;
+    pdfLoadRequestIdRef.current += 1;
     setAppView("reader");
     setCurrentFilePath(filePath);
     setCurrentFileType("epub");
@@ -1122,6 +1216,7 @@ export default function App() {
 
   const handleBackToHome = useCallback(() => {
     pdfOutlineRequestIdRef.current += 1;
+    pdfLoadRequestIdRef.current += 1;
     // Save progress before leaving (works for both PDF and EPUB)
     const total = pdfDoc ? pdfDoc.numPages : epubTotalPages;
     if (docId && total > 0) {
@@ -2409,13 +2504,6 @@ export default function App() {
     );
   }
 
-  const panelControls: Array<{ key: ReaderPanelKey; label: string; shortLabel: string }> = [
-    { key: "navigation", label: "Navigation", shortLabel: "Nav" },
-    { key: "original", label: "Original", shortLabel: "Original" },
-    { key: "translation", label: "Translation", shortLabel: "Translation" },
-    { key: "chat", label: "AI Chat", shortLabel: "Chat" },
-  ];
-
   const nextColumnAfterNavigation = visibleReaderColumns.includes("navigation")
     ? visibleReaderColumns.find((column) => column !== "navigation") ?? null
     : null;
@@ -2446,25 +2534,7 @@ export default function App() {
           ) : null}
         </div>
         <div className="header-center">
-          <div className="panel-toggle-group" role="group" aria-label="Reader panels">
-            {panelControls.map((panel) => {
-              const isActive = readerPanels[panel.key];
-              const isLastVisible = isActive && visiblePanelCount === 1;
-
-              return (
-                <Toolbar.Button
-                  key={panel.key}
-                  className={`btn panel-toggle-btn ${isActive ? "is-active" : ""}`}
-                  aria-pressed={isActive}
-                  disabled={isLastVisible}
-                  onClick={() => togglePanel(panel.key)}
-                  title={panel.label}
-                >
-                  {panel.shortLabel}
-                </Toolbar.Button>
-              );
-            })}
-          </div>
+          <PanelToggleGroup panels={readerPanels} onToggle={togglePanel} />
         </div>
         <div className="header-right">
           <ThemeToggleButton

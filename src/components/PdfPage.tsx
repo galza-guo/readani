@@ -4,6 +4,10 @@ import { normalizeSelectionText } from "../lib/pageText";
 
 const TEXT_LAYER_CLASS = "pdf-text-layer";
 
+function isCancelledRenderError(error: unknown) {
+  return error instanceof Error && error.name === "RenderingCancelledException";
+}
+
 type PdfPageProps = {
   pdfDoc: PDFDocumentProxy;
   pageNumber: number;
@@ -28,42 +32,68 @@ export function PdfPage({
 
   useEffect(() => {
     let cancelled = false;
+    let renderTask: { cancel: () => void; promise: Promise<unknown> } | null = null;
 
     async function renderPage() {
-      const page = await pdfDoc.getPage(pageNumber);
-      const viewport = page.getViewport({ scale });
+      let page = null;
 
-      if (canvasRef.current) {
-        const canvas = canvasRef.current;
-        const context = canvas.getContext("2d");
-        if (!context) return;
+      try {
+        page = await pdfDoc.getPage(pageNumber);
+        const viewport = page.getViewport({ scale });
 
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
+        if (canvasRef.current) {
+          const canvas = canvasRef.current;
+          const context = canvas.getContext("2d");
+          if (!context) return;
 
-        const renderTask = page.render({ canvasContext: context, viewport });
-        await renderTask.promise;
-      }
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          canvas.style.width = `${viewport.width}px`;
+          canvas.style.height = `${viewport.height}px`;
 
-      if (textLayerRef.current) {
+          renderTask = page.render({ canvasContext: context, viewport });
+          await renderTask.promise;
+        }
+
+        if (cancelled || !textLayerRef.current) {
+          return;
+        }
+
         const { TextLayerBuilder } = await import("pdfjs-dist/web/pdf_viewer.mjs");
         const container = textLayerRef.current;
-        container.innerHTML = "";
+        container.replaceChildren();
         container.classList.add(TEXT_LAYER_CLASS);
         const textLayer = new TextLayerBuilder({ pdfPage: page });
         textLayer.div.classList.add("pdf-text-layer-inner");
         await textLayer.render(viewport);
         if (cancelled) return;
         container.appendChild(textLayer.div);
+      } catch (error) {
+        if (!cancelled && !isCancelledRenderError(error)) {
+          console.error(`Failed to render PDF page ${pageNumber}:`, error);
+        }
+      } finally {
+        try {
+          page?.cleanup();
+        } catch {
+          // Ignore cleanup failures during page teardown.
+        }
       }
     }
 
-    renderPage();
+    void renderPage();
 
     return () => {
       cancelled = true;
+      renderTask?.cancel();
+      textLayerRef.current?.replaceChildren();
+      if (canvasRef.current) {
+        const canvas = canvasRef.current;
+        const context = canvas.getContext("2d");
+        context?.clearRect(0, 0, canvas.width, canvas.height);
+        canvas.width = 0;
+        canvas.height = 0;
+      }
     };
   }, [pdfDoc, pageNumber, scale]);
 

@@ -3,6 +3,11 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import { Virtuoso } from "react-virtuoso";
 
 const THUMBNAIL_WIDTH = 132;
+const THUMBNAIL_CACHE_LIMIT = 48;
+
+function isCancelledRenderError(error: unknown) {
+  return error instanceof Error && error.name === "RenderingCancelledException";
+}
 
 type PdfThumbnailListProps = {
   docId: string;
@@ -37,35 +42,50 @@ function PdfThumbnailItem({
     }
 
     let cancelled = false;
+    let renderTask: { cancel: () => void; promise: Promise<unknown> } | null = null;
 
     async function renderThumbnail() {
-      const page = await pdfDoc.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: 1 });
-      const scale = THUMBNAIL_WIDTH / viewport.width;
-      const thumbnailViewport = page.getViewport({ scale });
-      const canvas = document.createElement("canvas");
-      const context = canvas.getContext("2d");
+      let page = null;
 
-      if (!context) {
-        return;
-      }
+      try {
+        page = await pdfDoc.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1 });
+        const scale = THUMBNAIL_WIDTH / viewport.width;
+        const thumbnailViewport = page.getViewport({ scale });
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
 
-      canvas.width = thumbnailViewport.width;
-      canvas.height = thumbnailViewport.height;
+        if (!context) {
+          return;
+        }
 
-      await page.render({ canvasContext: context, viewport: thumbnailViewport }).promise;
+        canvas.width = thumbnailViewport.width;
+        canvas.height = thumbnailViewport.height;
 
-      if (!cancelled) {
-        onThumbnailReady(pageNumber, canvas.toDataURL("image/jpeg", 0.72));
+        renderTask = page.render({ canvasContext: context, viewport: thumbnailViewport });
+        await renderTask.promise;
+
+        if (!cancelled) {
+          onThumbnailReady(pageNumber, canvas.toDataURL("image/jpeg", 0.72));
+        }
+      } finally {
+        try {
+          page?.cleanup();
+        } catch {
+          // Ignore cleanup failures during thumbnail teardown.
+        }
       }
     }
 
     renderThumbnail().catch((error) => {
-      console.error(`Failed to render PDF thumbnail for page ${pageNumber}:`, error);
+      if (!cancelled && !isCancelledRenderError(error)) {
+        console.error(`Failed to render PDF thumbnail for page ${pageNumber}:`, error);
+      }
     });
 
     return () => {
       cancelled = true;
+      renderTask?.cancel();
     };
   }, [cachedThumbnail, onThumbnailReady, pageNumber, pdfDoc]);
 
@@ -112,21 +132,24 @@ export function PdfThumbnailList({
   const pageNumbers = useMemo(() => Array.from({ length: totalPages }, (_, index) => index + 1), [totalPages]);
 
   const handleThumbnailReady = useCallback((pageNumber: number, dataUrl: string) => {
-    if (thumbnailCacheRef.current.get(pageNumber) === dataUrl) {
+    const nextCache = new Map(thumbnailCacheRef.current);
+    if (nextCache.get(pageNumber) === dataUrl) {
       return;
     }
 
-    thumbnailCacheRef.current.set(pageNumber, dataUrl);
-    setThumbnailUrls((prev) => {
-      if (prev[pageNumber]) {
-        return prev;
-      }
+    nextCache.delete(pageNumber);
+    nextCache.set(pageNumber, dataUrl);
 
-      return {
-        ...prev,
-        [pageNumber]: dataUrl,
-      };
-    });
+    while (nextCache.size > THUMBNAIL_CACHE_LIMIT) {
+      const oldestPage = nextCache.keys().next().value;
+      if (oldestPage === undefined) {
+        break;
+      }
+      nextCache.delete(oldestPage);
+    }
+
+    thumbnailCacheRef.current = nextCache;
+    setThumbnailUrls(Object.fromEntries(nextCache));
   }, []);
 
   return (
