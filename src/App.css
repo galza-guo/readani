@@ -1960,6 +1960,12 @@ body.is-resizing-split-y * {
   overflow: hidden;
 }
 
+.dialog-content-about {
+  width: min(480px, 92vw);
+  padding: 0;
+  overflow: hidden;
+}
+
 .settings-dialog-header {
   display: flex;
   align-items: center;
@@ -2695,9 +2701,79 @@ body.is-resizing-split-y * {
   flex-wrap: wrap;
 }
 
+.about-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 18px 4px;
+}
+
+.about-dialog-hero-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.about-dialog-hero-copy .dialog-title {
+  margin-bottom: 4px;
+}
+
+.about-dialog-description {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--type-size-body);
+  line-height: var(--type-line-height-ui);
+}
+
+.about-dialog-close {
+  flex-shrink: 0;
+}
+
+.about-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px;
+}
+
+.about-dialog-metadata {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0;
+}
+
+.about-dialog-metadata-item {
+  margin: 0;
+  color: var(--ink);
+  line-height: var(--type-line-height-ui);
+  word-break: break-word;
+}
+
+.about-dialog-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.about-dialog-link:hover {
+  text-decoration: underline;
+}
+
+.about-dialog-copyright {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--type-size-meta);
+  line-height: var(--type-line-height-ui);
+}
+
 @media (max-width: 640px) {
+  .dialog-content-about,
   .dialog-content-settings {
     width: min(640px, 96vw);
+  }
+
+  .dialog-content-settings {
     height: min(640px, 88vh);
     min-height: 420px;
   }
@@ -2725,6 +2801,14 @@ body.is-resizing-split-y * {
 
   .settings-preset-actions {
     justify-content: flex-start;
+  }
+
+  .about-dialog-header {
+    padding: 16px 16px 4px;
+  }
+
+  .about-dialog-body {
+    padding: 16px;
   }
 }
 

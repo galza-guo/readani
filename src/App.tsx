@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import * as Toolbar from "@radix-ui/react-toolbar";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import { AboutDialog } from "./components/AboutDialog";
 import { ConfirmationDialog } from "./components/ConfirmationDialog";
 import { PdfNavigationSidebar } from "./components/PdfNavigationSidebar";
 import { PdfViewer } from "./components/PdfViewer";
@@ -153,6 +154,7 @@ export default function App() {
   const [readerColumnWeights, setReaderColumnWeights] = useState<ReaderColumnWeightsByLayout>({});
   const [readerRailSectionWeights, setReaderRailSectionWeights] =
     useState<ReaderRailSectionWeightsByLayout>({});
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [presetApiKeyDrafts, setPresetApiKeyDrafts] = useState<Record<string, string>>({});
   const [presetStatuses, setPresetStatuses] = useState<
@@ -2738,6 +2740,7 @@ export default function App() {
       saveDisabled={presetSaving || hasInvalidPreset}
     />
   );
+  const sharedAboutDialog = <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />;
 
   const nextColumnAfterNavigation = visibleReaderColumns.includes("navigation")
     ? visibleReaderColumns.find((column) => column !== "navigation") ?? null
@@ -2759,6 +2762,7 @@ export default function App() {
     <HomeView
       onOpenBook={handleOpenBook}
       onOpenFile={handleOpenFile}
+      onOpenAbout={() => setAboutOpen(true)}
       onOpenSettings={() => setSettingsOpen(true)}
       theme={settings.theme}
       onThemeToggle={handleThemeToggle}
@@ -3062,6 +3066,7 @@ export default function App() {
   return (
     <>
       {viewContent}
+      {sharedAboutDialog}
       {sharedSettingsDialog}
     </>
   );
