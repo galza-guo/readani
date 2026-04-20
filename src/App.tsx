@@ -15,7 +15,6 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import * as Dialog from "@radix-ui/react-dialog";
-import * as ScrollArea from "@radix-ui/react-scroll-area";
 import * as Toolbar from "@radix-ui/react-toolbar";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { ConfirmationDialog } from "./components/ConfirmationDialog";
@@ -92,7 +91,6 @@ import type {
   TranslationPreset,
   TranslationProviderKind,
   TranslationSettings,
-  VocabularyEntry,
   WordDefinition,
   WordTranslation,
 } from "./types";
@@ -154,8 +152,6 @@ export default function App() {
   const [selectionTranslation, setSelectionTranslation] = useState<SelectionTranslation | null>(
     null
   );
-  const [vocabularyOpen, setVocabularyOpen] = useState(false);
-  const [vocabulary, setVocabulary] = useState<VocabularyEntry[]>([]);
   const [loadingProgress, setLoadingProgress] = useState<number | null>(null);
   const [epubToc, setEpubToc] = useState<NavItem[]>([]);
   const [epubCurrentChapter, setEpubCurrentChapter] = useState<string>("");
@@ -2066,30 +2062,20 @@ export default function App() {
       const normalizedText = text.toLowerCase().trim();
       const isSingleWord = /^[a-zA-Z]+$/.test(text.trim());
 
-      // Check if word is in vocabulary
-      let isLiked = false;
-      if (isSingleWord) {
-        try {
-          isLiked = await invoke<boolean>("is_word_in_vocabulary", { word: text });
-        } catch {
-          // Ignore error
-        }
-      }
-
       // Check cache first
       const cached = textTranslationCacheRef.current.get(normalizedText);
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          setWordTranslation({ word: text, ...parsed, position, isLiked });
+          setWordTranslation({ word: text, ...parsed, position });
         } catch {
-          setWordTranslation({ word: text, definitions: [{ pos: "", meanings: cached }], position, isLiked });
+          setWordTranslation({ word: text, definitions: [{ pos: "", meanings: cached }], position });
         }
         return;
       }
 
       // Show loading state
-      setWordTranslation({ word: text, definitions: [], position, isLoading: true, isLiked });
+      setWordTranslation({ word: text, definitions: [], position, isLoading: true });
 
       try {
         const currentSettings = settingsRef.current;
@@ -2115,7 +2101,6 @@ export default function App() {
             phonetic: result.phonetic,
             definitions: result.definitions || [],
             position,
-            isLiked,
           });
         } else {
           // Use regular translation for phrases
@@ -2136,7 +2121,6 @@ export default function App() {
             word: text,
             definitions: [{ pos: "", meanings: translation }],
             position,
-            isLiked,
           });
         }
       } catch (error) {
@@ -2144,7 +2128,6 @@ export default function App() {
           word: text,
           definitions: [{ pos: "", meanings: "Translation failed" }],
           position,
-          isLiked,
         });
       }
     },
@@ -2154,54 +2137,6 @@ export default function App() {
   const handleClearWordTranslation = useCallback(() => {
     setWordTranslation(null);
   }, []);
-
-  const loadVocabulary = useCallback(async () => {
-    try {
-      const words = await invoke<VocabularyEntry[]>("get_vocabulary");
-      setVocabulary(words);
-    } catch (error) {
-      console.error("Failed to load vocabulary:", error);
-    }
-  }, []);
-
-  const handleToggleLikeWord = useCallback(async (word: WordTranslation) => {
-    try {
-      if (word.isLiked) {
-        await invoke("remove_vocabulary_word", { word: word.word });
-        setWordTranslation((prev) => prev ? { ...prev, isLiked: false } : null);
-      } else {
-        await invoke("add_vocabulary_word", {
-          word: word.word,
-          phonetic: word.phonetic || null,
-          definitions: word.definitions,
-        });
-        setWordTranslation((prev) => prev ? { ...prev, isLiked: true } : null);
-      }
-    } catch (error) {
-      console.error("Failed to toggle vocabulary word:", error);
-    }
-  }, []);
-
-  const handleExportVocabulary = useCallback(async () => {
-    try {
-      const markdown = await invoke<string>("export_vocabulary_markdown");
-      const blob = new Blob([markdown], { type: "text/markdown" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "vocabulary.md";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("Failed to export vocabulary:", error);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (vocabularyOpen) {
-      loadVocabulary();
-    }
-  }, [vocabularyOpen, loadVocabulary]);
 
   const handleZoomChange = (nextScale: number) => {
     setScale(nextScale);
@@ -2701,7 +2636,6 @@ export default function App() {
                   pageTranslation={pageTranslations[currentPage]}
                   onRetryPage={handleRedoPageTranslation}
                   canRetryPage={canRedoCurrentPage}
-                  onOpenVocabulary={() => setVocabularyOpen(true)}
                   selectionTranslation={selectionTranslation}
                   onClearSelectionTranslation={handleClearSelectionTranslation}
                 />
@@ -2710,7 +2644,6 @@ export default function App() {
                   mode="epub"
                   pages={pages}
                   currentPage={currentPage}
-                  onOpenVocabulary={() => setVocabularyOpen(true)}
                   activePid={activePid}
                   hoverPid={hoverPid}
                   onHoverPid={setHoverPid}
@@ -2719,7 +2652,6 @@ export default function App() {
                   onTranslateText={handleTranslateText}
                   wordTranslation={wordTranslation}
                   onClearWordTranslation={handleClearWordTranslation}
-                  onToggleLikeWord={handleToggleLikeWord}
                   scrollToPage={scrollToTranslationPage}
                 />
               )
@@ -2772,62 +2704,6 @@ export default function App() {
           ) : null}
         </div>
       </div>
-      <Dialog.Root open={vocabularyOpen} onOpenChange={setVocabularyOpen}>
-            <Dialog.Portal>
-              <Dialog.Overlay className="dialog-overlay" />
-              <Dialog.Content className="dialog-content dialog-content-vocabulary">
-                <Dialog.Title className="dialog-title">Vocabulary</Dialog.Title>
-                <Dialog.Description className="dialog-description">
-                  Words you've saved while reading.
-                </Dialog.Description>
-                <div className="vocabulary-content">
-                  {vocabulary.length === 0 ? (
-                    <div className="vocabulary-empty">
-                      No words saved yet. Click the heart icon on word translations to add them here.
-                    </div>
-                  ) : (
-                    <ScrollArea.Root className="vocabulary-scroll">
-                      <ScrollArea.Viewport className="vocabulary-list">
-                        {vocabulary.map((entry) => (
-                          <div key={entry.word} className="vocabulary-item">
-                            <div className="vocabulary-item-header">
-                              <span className="vocabulary-word">{entry.word}</span>
-                              {entry.phonetic && (
-                                <span className="vocabulary-phonetic">{entry.phonetic}</span>
-                              )}
-                            </div>
-                            <div className="vocabulary-definitions">
-                              {entry.definitions.map((def, idx) => (
-                                <div key={idx} className="vocabulary-definition">
-                                  {def.pos && <span className="vocabulary-pos">{def.pos}</span>}
-                                  <span className="vocabulary-meanings">{def.meanings}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </ScrollArea.Viewport>
-                      <ScrollArea.Scrollbar orientation="vertical" className="scrollbar">
-                        <ScrollArea.Thumb className="scrollbar-thumb" />
-                      </ScrollArea.Scrollbar>
-                    </ScrollArea.Root>
-                  )}
-                </div>
-                <div className="vocabulary-actions">
-                  <button
-                    className="btn"
-                    onClick={handleExportVocabulary}
-                    disabled={vocabulary.length === 0}
-                  >
-                    Export Markdown
-                  </button>
-                  <Dialog.Close asChild>
-                    <button className="btn btn-primary">Done</button>
-                  </Dialog.Close>
-                </div>
-              </Dialog.Content>
-            </Dialog.Portal>
-          </Dialog.Root>
       <ConfirmationDialog
         open={translateAllDialogOpen}
         onOpenChange={setTranslateAllDialogOpen}

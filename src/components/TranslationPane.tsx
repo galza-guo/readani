@@ -17,7 +17,6 @@ type PdfTranslationPaneProps = {
   pageTranslation?: PageTranslationState;
   onRetryPage: (page: number) => void;
   canRetryPage: boolean;
-  onOpenVocabulary: () => void;
   selectionTranslation: SelectionTranslation | null;
   onClearSelectionTranslation: () => void;
 };
@@ -26,7 +25,6 @@ type EpubTranslationPaneProps = {
   mode: "epub";
   pages: PageDoc[];
   currentPage: number;
-  onOpenVocabulary: () => void;
   activePid?: string | null;
   hoverPid?: string | null;
   onHoverPid: (pid: string | null) => void;
@@ -35,7 +33,6 @@ type EpubTranslationPaneProps = {
   onTranslateText: (text: string, position: { x: number; y: number }) => void;
   wordTranslation: WordTranslation | null;
   onClearWordTranslation: () => void;
-  onToggleLikeWord: (word: WordTranslation) => void;
   scrollToPage?: number | null;
 };
 
@@ -100,42 +97,6 @@ function RetryIcon() {
       <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
       <path d="M3 22v-6h6" />
       <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-    </svg>
-  );
-}
-
-function VocabularyIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-      <path d="M8 7h8M8 11h8M8 15h5" />
-    </svg>
-  );
-}
-
-function HeartIcon({ filled }: { filled?: boolean }) {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill={filled ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
     </svg>
   );
 }
@@ -273,7 +234,6 @@ function PdfTranslationPane({
   pageTranslation,
   onRetryPage,
   canRetryPage,
-  onOpenVocabulary,
   selectionTranslation,
   onClearSelectionTranslation,
 }: Omit<PdfTranslationPaneProps, "mode">) {
@@ -322,15 +282,6 @@ function PdfTranslationPane({
             ) : null}
           </div>
           <div className="page-translation-actions">
-            <button
-              className="btn btn-ghost btn-icon-only"
-              type="button"
-              onClick={onOpenVocabulary}
-              aria-label="Open vocabulary"
-              title="Vocabulary"
-            >
-              <VocabularyIcon />
-            </button>
             <button
               className="btn btn-ghost btn-icon-only"
               type="button"
@@ -405,7 +356,6 @@ function PdfTranslationPane({
 function EpubTranslationPane({
   pages,
   currentPage,
-  onOpenVocabulary,
   activePid,
   hoverPid,
   onHoverPid,
@@ -414,7 +364,6 @@ function EpubTranslationPane({
   onTranslateText,
   wordTranslation,
   onClearWordTranslation,
-  onToggleLikeWord,
   scrollToPage,
 }: Omit<EpubTranslationPaneProps, "mode">) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
@@ -439,17 +388,6 @@ function EpubTranslationPane({
         <div className="page-translation-header-main">
           <span className="page-translation-label">Translation</span>
           <span className="translation-pane-page">Page {currentPage}</span>
-        </div>
-        <div className="page-translation-actions">
-          <button
-            className="btn btn-ghost btn-icon-only"
-            type="button"
-            onClick={onOpenVocabulary}
-            aria-label="Open vocabulary"
-            title="Vocabulary"
-          >
-            <VocabularyIcon />
-          </button>
         </div>
       </div>
       <Virtuoso
@@ -486,17 +424,6 @@ function EpubTranslationPane({
             >
               <div className="word-popover-header">
                 <div className="word-popover-word">{wordTranslation.word}</div>
-                <button
-                  className={`word-like-btn ${wordTranslation.isLiked ? "is-liked" : ""}`}
-                  onClick={() => onToggleLikeWord(wordTranslation)}
-                  title={
-                    wordTranslation.isLiked
-                      ? "Remove from vocabulary"
-                      : "Add to vocabulary"
-                  }
-                >
-                  <HeartIcon filled={wordTranslation.isLiked} />
-                </button>
               </div>
               {wordTranslation.phonetic ? (
                 <div className="word-popover-phonetic">
@@ -535,7 +462,6 @@ export function TranslationPane(props: TranslationPaneProps) {
         pageTranslation={props.pageTranslation}
         onRetryPage={props.onRetryPage}
         canRetryPage={props.canRetryPage}
-        onOpenVocabulary={props.onOpenVocabulary}
         selectionTranslation={props.selectionTranslation}
         onClearSelectionTranslation={props.onClearSelectionTranslation}
       />
@@ -546,7 +472,6 @@ export function TranslationPane(props: TranslationPaneProps) {
     <EpubTranslationPane
       pages={props.pages}
       currentPage={props.currentPage}
-      onOpenVocabulary={props.onOpenVocabulary}
       activePid={props.activePid}
       hoverPid={props.hoverPid}
       onHoverPid={props.onHoverPid}
@@ -555,7 +480,6 @@ export function TranslationPane(props: TranslationPaneProps) {
       onTranslateText={props.onTranslateText}
       wordTranslation={props.wordTranslation}
       onClearWordTranslation={props.onClearWordTranslation}
-      onToggleLikeWord={props.onToggleLikeWord}
       scrollToPage={props.scrollToPage}
     />
   );
