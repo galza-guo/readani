@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e  # Exit on any error
 
-APPNAME="PDFRead"
+APPNAME="readani"
 APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/$APPNAME.app"
 
 # Clean any previous build artifacts

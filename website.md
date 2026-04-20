@@ -1,6 +1,6 @@
-# PDFRead
+# readani
 
-PDFRead is a desktop bilingual PDF reader built for fast, focused reading and sentence-level translation. It pairs a crisp PDF view with an intelligent translation pane, so you can read naturally while keeping translations close and contextual. The interface is clean, English-only, and optimized for long reading sessions.
+readani is a desktop bilingual PDF reader built for fast, focused reading and sentence-level translation. It pairs a crisp PDF view with an intelligent translation pane, so you can read naturally while keeping translations close and contextual. The interface is clean, English-only, and optimized for long reading sessions.
 
 ## One‑Line Pitch
 Read PDFs and see sentence‑level translations side‑by‑side, instantly.
@@ -49,7 +49,7 @@ Read PDFs and see sentence‑level translations side‑by‑side, instantly.
 
 ## Suggested Hero Copy
 **Headline:** Read PDFs in any language, sentence by sentence
-**Subheadline:** PDFRead pairs a crystal‑clear PDF viewer with sentence‑level translations, so you stay in flow and never lose context.
+**Subheadline:** readani pairs a crystal‑clear PDF viewer with sentence‑level translations, so you stay in flow and never lose context.
 
 ## Suggested Sections
 1. Hero (headline, subheadline, primary CTA)
@@ -62,8 +62,8 @@ Read PDFs and see sentence‑level translations side‑by‑side, instantly.
 
 ## Installation (for the landing page)
 ```bash
-brew update && brew tap everettjf/tap && brew install --cask reporead
+brew update && brew tap everettjf/tap && brew install --cask readani
 ```
 
 ## Short App Description (for cards)
-PDFRead is a desktop bilingual PDF reader that maps each sentence to its location on the page and shows translations side‑by‑side, so you can read in context.
+readani is a desktop bilingual PDF reader that maps each sentence to its location on the page and shows translations side‑by‑side, so you can read in context.

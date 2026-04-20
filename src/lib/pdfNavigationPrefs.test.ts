@@ -88,6 +88,30 @@ describe("pdfNavigationPrefs", () => {
     });
   });
 
+  test("migrates legacy readany storage keys to readani", () => {
+    localStorage.setItem("readany.pdfNav.tab", "contents");
+    localStorage.setItem("readany.pdfNav.collapsed", "true");
+    localStorage.setItem("readany.pdfNav.sidebarWidth", "310");
+    localStorage.setItem("readany.pdfNav.leftPaneWidth", "640");
+    localStorage.setItem("readany.pdfNav.rightPaneWidth", "520");
+
+    expect(loadPdfNavigationPrefs()).toEqual({
+      tab: "contents",
+      collapsed: true,
+      sidebarWidth: 310,
+      leftPaneWidth: 640,
+      rightPaneWidth: 520,
+    });
+
+    expect(localStorage.getItem(PDF_NAV_TAB_KEY)).toBe("contents");
+    expect(localStorage.getItem(PDF_NAV_COLLAPSED_KEY)).toBe("true");
+    expect(localStorage.getItem(PDF_NAV_SIDEBAR_WIDTH_KEY)).toBe("310");
+    expect(localStorage.getItem(PDF_NAV_LEFT_PANE_WIDTH_KEY)).toBe("640");
+    expect(localStorage.getItem(PDF_NAV_RIGHT_PANE_WIDTH_KEY)).toBe("520");
+    expect(localStorage.getItem("readany.pdfNav.tab")).toBeNull();
+    expect(localStorage.getItem("readany.pdfNav.collapsed")).toBeNull();
+  });
+
   test("falls back from blank stored width strings", () => {
     localStorage.setItem(PDF_NAV_SIDEBAR_WIDTH_KEY, " ");
     localStorage.setItem(PDF_NAV_LEFT_PANE_WIDTH_KEY, "");

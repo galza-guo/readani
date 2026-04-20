@@ -4,7 +4,7 @@
 <dict>
     <!-- Application identifier for TestFlight/App Store -->
     <key>com.apple.application-identifier</key>
-    <string>YPV49M8592.com.xnu.pdfread</string>
+    <string>YPV49M8592.com.xnu.readani</string>
 
     <key>com.apple.developer.team-identifier</key>
     <string>YPV49M8592</string>

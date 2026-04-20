@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>PDFRead</string>
+  <string>readani</string>
   <key>CFBundleDisplayName</key>
-  <string>PDFRead</string>
+  <string>readani</string>
   <key>ITSAppUsesNonExemptEncryption</key>
   <false/>
 </dict>

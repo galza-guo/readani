@@ -68,33 +68,6 @@ function UploadIcon() {
   );
 }
 
-const MOTIVATIONAL_QUOTES = [
-  "Every page turns into wisdom",
-  "Knowledge has no boundaries",
-  "Read more, understand deeper",
-  "Expand your horizons today",
-  "Words connect worlds",
-  "Learning never stops",
-  "Discover something new",
-  "Feed your curiosity",
-  "Books open doors",
-  "Grow with every chapter",
-  "Your reading journey awaits",
-  "Unlock new perspectives",
-  "Stories shape minds",
-  "Embrace the joy of reading",
-  "One book at a time",
-  "Explore beyond limits",
-  "Knowledge is power",
-  "Read, learn, evolve",
-  "Adventure begins here",
-  "Transform through reading",
-];
-
-function getRandomQuote(): string {
-  return MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)];
-}
-
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
   const now = new Date();
@@ -121,7 +94,6 @@ export function HomeView({
   const [books, setBooks] = useState<RecentBook[]>([]);
   const [loading, setLoading] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [quote] = useState(() => getRandomQuote());
 
   const loadBooks = useCallback(async () => {
     try {
@@ -219,9 +191,8 @@ export function HomeView({
           <div className="home-content">
             {/* Branding */}
             <div className="home-branding">
-              <img src={appIcon} alt="PDFRead" className="home-logo-img" />
-              <h1 className="home-title">PDFRead</h1>
-              <p className="home-subtitle">{quote}</p>
+              <img src={appIcon} alt="readani" className="home-logo-img" />
+              <p className="home-subtitle">Language barriers removed.</p>
             </div>
 
             {/* Drop zone */}
@@ -233,11 +204,6 @@ export function HomeView({
               </div>
               <span className="home-dropzone-shortcut">⌘O</span>
             </div>
-
-            <div className="home-disclaimer">
-              Translation quality depends on the provider, model, and the quality of the PDF or OCR text.
-            </div>
-
             {/* Recent files */}
             {loading ? (
               <div className="home-loading"><div className="home-spinner" /></div>
@@ -278,6 +244,10 @@ export function HomeView({
                 </ScrollArea.Root>
               </div>
             ) : null}
+
+            <div className="home-disclaimer">
+              Translation quality depends on the provider, model, and the quality of the PDF or OCR text.
+            </div>
           </div>
         </main>
       </div>

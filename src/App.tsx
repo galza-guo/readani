@@ -108,11 +108,13 @@ const ZOOM_LEVELS = [0.75, 1, 1.25, 1.5, 2];
 const PDF_KEYBOARD_ZOOM_STEP = 0.05;
 
 type AppView = "home" | "reader";
+const APP_WINDOW_TITLE = "readani";
 
 export default function App() {
   const [pdfNavPrefs] = useState(() => loadPdfNavigationPrefs());
   const [appView, setAppView] = useState<AppView>("home");
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
+  const [currentBookTitle, setCurrentBookTitle] = useState<string | null>(null);
   const [currentFileType, setCurrentFileType] = useState<FileType>("pdf");
   const [epubData, setEpubData] = useState<Uint8Array | null>(null);
   const [epubTotalPages, setEpubTotalPages] = useState<number>(1);
@@ -739,6 +741,19 @@ export default function App() {
   }, [appView, workspaceMinHeight, workspaceMinWidth]);
 
   useEffect(() => {
+    const trimmedBookTitle = currentBookTitle?.trim();
+    const nextWindowTitle =
+      appView === "reader" && trimmedBookTitle
+        ? `${APP_WINDOW_TITLE} · ${trimmedBookTitle}`
+        : APP_WINDOW_TITLE;
+
+    document.title = nextWindowTitle;
+    void getCurrentWindow()
+      .setTitle(nextWindowTitle)
+      .catch((error) => console.error("Failed to update window title:", error));
+  }, [appView, currentBookTitle]);
+
+  useEffect(() => {
     invoke<TranslationSettings>("get_app_settings")
       .then((loadedSettings) => {
         setSettings(
@@ -921,6 +936,7 @@ export default function App() {
       // Extract filename and title from path
       const fileName = filePath.split(/[/\\]/).pop() || "Untitled";
       const title = fileName.replace(/\.[^.]+$/, "");
+      setCurrentBookTitle(title);
 
       // Add to recent books
       try {
@@ -1067,6 +1083,7 @@ export default function App() {
       // Extract filename and title from path
       const fileName = filePath.split(/[/\\]/).pop() || "Untitled";
       const title = fileName.replace(/\.[^.]+$/, "");
+      setCurrentBookTitle(title);
 
       setEpubData(bytes);
       setDocId(nextDocId);
@@ -1098,6 +1115,7 @@ export default function App() {
   }, []);
 
   const handleEpubMetadata = useCallback(async (metadata: { title: string; author?: string; coverImage?: string }) => {
+    setCurrentBookTitle(metadata.title);
     // Update recent book with proper metadata
     if (docId) {
       try {
@@ -1237,6 +1255,7 @@ export default function App() {
     setPageSizes([]);
     setPdfScrollAnchor("top");
     setCurrentFilePath(null);
+    setCurrentBookTitle(null);
     setSelectionTranslation(null);
     setWordTranslation(null);
     setEpubToc([]);

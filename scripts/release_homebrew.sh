@@ -8,7 +8,7 @@ TAURI_HOME_BREW_CONFIG="$REPO_DIR/src-tauri/tauri.conf.homebrew.json"
 TMP_DIR="$ROOT_DIR/tmp"
 TAP_DIR="$TMP_DIR/homebrew-tap"
 TAP_REPO="everettjf/homebrew-tap"
-CASK_PATH="Casks/pdfread.rb"
+CASK_PATH="Casks/readani.rb"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application: Feng Zhu (YPV49M8592)}"
 NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-}"
 APPLE_ID="${APPLE_ID:-}"
@@ -164,15 +164,15 @@ echo "Cleaning Rust build artifacts to force a fresh build..."
 cargo clean --manifest-path "$REPO_DIR/src-tauri/Cargo.toml"
 APPLE_PASSWORD="$APPLE_APP_SPECIFIC_PASSWORD" bun run tauri build --config "$TMP_CONFIG"
 
-DMG_PATH=$(ls -t "src-tauri/target/release/bundle/dmg/PDFRead_${VERSION}_"*.dmg 2>/dev/null | head -1 || true)
+DMG_PATH=$(ls -t "src-tauri/target/release/bundle/dmg/readani_${VERSION}_"*.dmg 2>/dev/null | head -1 || true)
 if [ -z "$DMG_PATH" ]; then
   echo "No versioned .dmg found for $VERSION at src-tauri/target/release/bundle/dmg/" >&2
   exit 1
 fi
 
 DMG_DIR=$(dirname "$DMG_PATH")
-RELEASE_DMG_PATH="$DMG_DIR/PDFRead.dmg"
-if [ "$(basename "$DMG_PATH")" != "PDFRead.dmg" ]; then
+RELEASE_DMG_PATH="$DMG_DIR/readani.dmg"
+if [ "$(basename "$DMG_PATH")" != "readani.dmg" ]; then
   cp -f "$DMG_PATH" "$RELEASE_DMG_PATH"
 else
   RELEASE_DMG_PATH="$DMG_PATH"
@@ -219,7 +219,7 @@ fi
 if gh release view "$TAG" >/dev/null 2>&1; then
   gh release upload "$TAG" "${RELEASE_ASSETS[@]}" --clobber
 else
-  gh release create "$TAG" "${RELEASE_ASSETS[@]}" -t "$TAG" -n "PDFRead $TAG"
+  gh release create "$TAG" "${RELEASE_ASSETS[@]}" -t "$TAG" -n "readani $TAG"
 fi
 
 SHA256=$(shasum -a 256 "$RELEASE_DMG_PATH" | awk '{print $1}')
@@ -240,7 +240,7 @@ sed -i '' "s/^  version \".*\"/  version \"$VERSION\"/" "$CASK_PATH"
 sed -i '' "s/^  sha256 \".*\"/  sha256 \"$SHA256\"/" "$CASK_PATH"
 
 git add "$CASK_PATH"
-git commit -m "bump pdfread to $VERSION"
+git commit -m "bump readani to $VERSION"
 git push
 
 RELEASE_DONE=1

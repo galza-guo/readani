@@ -1,9 +1,9 @@
 import pdfjsWorker from "pdfjs-dist/legacy/build/pdf.worker.mjs?worker";
 
-const PDF_WORKER_KEY = "__readanyPdfJsWorker__";
+const PDF_WORKER_KEY = "__readaniPdfJsWorker__";
 
 type GlobalWithPdfWorker = typeof globalThis & {
-  __readanyPdfJsWorker__?: Worker;
+  __readaniPdfJsWorker__?: Worker;
 };
 
 export function getPdfJsWorkerPort(): Worker {

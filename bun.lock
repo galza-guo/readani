@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "pdfread",
+      "name": "readani",
       "dependencies": {
         "@radix-ui/colors": "^3.0.0",
         "@radix-ui/react-avatar": "^1.1.11",

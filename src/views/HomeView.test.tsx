@@ -19,4 +19,27 @@ describe("HomeView layout", () => {
     expect(shellRule).toContain("height: 100%");
     expect(shellRule).not.toContain("height: 100vh");
   });
+
+  test("styles the landing hero around the enlarged wordmark and footer fine print", () => {
+    const contentRule = appCss.match(/\.home-content\s*\{([^}]*)\}/)?.[1] ?? "";
+    const logoRule = appCss.match(/\.home-logo-img\s*\{([^}]*)\}/)?.[1] ?? "";
+    const subtitleRule = appCss.match(/\.home-subtitle\s*\{([^}]*)\}/)?.[1] ?? "";
+    const disclaimerRule = appCss.match(/\.home-disclaimer\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(contentRule).toContain("display: flex");
+    expect(contentRule).toContain("flex-direction: column");
+    expect(contentRule).toContain("min-height: 100%");
+
+    expect(logoRule).toContain("width: min(100%, 280px)");
+    expect(logoRule).toContain("height: auto");
+
+    expect(subtitleRule).toContain("font-size: 18px");
+    expect(subtitleRule).toContain("font-weight: 500");
+
+    expect(disclaimerRule).toContain("margin-top: auto");
+    expect(disclaimerRule).toContain("font-style: italic");
+    expect(disclaimerRule).toContain("color: var(--ink-subtle)");
+    expect(disclaimerRule).not.toContain("background:");
+    expect(disclaimerRule).not.toContain("border:");
+  });
 });

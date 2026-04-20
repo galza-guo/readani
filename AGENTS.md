@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Project Summary
-PDFRead is a Tauri desktop PDF bilingual reader. The UI is a two-column layout: the left pane renders PDFs with pdf.js and highlight overlays, while the right pane contains controls plus sentence-level translations (Slate read-only) virtualized per page. Translations are fetched via the Rust backend from OpenRouter, with a local JSON cache.
+readani is a Tauri desktop PDF bilingual reader. The UI is a two-column layout: the left pane renders PDFs with pdf.js and highlight overlays, while the right pane contains controls plus sentence-level translations (Slate read-only) virtualized per page. Translations are fetched via the Rust backend from OpenRouter, with a local JSON cache.
 
 ## Tech Stack (Fixed)
 - Tauri (Rust backend)

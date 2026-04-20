@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e  # Exit on any error
 
-APPNAME="PDFRead"
+APPNAME="readani"
 
 # Clean any previous build artifacts
 echo "Cleaning previous builds..."

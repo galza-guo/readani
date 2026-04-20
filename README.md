@@ -1,14 +1,14 @@
-# PDFRead
+# readani
 
-A Tauri desktop bilingual reader for PDFs, with preserved EPUB support.
+readani is a Tauri desktop bilingual reader for PDFs, with preserved EPUB support.
 
 <p align="center">
-  <img src="./screenshot.png" alt="PDFRead Screenshot" width="860" />
+  <img src="./screenshot.png" alt="readani Screenshot" width="860" />
 </p>
 
-## Why PDFRead
+## Why readani
 
-Reading a PDF in another language is slow when you have to translate paragraph by paragraph. PDFRead keeps the original page on the left and a readable translation of that same page on the right, so you can stay in flow while still checking the source.
+Reading a PDF in another language is slow when you have to translate paragraph by paragraph. readani keeps the original page on the left and a readable translation of that same page on the right, so you can stay in flow while still checking the source.
 
 ## MVP Highlights
 
@@ -32,7 +32,7 @@ Reading a PDF in another language is slow when you have to translate paragraph b
 ## Install (Homebrew)
 
 ```bash
-brew update && brew tap everettjf/tap && brew install --cask pdfread
+brew update && brew tap everettjf/tap && brew install --cask readani
 ```
 
 ## Develop
@@ -91,7 +91,3 @@ bun run build
 ## Recommended IDE Setup
 
 - VS Code + Tauri extension + rust-analyzer
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=everettjf/PDFRead&type=Date)](https://star-history.com/#everettjf/PDFRead&Date)

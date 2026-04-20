@@ -53,11 +53,61 @@ struct CachedTranslations {
     entries: HashMap<String, String>,
 }
 
+const LEGACY_APP_IDENTIFIER: &str = "com.xnu.pdfread";
+const MIGRATABLE_APP_CONFIG_FILES: &[&str] = &[
+    "translation_cache.json",
+    "page_translation_cache.json",
+    "translation_providers.json",
+    "app_settings.json",
+    "openrouter_key.txt",
+    "vocabulary.json",
+    "recent_books.json",
+];
+
 fn app_config_dir(handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     handle
         .path()
         .app_config_dir()
         .map_err(|_| "Failed to resolve app config directory.".to_string())
+}
+
+fn legacy_app_config_dir(handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let current = app_config_dir(handle)?;
+    let parent = current
+        .parent()
+        .ok_or_else(|| "Failed to resolve app config parent directory.".to_string())?;
+    Ok(parent.join(LEGACY_APP_IDENTIFIER))
+}
+
+fn migrate_legacy_app_config(handle: &tauri::AppHandle) -> Result<(), String> {
+    let current_dir = app_config_dir(handle)?;
+    let legacy_dir = legacy_app_config_dir(handle)?;
+
+    if current_dir == legacy_dir || !legacy_dir.exists() {
+        return Ok(());
+    }
+
+    fs::create_dir_all(&current_dir).map_err(|e| e.to_string())?;
+
+    for file_name in MIGRATABLE_APP_CONFIG_FILES {
+        let legacy_file = legacy_dir.join(file_name);
+        let current_file = current_dir.join(file_name);
+
+        if current_file.exists() || !legacy_file.exists() {
+            continue;
+        }
+
+        fs::copy(&legacy_file, &current_file).map_err(|error| {
+            format!(
+                "Failed to migrate legacy app data from {} to {}: {}",
+                legacy_file.display(),
+                current_file.display(),
+                error
+            )
+        })?;
+    }
+
+    Ok(())
 }
 
 fn cache_file_path(handle: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -1362,6 +1412,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            if let Err(error) = migrate_legacy_app_config(&app.handle()) {
+                return Err(std::io::Error::other(error).into());
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             read_pdf_file,
             get_app_settings,
