@@ -28,18 +28,11 @@ echo "Building signed macOS DMG..."
 bun run tauri build --bundles dmg --target "$TAURI_TARGET"
 
 DMG_PATH=$(find "$ROOT_DIR/src-tauri/target" -path "*/bundle/dmg/${APP_NAME}_*.dmg" -type f | sort | tail -n 1)
-APP_PATH=$(find "$ROOT_DIR/src-tauri/target" -path "*/bundle/macos/${APP_NAME}.app" -type d | sort | tail -n 1)
 
 if [[ -z "${DMG_PATH:-}" || ! -f "$DMG_PATH" ]]; then
   echo "Could not find the generated DMG." >&2
   exit 1
 fi
 
-if [[ -z "${APP_PATH:-}" || ! -d "$APP_PATH" ]]; then
-  echo "Could not find the generated app bundle." >&2
-  exit 1
-fi
-
 echo "Done."
-echo "App: $APP_PATH"
 echo "DMG: $DMG_PATH"

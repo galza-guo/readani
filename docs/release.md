@@ -36,6 +36,8 @@ The macOS build uses:
 
 Plain-English detail: the workflow now keeps **signing** and **notarization** as two separate steps. That avoids Tauri trying to notarize too early during the app bundle phase, and instead lets Apple’s own notarization tool handle the final DMG in one explicit step.
 
+Another small but important detail: Tauri cleans up its temporary `.app` bundle after it finishes creating the `.dmg`, so the workflow notarizes the finished DMG directly instead of trying to reuse that temporary app folder afterward.
+
 ## Required GitHub Secrets
 
 ### macOS signing

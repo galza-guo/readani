@@ -123,19 +123,13 @@ jobs:
           fi
 
           DMG_PATH=$(find src-tauri/target -path '*/bundle/dmg/*.dmg' -type f | sort | tail -n 1)
-          APP_PATH=$(find src-tauri/target -path '*/bundle/macos/readani.app' -type d | sort | tail -n 1)
 
           if [[ -z "${DMG_PATH:-}" || ! -f "$DMG_PATH" ]]; then
             echo "Could not find the generated DMG." >&2
             exit 1
           fi
 
-          if [[ -z "${APP_PATH:-}" || ! -d "$APP_PATH" ]]; then
-            echo "Could not find the generated app bundle." >&2
-            exit 1
-          fi
-
-          ./scripts/notarize_dmg.sh "$DMG_PATH" "$APP_PATH"
+          ./scripts/notarize_dmg.sh "$DMG_PATH"
 
       - name: Collect DMG artifact
         shell: bash
