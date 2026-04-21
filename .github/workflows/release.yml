@@ -179,7 +179,7 @@ jobs:
             exit 1
           fi
           cp "$DMG_PATH" release-artifacts/
-          APP_ARCHIVE_PATH=$(find src-tauri/target -path '*/bundle/macos/*.app.tar.gz' -type f | sort | tail -n 1)
+          APP_ARCHIVE_PATH=$(find src-tauri/target -name '*.app.tar.gz' -type f | sort | tail -n 1)
           if [[ -z "${APP_ARCHIVE_PATH:-}" || ! -f "$APP_ARCHIVE_PATH" ]]; then
             echo "Could not find the generated updater app archive." >&2
             exit 1

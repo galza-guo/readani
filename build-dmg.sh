@@ -24,8 +24,8 @@ fi
 echo "Installing dependencies..."
 bun install --frozen-lockfile
 
-echo "Building signed macOS DMG and updater artifacts..."
-bun run tauri build --bundles dmg --target "$TAURI_TARGET"
+echo "Building signed macOS app, DMG, and updater artifacts..."
+bun run tauri build --bundles app,dmg --target "$TAURI_TARGET"
 
 DMG_PATH=$(find "$ROOT_DIR/src-tauri/target" -path "*/bundle/dmg/${APP_NAME}_*.dmg" -type f | sort | tail -n 1)
 
