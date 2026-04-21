@@ -16,11 +16,11 @@ KEYCHAIN_PASSWORD="${KEYCHAIN_PASSWORD:-readani-build-keychain}"
 KEYCHAIN_PATH="${KEYCHAIN_PATH:-$RUNNER_TEMP_DIR/readani-build.keychain-db}"
 CERT_PATH="$RUNNER_TEMP_DIR/readani-signing-cert.p12"
 
-if base64 --help 2>&1 | grep -q -- "--decode"; then
-  printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
-else
-  printf '%s' "$APPLE_CERTIFICATE" | base64 -D > "$CERT_PATH"
-fi
+# Decode robustly even if the GitHub secret contains wrapped lines or CRLF.
+printf '%s' "$APPLE_CERTIFICATE" | tr -d '\r\n\t ' | openssl base64 -d -A -out "$CERT_PATH"
+
+# Fail early with a clearer message if the exported certificate or password is wrong.
+openssl pkcs12 -in "$CERT_PATH" -nokeys -passin env:APPLE_CERTIFICATE_PASSWORD >/dev/null
 
 security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"

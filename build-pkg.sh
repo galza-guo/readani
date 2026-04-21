@@ -49,7 +49,7 @@ echo "Installing dependencies..."
 bun install --frozen-lockfile
 
 echo "Building App Store app bundle..."
-bun run tauri build -- --bundles app --target "$TAURI_TARGET" --config "$APPSTORE_CONFIG"
+bun run tauri build --bundles app --target "$TAURI_TARGET" --config "$APPSTORE_CONFIG"
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "App bundle not found at $APP_PATH" >&2

@@ -40,7 +40,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build MSI
-        run: bun run tauri build -- --bundles msi
+        run: bun run tauri build --bundles msi
 
       - name: Collect MSI artifact
         shell: bash
