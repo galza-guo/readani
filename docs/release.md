@@ -89,9 +89,11 @@ These are required for in-app updates:
 | Secret | What it is |
 | --- | --- |
 | `TAURI_SIGNING_PRIVATE_KEY` | The Tauri updater private key used to sign updater artifacts |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Optional password for that private key, if you encrypted it |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for that private key if you encrypted it |
 
 Plain-English detail: this key is separate from your Apple certificate. Apple signing proves the app came from your Apple developer identity. The Tauri updater key lets the app verify that a downloaded update was published by you before installing it.
+
+If your updater release build fails with `Wrong password for that key`, it means `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is missing or does not match the private key stored in `TAURI_SIGNING_PRIVATE_KEY`.
 
 ### GitHub token
 
