@@ -67,11 +67,6 @@ jobs:
     env:
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
 
     steps:
       - name: Check out repository
@@ -93,37 +88,54 @@ jobs:
           workspaces: |
             src-tauri -> target
 
-      - name: Prepare notarization credentials
+      - name: Import Apple signing certificate
         shell: bash
+        run: ./scripts/import_apple_certificate.sh
+
+      - name: Build signed DMG
+        shell: bash
+        run: ./build-dmg.sh
+
+      - name: Notarize and staple DMG
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
         run: |
           set -euo pipefail
 
           if [[ -n "${APPLE_API_PRIVATE_KEY:-}" && -n "${APPLE_API_KEY:-}" && -n "${APPLE_API_ISSUER:-}" ]]; then
             KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
             printf '%s' "$APPLE_API_PRIVATE_KEY" > "$KEY_PATH"
-            echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
-            exit 0
-          fi
-
-          if [[ -n "${APPLE_ID:-}" && -n "${APPLE_PASSWORD:-}" ]]; then
+            export APPLE_API_KEY_PATH="$KEY_PATH"
+          elif [[ -n "${APPLE_ID:-}" && -n "${APPLE_PASSWORD:-}" ]]; then
             echo "Using Apple ID fallback for notarization."
-            exit 0
+          else
+            echo "Missing notarization credentials." >&2
+            echo >&2
+            echo "Configure one of:" >&2
+            echo "  1. APPLE_API_KEY + APPLE_API_ISSUER + APPLE_API_PRIVATE_KEY" >&2
+            echo "  2. APPLE_ID + APPLE_PASSWORD" >&2
+            exit 1
           fi
 
-          echo "Missing notarization credentials." >&2
-          echo >&2
-          echo "Configure one of:" >&2
-          echo "  1. APPLE_API_KEY + APPLE_API_ISSUER + APPLE_API_PRIVATE_KEY" >&2
-          echo "  2. APPLE_ID + APPLE_PASSWORD" >&2
-          exit 1
+          DMG_PATH=$(find src-tauri/target -path '*/bundle/dmg/*.dmg' -type f | sort | tail -n 1)
+          APP_PATH=$(find src-tauri/target -path '*/bundle/macos/readani.app' -type d | sort | tail -n 1)
 
-      - name: Import Apple signing certificate
-        shell: bash
-        run: ./scripts/import_apple_certificate.sh
+          if [[ -z "${DMG_PATH:-}" || ! -f "$DMG_PATH" ]]; then
+            echo "Could not find the generated DMG." >&2
+            exit 1
+          fi
 
-      - name: Build notarized DMG
-        shell: bash
-        run: ./build-dmg.sh
+          if [[ -z "${APP_PATH:-}" || ! -d "$APP_PATH" ]]; then
+            echo "Could not find the generated app bundle." >&2
+            exit 1
+          fi
+
+          ./scripts/notarize_dmg.sh "$DMG_PATH" "$APP_PATH"
 
       - name: Collect DMG artifact
         shell: bash

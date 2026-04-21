@@ -23,7 +23,7 @@ When you push a tag like `v1.0.1`, GitHub Actions will:
 1. build a Windows installer (`.msi`) on `windows-latest`
 2. build a macOS DMG on `macos-latest`
 3. sign the macOS app with `Developer ID Application: Lite Guo (T96QFDVD9V)`
-4. notarize the DMG
+4. notarize the finished DMG with Apple `notarytool`
 5. staple the notarization ticket to the DMG
 6. upload both artifacts to the matching GitHub Release
 
@@ -33,6 +33,8 @@ The macOS build uses:
 - direct-download entitlements: [`src-tauri/Entitlements.plist`](/Users/guolite/GitHub/ReadAny/src-tauri/Entitlements.plist)
 - local helper: [`build-dmg.sh`](/Users/guolite/GitHub/ReadAny/build-dmg.sh)
 - notarization helper: [`scripts/notarize_dmg.sh`](/Users/guolite/GitHub/ReadAny/scripts/notarize_dmg.sh)
+
+Plain-English detail: the workflow now keeps **signing** and **notarization** as two separate steps. That avoids Tauri trying to notarize too early during the app bundle phase, and instead lets Apple’s own notarization tool handle the final DMG in one explicit step.
 
 ## Required GitHub Secrets
 

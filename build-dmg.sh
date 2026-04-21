@@ -40,8 +40,6 @@ if [[ -z "${APP_PATH:-}" || ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
-echo "Submitting DMG for notarization and stapling..."
-"$ROOT_DIR/scripts/notarize_dmg.sh" "$DMG_PATH" "$APP_PATH"
-
 echo "Done."
+echo "App: $APP_PATH"
 echo "DMG: $DMG_PATH"
