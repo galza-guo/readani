@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "macOS": {
+      "entitlements": "./Entitlements.AppStore.plist",
+      "files": {
+        "embedded.provisionprofile": "./readani.appstore.provisionprofile"
+      }
+    }
+  }
+}

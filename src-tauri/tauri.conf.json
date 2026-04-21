@@ -35,10 +35,6 @@
     "shortDescription": "Desktop bilingual PDF and EPUB reader for side-by-side translation.",
     "macOS": {
       "infoPlist": "./Info.plist",
-      "signingIdentity": "3rd Party Mac Developer Application: Feng Zhu (YPV49M8592)",
-      "files": {
-        "embedded.provisionprofile": "./app.provisionprofile"
-      },
       "entitlements": "./Entitlements.plist",
       "minimumSystemVersion": "15.0"
     },
