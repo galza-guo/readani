@@ -23,6 +23,7 @@ type ToastOptions = {
 type ToastRecord = ToastOptions & {
   durationMs: number;
   id: number;
+  isExiting: boolean;
   tone: ToastTone;
 };
 
@@ -31,6 +32,15 @@ type ToastContextValue = {
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
+const TOAST_EXIT_DURATION_MS = 180;
+
+function getToastExitDurationMs() {
+  if (typeof window === "undefined") {
+    return TOAST_EXIT_DURATION_MS;
+  }
+
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : TOAST_EXIT_DURATION_MS;
+}
 
 function InfoIcon() {
   return (
@@ -76,17 +86,57 @@ function ToastIcon({ tone }: { tone: ToastTone }) {
 export function ToastProvider({ children }: PropsWithChildren) {
   const [toasts, setToasts] = useState<ToastRecord[]>([]);
   const nextToastIdRef = useRef(1);
-  const timersRef = useRef(new Map<number, number>());
+  const toastsRef = useRef<ToastRecord[]>([]);
+  const autoDismissTimersRef = useRef(new Map<number, number>());
+  const exitTimersRef = useRef(new Map<number, number>());
 
-  const removeToast = useCallback((id: number) => {
-    const timerId = timersRef.current.get(id);
-    if (timerId !== undefined) {
-      window.clearTimeout(timerId);
-      timersRef.current.delete(id);
+  const finalizeToastRemoval = useCallback((id: number) => {
+    const autoDismissTimerId = autoDismissTimersRef.current.get(id);
+    if (autoDismissTimerId !== undefined) {
+      window.clearTimeout(autoDismissTimerId);
+      autoDismissTimersRef.current.delete(id);
     }
 
-    setToasts((current) => current.filter((toast) => toast.id !== id));
+    const exitTimerId = exitTimersRef.current.get(id);
+    if (exitTimerId !== undefined) {
+      window.clearTimeout(exitTimerId);
+      exitTimersRef.current.delete(id);
+    }
+
+    setToasts((current) => {
+      const next = current.filter((toast) => toast.id !== id);
+      toastsRef.current = next;
+      return next;
+    });
   }, []);
+
+  const removeToast = useCallback(
+    (id: number) => {
+      const toast = toastsRef.current.find((entry) => entry.id === id);
+      if (!toast || toast.isExiting) {
+        return;
+      }
+
+      const autoDismissTimerId = autoDismissTimersRef.current.get(id);
+      if (autoDismissTimerId !== undefined) {
+        window.clearTimeout(autoDismissTimerId);
+        autoDismissTimersRef.current.delete(id);
+      }
+
+      setToasts((current) => {
+        const next = current.map((entry) => (entry.id === id ? { ...entry, isExiting: true } : entry));
+        toastsRef.current = next;
+        return next;
+      });
+
+      const exitTimerId = window.setTimeout(() => {
+        finalizeToastRemoval(id);
+      }, getToastExitDurationMs());
+
+      exitTimersRef.current.set(id, exitTimerId);
+    },
+    [finalizeToastRemoval]
+  );
 
   const showToast = useCallback(
     ({
@@ -99,8 +149,8 @@ export function ToastProvider({ children }: PropsWithChildren) {
     }: ToastOptions) => {
       const id = nextToastIdRef.current++;
 
-      setToasts((current) =>
-        [
+      setToasts((current) => {
+        const next = [
           ...current,
           {
             id,
@@ -110,26 +160,35 @@ export function ToastProvider({ children }: PropsWithChildren) {
             onAction,
             tone,
             durationMs,
+            isExiting: false,
           },
-        ].slice(-4)
-      );
+        ].slice(-4);
+        toastsRef.current = next;
+        return next;
+      });
 
       const timerId = window.setTimeout(() => {
         removeToast(id);
       }, durationMs);
 
-      timersRef.current.set(id, timerId);
+      autoDismissTimersRef.current.set(id, timerId);
     },
     [removeToast]
   );
 
   useEffect(() => {
     return () => {
-      for (const timerId of timersRef.current.values()) {
+      for (const timerId of autoDismissTimersRef.current.values()) {
         window.clearTimeout(timerId);
       }
 
-      timersRef.current.clear();
+      autoDismissTimersRef.current.clear();
+
+      for (const timerId of exitTimersRef.current.values()) {
+        window.clearTimeout(timerId);
+      }
+
+      exitTimersRef.current.clear();
     };
   }, []);
 
@@ -140,7 +199,11 @@ export function ToastProvider({ children }: PropsWithChildren) {
       {children}
       <div className="toast-viewport" aria-live="polite" aria-atomic="true">
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast toast--${toast.tone}`} role="status">
+          <div
+            key={toast.id}
+            className={`toast toast--${toast.tone}${toast.isExiting ? " toast--exiting" : ""}`}
+            role="status"
+          >
             <span className="toast__icon" aria-hidden="true">
               <ToastIcon tone={toast.tone} />
             </span>
