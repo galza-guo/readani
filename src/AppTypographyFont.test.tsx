@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import appCss from "./App.css?raw";
+import settingsDialogContentSource from "./components/settings/SettingsDialogContent.tsx?raw";
 
 function hasAsset(path: string) {
   return existsSync(resolve(import.meta.dir, path));
@@ -11,10 +12,14 @@ function getRule(pattern: RegExp) {
   return appCss.match(pattern)?.[1] ?? "";
 }
 
+function normalizeWhitespace(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 describe("app typography font roles", () => {
   test("uses vendored Fira Sans Condensed for UI chrome and keeps reader content on the body stack", () => {
-    const rootRule = getRule(/:root\s*\{([^}]*)\}/);
-    const bodyRule = getRule(/(?:^|\n)body\s*\{([^}]*)\}/);
+    const rootRule = normalizeWhitespace(getRule(/:root\s*\{([^}]*)\}/));
+    const bodyRule = normalizeWhitespace(getRule(/(?:^|\n)body\s*\{([^}]*)\}/));
     const pageTranslationContentRule = getRule(
       /(?:^|\n)\.page-translation-content\s*\{([^}]*)\}/
     );
@@ -27,7 +32,7 @@ describe("app typography font roles", () => {
     expect(appCss).not.toContain("fonts.googleapis.com");
     expect(appCss).toContain('@font-face');
     expect(appCss).toContain('font-family: "Fira Sans Condensed"');
-    expect(appCss).toContain(
+    expect(normalizeWhitespace(appCss)).toContain(
       'url("./assets/fonts/fira-sans-condensed/FiraSansCondensed-Regular.ttf") format("truetype")'
     );
     expect(rootRule).toContain('--font-ui: "Fira Sans Condensed"');
@@ -53,29 +58,29 @@ describe("app typography font roles", () => {
   });
 
   test("applies the UI font and slightly larger sizing to shared controls", () => {
-    const rootRule = getRule(/:root\s*\{([^}]*)\}/);
-    const controlRule = getRule(
+    const rootRule = normalizeWhitespace(getRule(/:root\s*\{([^}]*)\}/));
+    const controlRule = normalizeWhitespace(getRule(
       /button,\s*input,\s*select,\s*textarea\s*\{([^}]*)\}/
-    );
-    const buttonRule = getRule(/(?:^|\n)\.btn\s*\{([^}]*)\}/);
-    const smallButtonRule = getRule(/(?:^|\n)\.btn-small\s*\{([^}]*)\}/);
-    const inputRule = getRule(/(?:^|\n)\.input\s*\{([^}]*)\}/);
-    const selectTriggerRule = getRule(/(?:^|\n)\.select-trigger\s*\{([^}]*)\}/);
-    const languageTriggerRule = getRule(
+    ));
+    const buttonRule = normalizeWhitespace(getRule(/(?:^|\n)\.btn\s*\{([^}]*)\}/));
+    const smallButtonRule = normalizeWhitespace(getRule(/(?:^|\n)\.btn-small\s*\{([^}]*)\}/));
+    const inputRule = normalizeWhitespace(getRule(/(?:^|\n)\.input\s*\{([^}]*)\}/));
+    const selectTriggerRule = normalizeWhitespace(getRule(/(?:^|\n)\.select-trigger\s*\{([^}]*)\}/));
+    const languageTriggerRule = normalizeWhitespace(getRule(
       /(?:^|\n)\.language-combobox-trigger\s*\{([^}]*)\}/
-    );
-    const modelOptionRule = getRule(
+    ));
+    const modelOptionRule = normalizeWhitespace(getRule(
       /(?:^|\n)\.model-combobox-option,\s*\.model-combobox-empty\s*\{([^}]*)\}/
-    );
-    const settingsLanguageToggleRule = getRule(
+    ));
+    const settingsLanguageToggleRule = normalizeWhitespace(getRule(
       /(?:^|\n)\.settings-language-toggle\s*\{([^}]*)\}/
-    );
-    const settingsTabTriggerRule = getRule(
+    ));
+    const settingsTabTriggerRule = normalizeWhitespace(getRule(
       /(?:^|\n)\.settings-tab-trigger\s*\{([^}]*)\}/
-    );
-    const statusRule = getRule(
+    ));
+    const statusRule = normalizeWhitespace(getRule(
       /(?:^|\n)\.settings-field-status,\s*\.settings-action-status\s*\{([^}]*)\}/
-    );
+    ));
 
     expect(rootRule).toContain("--type-size-title-large: 19px");
     expect(rootRule).toContain("--type-size-pane-title: 16px");
@@ -98,8 +103,8 @@ describe("app typography font roles", () => {
     expect(modelOptionRule).toContain("font-size: var(--type-size-label)");
     expect(settingsLanguageToggleRule).toContain("font-family: inherit");
     expect(settingsLanguageToggleRule).toContain("font-size: var(--type-size-label)");
-    expect(settingsTabTriggerRule).toContain("font-family: inherit");
-    expect(settingsTabTriggerRule).toContain("font-size: var(--type-size-label)");
+    expect(settingsTabTriggerRule).toContain("min-height: 36px");
+    expect(settingsDialogContentSource).toContain('className="panel-toggle-btn settings-tab-trigger"');
     expect(statusRule).toContain("font-size: var(--type-size-meta)");
   });
 
