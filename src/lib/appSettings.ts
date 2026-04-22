@@ -125,6 +125,7 @@ export function normalizeSettingsFromStorage(
   return {
     ...settings,
     autoFallbackEnabled: Boolean(settings.autoFallbackEnabled),
+    translateAllSlowMode: Boolean(settings.translateAllSlowMode),
     presets: settings.presets.map(normalizePresetFromStorage),
   };
 }
@@ -460,6 +461,7 @@ export function createDefaultSettings(): TranslationSettings {
   return {
     activePresetId: "",
     autoFallbackEnabled: false,
+    translateAllSlowMode: false,
     defaultLanguage: DEFAULT_LANGUAGE,
     theme: DEFAULT_THEME,
     presets: [],

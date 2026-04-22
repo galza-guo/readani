@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { TranslationSettings } from "../types";
 import {
   buildPresetLabel,
   canPersistPresetDraft,
@@ -90,6 +91,8 @@ describe("app settings helpers", () => {
   test("starts with no presets for a brand-new user", () => {
     expect(createDefaultSettings()).toEqual({
       activePresetId: "",
+      autoFallbackEnabled: false,
+      translateAllSlowMode: false,
       defaultLanguage: {
         code: "zh-CN",
         label: "Chinese (Simplified)",
@@ -145,6 +148,8 @@ describe("app settings helpers", () => {
   test("canonicalizes saved presets that still use legacy provider values", () => {
     const normalized = normalizeSettingsFromStorage({
       activePresetId: "preset-1",
+      autoFallbackEnabled: false,
+      translateAllSlowMode: false,
       defaultLanguage: {
         code: "zh-CN",
         label: "Chinese (Simplified)",
@@ -172,6 +177,28 @@ describe("app settings helpers", () => {
       "openrouter",
       "openai-compatible",
     ]);
+  });
+
+  test("defaults automatic fallback to false when older saved settings do not include it", () => {
+    const normalized = normalizeSettingsFromStorage({
+      activePresetId: "preset-1",
+      defaultLanguage: {
+        code: "zh-CN",
+        label: "Chinese (Simplified)",
+      },
+      theme: "system",
+      presets: [
+        {
+          id: "preset-1",
+          label: "OpenRouter",
+          providerKind: "openrouter",
+          model: "openrouter/free",
+          apiKeyConfigured: true,
+        },
+      ],
+    } as TranslationSettings);
+
+    expect(normalized.autoFallbackEnabled).toBe(false);
   });
 
   test("keeps model empty while editing instead of backfilling a default model", () => {
@@ -427,6 +454,8 @@ describe("app settings helpers", () => {
     const reverted = discardUnsavedPresetEdits({
       settings: {
         activePresetId: "preset-1",
+        autoFallbackEnabled: false,
+        translateAllSlowMode: false,
         defaultLanguage: {
           code: "zh-CN",
           label: "Chinese (Simplified)",
@@ -445,6 +474,8 @@ describe("app settings helpers", () => {
       },
       savedSettings: {
         activePresetId: "preset-1",
+        autoFallbackEnabled: false,
+        translateAllSlowMode: false,
         defaultLanguage: {
           code: "zh-CN",
           label: "Chinese (Simplified)",
@@ -478,6 +509,8 @@ describe("app settings helpers", () => {
     const reverted = discardUnsavedPresetEdits({
       settings: {
         activePresetId: "preset-2",
+        autoFallbackEnabled: false,
+        translateAllSlowMode: false,
         defaultLanguage: {
           code: "zh-CN",
           label: "Chinese (Simplified)",
@@ -501,6 +534,8 @@ describe("app settings helpers", () => {
       },
       savedSettings: {
         activePresetId: "preset-1",
+        autoFallbackEnabled: false,
+        translateAllSlowMode: false,
         defaultLanguage: {
           code: "zh-CN",
           label: "Chinese (Simplified)",

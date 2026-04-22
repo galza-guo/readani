@@ -42,6 +42,8 @@ pub struct AppSettings {
     pub active_preset_id: String,
     #[serde(default)]
     pub auto_fallback_enabled: bool,
+    #[serde(default)]
+    pub translate_all_slow_mode: bool,
     pub presets: Vec<TranslationPreset>,
 }
 
@@ -107,6 +109,7 @@ impl Default for AppSettings {
             default_language: SettingsLanguage::default(),
             active_preset_id: String::new(),
             auto_fallback_enabled: false,
+            translate_all_slow_mode: false,
             presets: vec![],
         }
     }
@@ -259,6 +262,7 @@ pub fn migrate_legacy_translation_providers(
         default_language: normalize_language(default_language.as_ref()),
         active_preset_id,
         auto_fallback_enabled: false,
+        translate_all_slow_mode: false,
         presets,
     }
     .normalized()
@@ -473,6 +477,7 @@ mod tests {
             }
         );
         assert_eq!(settings.active_preset_id, "");
+        assert!(!settings.translate_all_slow_mode);
         assert!(settings.presets.is_empty());
     }
 
@@ -534,6 +539,8 @@ mod tests {
                 label: "".to_string(),
             },
             active_preset_id: "".to_string(),
+            auto_fallback_enabled: true,
+            translate_all_slow_mode: false,
             presets: vec![TranslationPreset {
                 id: "openrouter-default".to_string(),
                 label: "".to_string(),
@@ -549,6 +556,7 @@ mod tests {
 
         assert_eq!(normalized.default_language.code, "zh-CN");
         assert_eq!(normalized.active_preset_id, "openrouter-default");
+        assert!(normalized.auto_fallback_enabled);
         assert_eq!(normalized.presets[0].label, "OpenRouter · openrouter/free");
         assert_eq!(normalized.presets[0].api_key.as_deref(), Some("sk-or-test"));
         assert!(normalized.presets[0].api_key_configured);
@@ -560,6 +568,8 @@ mod tests {
             theme: AppTheme::System,
             default_language: SettingsLanguage::default(),
             active_preset_id: "ollama".to_string(),
+            auto_fallback_enabled: false,
+            translate_all_slow_mode: false,
             presets: vec![TranslationPreset {
                 id: "ollama".to_string(),
                 label: "".to_string(),
@@ -591,6 +601,8 @@ mod tests {
                 label: "Chinese (Simplified)".to_string(),
             },
             active_preset_id: "".to_string(),
+            auto_fallback_enabled: false,
+            translate_all_slow_mode: false,
             presets: vec![],
         };
 
@@ -631,6 +643,8 @@ mod tests {
             theme: AppTheme::System,
             default_language: SettingsLanguage::default(),
             active_preset_id: "openrouter-openrouter-free".to_string(),
+            auto_fallback_enabled: false,
+            translate_all_slow_mode: false,
             presets: vec![
                 TranslationPreset {
                     id: "openrouter-openrouter-free".to_string(),
@@ -683,6 +697,8 @@ mod tests {
             theme: AppTheme::System,
             default_language: SettingsLanguage::default(),
             active_preset_id: "preset-123".to_string(),
+            auto_fallback_enabled: false,
+            translate_all_slow_mode: false,
             presets: vec![TranslationPreset {
                 id: "preset-123".to_string(),
                 label: "Custom".to_string(),
