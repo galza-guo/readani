@@ -47,9 +47,23 @@ function buildProps(
     testAllDisabled: false,
     presetModels: {},
     presetModelMessages: {},
+    translationCacheSummary: {
+      totalCacheSizeBytes: 24576,
+      books: [
+        {
+          docId: "doc-1",
+          title: "A Very Long Book Title for Testing Cache Rows",
+          cachedPageCount: 12,
+        },
+      ],
+    },
+    translationCacheLoading: false,
+    translationCacheActionTarget: null,
     onSettingsChange: () => {},
     onAddPreset: () => "preset-2",
     onDeletePreset: () => {},
+    onDeleteAllTranslationCache: () => {},
+    onDeleteCachedBook: () => {},
     onEditingPresetChange: () => {},
     onActivatePreset: () => {},
     onPresetChange: () => {},
@@ -65,6 +79,15 @@ function buildProps(
 }
 
 describe("SettingsDialogContent", () => {
+  test("renders tabs for general, providers, and cache", () => {
+    const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
+
+    expect(html).toContain(">General<");
+    expect(html).toContain(">Providers<");
+    expect(html).toContain(">Cache<");
+    expect(settingsDialogSource).toContain("settings-tabs-list");
+  });
+
   test("renders one default language label and no helper note", () => {
     const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
 
@@ -88,6 +111,43 @@ describe("SettingsDialogContent", () => {
     expect(settingsDialogSource).not.toContain("settings-save-action");
     expect(settingsDialogSource).toContain("settings-provider-picker");
     expect(settingsDialogSource).not.toContain("function PencilIcon()");
+  });
+
+  test("renders a simple cache summary with a delete-all action and book rows", () => {
+    const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
+
+    expect(html).toContain("Total cache size");
+    expect(html).toContain("24.0 KB");
+    expect(html).toContain("Delete All");
+    expect(html).toContain("12 cached pages");
+    expect(settingsDialogSource).toContain("settings-cache-list");
+    expect(settingsStylesSource).toContain(".settings-cache-item-title");
+  });
+
+  test("uses a single subtle empty-state action when no providers are configured", () => {
+    const html = renderToStaticMarkup(
+      <SettingsDialogContent
+        {...buildProps({
+          settings: {
+            theme: "system",
+            activePresetId: "",
+            autoFallbackEnabled: false,
+            translateAllSlowMode: false,
+            defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
+            presets: [],
+          },
+          editingPresetId: null,
+          editingPreset: undefined,
+          presetSaveStatusById: {},
+        })}
+      />
+    );
+
+    expect(html).toContain("To enable translation, add a provider.");
+    expect(html).not.toContain("Add your first provider");
+    expect(html).not.toContain("To turn on translation, connect a provider and finish its setup.");
+    expect(settingsDialogSource).toContain("settings-empty-action");
+    expect(settingsStylesSource).toContain(".settings-empty-action");
   });
 
   test("uses the preset title for activation and keeps save text lightweight", () => {
