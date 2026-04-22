@@ -14,6 +14,7 @@ type HomeViewProps = {
   onOpenFile: () => void;
   onOpenAbout: () => void;
   onOpenSettings: () => void;
+  showTranslationSetupCallout?: boolean;
   theme: ThemeMode;
   onThemeToggle: () => void;
   showUpdateAction?: boolean;
@@ -99,6 +100,7 @@ export function HomeView({
   onOpenFile,
   onOpenAbout,
   onOpenSettings,
+  showTranslationSetupCallout = false,
   theme,
   onThemeToggle,
   showUpdateAction = false,
@@ -149,33 +151,43 @@ export function HomeView({
   return (
     <div className="home">
       <header className="home-header">
-        <div className="home-header-actions">
-          {showUpdateAction && onInstallUpdate ? (
-            <UpdateActionButton onClick={onInstallUpdate} />
+        <div className="home-header-tools">
+          <div className="home-header-actions">
+            {showUpdateAction && onInstallUpdate ? (
+              <UpdateActionButton onClick={onInstallUpdate} />
+            ) : null}
+            <ThemeToggleButton
+              theme={theme}
+              onToggle={onThemeToggle}
+              showHoverLabel={true}
+              labelDirection="left"
+              hoverLabel="Theme"
+            />
+            <ExpandableIconButton
+              aria-label="About"
+              label="About"
+              labelDirection="left"
+              onClick={onOpenAbout}
+            >
+              <AboutIcon />
+            </ExpandableIconButton>
+            <ExpandableIconButton
+              aria-label="Settings"
+              label="Settings"
+              labelDirection="left"
+              onClick={onOpenSettings}
+            >
+              <SettingsIcon />
+            </ExpandableIconButton>
+          </div>
+          {showTranslationSetupCallout ? (
+            <div className="home-setup-callout">
+              <span>Translation is not set up yet.</span>
+              <button className="home-setup-callout-link" onClick={onOpenSettings} type="button">
+                Open Settings to add a provider.
+              </button>
+            </div>
           ) : null}
-          <ThemeToggleButton
-            theme={theme}
-            onToggle={onThemeToggle}
-            showHoverLabel={true}
-            labelDirection="left"
-            hoverLabel="Theme"
-          />
-          <ExpandableIconButton
-            aria-label="About"
-            label="About"
-            labelDirection="left"
-            onClick={onOpenAbout}
-          >
-            <AboutIcon />
-          </ExpandableIconButton>
-          <ExpandableIconButton
-            aria-label="Settings"
-            label="Settings"
-            labelDirection="left"
-            onClick={onOpenSettings}
-          >
-            <SettingsIcon />
-          </ExpandableIconButton>
         </div>
       </header>
 

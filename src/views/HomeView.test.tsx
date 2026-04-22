@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
 import appCss from "../App.css?raw";
 import homeViewSource from "./HomeView.tsx?raw";
+import { HomeView } from "./HomeView";
 
 describe("HomeView layout", () => {
   test("uses root-height layout primitives to avoid phantom window scrollbars", () => {
@@ -103,6 +105,8 @@ describe("HomeView layout", () => {
     expect(homeViewSource).toContain("onOpenAbout");
     expect(homeViewSource).toContain("onClick={onOpenAbout}");
     expect(homeViewSource).toContain('label="Settings"');
+    expect(homeViewSource).toContain("showTranslationSetupCallout");
+    expect(homeViewSource).toContain('className="home-setup-callout"');
     expect(homeViewSource).not.toContain('className="home-settings-btn"');
   });
 
@@ -113,5 +117,22 @@ describe("HomeView layout", () => {
     expect(homeViewSource).not.toContain("SettingsDialogContent");
     expect(homeViewSource).not.toContain("settings-dialog-header");
     expect(homeViewSource).not.toContain("<Dialog.Content");
+  });
+
+  test("renders a lightweight setup callout near the header tools when translation is not ready", () => {
+    const html = renderToStaticMarkup(
+      <HomeView
+        onOpenBook={() => {}}
+        onOpenFile={() => {}}
+        onOpenAbout={() => {}}
+        onOpenSettings={() => {}}
+        showTranslationSetupCallout={true}
+        theme="system"
+        onThemeToggle={() => {}}
+      />
+    );
+
+    expect(html).toContain("Translation is not set up yet.");
+    expect(html).toContain("Open Settings to add a provider.");
   });
 });
