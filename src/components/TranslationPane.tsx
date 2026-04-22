@@ -2,7 +2,10 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
 import type { VirtuosoHandle } from "react-virtuoso";
 import * as Popover from "@radix-ui/react-popover";
-import { getNextRevealText } from "../lib/typewriter";
+import {
+  getPdfAlignmentState,
+  getTranslatablePdfParagraphs,
+} from "../lib/pdfSegments";
 import { ExpandableIconButton } from "./reader/ExpandableIconButton";
 import type {
   PageDoc,
@@ -26,6 +29,7 @@ type TranslationPaneChromeProps = {
 type PdfTranslationPaneProps = {
   mode: "pdf";
   currentPage: number;
+  page?: PageDoc;
   pageTranslation?: PageTranslationState;
   loadingMessage?: string | null;
   setupRequired?: boolean;
@@ -40,6 +44,10 @@ type PdfTranslationPaneProps = {
   onOpenSettings: () => void;
   onRetryPage: (page: number) => void;
   canRetryPage: boolean;
+  activePid?: string | null;
+  hoverPid?: string | null;
+  onHoverPid: (pid: string | null) => void;
+  onLocatePid: (pid: string, page: number) => void;
   selectionTranslation: SelectionTranslation | null;
   onClearSelectionTranslation: () => void;
 };
@@ -134,6 +142,35 @@ function RetryIcon() {
   );
 }
 
+function OriginalIcon({ revealed }: { revealed: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {revealed ? (
+        <>
+          <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-5 0-9.27-3.11-11-8 0-1.1.27-2.16.77-3.09" />
+          <path d="M1 1l22 22" />
+          <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c5 0 9.27 3.11 11 8a10.96 10.96 0 0 1-4.08 5.4" />
+          <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+        </>
+      ) : (
+        <>
+          <path d="M2.06 12C3.79 7.11 8.06 4 13.06 4s9.27 3.11 11 8c-1.73 4.89-6 8-11 8s-9.27-3.11-11-8z" />
+          <circle cx="13.06" cy="12" r="3" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 function TranslationSetupPrompt({
   onOpenSettings,
 }: {
@@ -152,6 +189,77 @@ function TranslationSetupPrompt({
     </div>
   );
 }
+
+const PdfSegmentCard = memo(function PdfSegmentCard({
+  para,
+  pageNum,
+  isActive,
+  onHoverPid,
+  onLocatePid,
+}: {
+  para: Paragraph;
+  pageNum: number;
+  isActive: boolean;
+  onHoverPid: (pid: string | null) => void;
+  onLocatePid: (pid: string, page: number) => void;
+}) {
+  const [sourceRevealed, setSourceRevealed] = useState(false);
+  const canLocate = para.rects.length > 0;
+
+  let translationText = para.translation?.trim() ?? "";
+  if (para.status === "loading") {
+    translationText = "Translating this passage...";
+  } else if (para.status === "error") {
+    translationText = "Translation failed for this passage.";
+  } else if (!translationText) {
+    translationText = "Translation will appear here when this passage is ready.";
+  }
+
+  return (
+    <article
+      className={`pdf-segment-card ${isActive ? "is-active" : ""}`}
+      onMouseEnter={() => onHoverPid(para.pid)}
+      onMouseLeave={() => onHoverPid(null)}
+    >
+      <div className="pdf-segment-card-actions">
+        <button
+          className="action-btn"
+          type="button"
+          onClick={() => setSourceRevealed((current) => !current)}
+          title={sourceRevealed ? "Hide original text" : "Show original text"}
+          aria-label={sourceRevealed ? "Hide original text" : "Show original text"}
+        >
+          <OriginalIcon revealed={sourceRevealed} />
+        </button>
+        <button
+          className="action-btn"
+          type="button"
+          onClick={() => onLocatePid(para.pid, pageNum)}
+          title={
+            canLocate
+              ? "Locate in document"
+              : "Precise PDF location unavailable"
+          }
+          aria-label={
+            canLocate
+              ? "Locate in document"
+              : "Precise PDF location unavailable"
+          }
+          disabled={!canLocate}
+        >
+          <LocateIcon />
+        </button>
+      </div>
+      <div className="pdf-segment-translation">{translationText}</div>
+      {sourceRevealed ? (
+        <div className="pdf-segment-source-wrap">
+          <div className="pdf-segment-source-label">Original</div>
+          <div className="pdf-segment-source">{para.source}</div>
+        </div>
+      ) : null}
+    </article>
+  );
+});
 
 const ParagraphBlock = memo(function ParagraphBlock({
   para,
@@ -347,6 +455,7 @@ function TranslationPaneFooter({
 
 function PdfTranslationPane({
   currentPage,
+  page,
   pageTranslation,
   loadingMessage,
   setupRequired = false,
@@ -361,10 +470,13 @@ function PdfTranslationPane({
   onOpenSettings,
   onRetryPage,
   canRetryPage,
+  activePid,
+  hoverPid,
+  onHoverPid,
+  onLocatePid,
   selectionTranslation,
   onClearSelectionTranslation,
 }: Omit<PdfTranslationPaneProps, "mode">) {
-  const [revealedText, setRevealedText] = useState("");
   const resolvedLoadingMessage =
     loadingMessage ??
     pageTranslation?.activityMessage ??
@@ -373,38 +485,10 @@ function PdfTranslationPane({
       : pageTranslation?.status === "loading"
         ? "Translating this page..."
         : null);
-
-  useEffect(() => {
-    const fullText = pageTranslation?.translatedText ?? "";
-
-    if (pageTranslation?.status !== "done" || !fullText) {
-      setRevealedText("");
-      return;
-    }
-
-    if (pageTranslation.isCached) {
-      setRevealedText(fullText);
-      return;
-    }
-
-    setRevealedText("");
-    const intervalId = window.setInterval(() => {
-      setRevealedText((current) => {
-        const next = getNextRevealText(current, fullText, 24);
-        if (next === fullText) {
-          window.clearInterval(intervalId);
-        }
-        return next;
-      });
-    }, 18);
-
-    return () => window.clearInterval(intervalId);
-  }, [
-    pageTranslation?.isCached,
-    pageTranslation?.page,
-    pageTranslation?.status,
-    pageTranslation?.translatedText,
-  ]);
+  const translatableParagraphs = getTranslatablePdfParagraphs(page);
+  const alignmentState = getPdfAlignmentState(page);
+  const showSegmentCards =
+    pageTranslation?.status === "done" && translatableParagraphs.length > 0;
 
   return (
     <div className="translation-pane page-translation-pane">
@@ -490,8 +574,24 @@ function PdfTranslationPane({
                 Retry page
               </button>
             </div>
-          ) : pageTranslation?.status === "done" ? (
-            <div className="page-translation-content">{revealedText}</div>
+          ) : showSegmentCards ? (
+            <div className="pdf-segment-list">
+              {alignmentState === "coarse" ? (
+                <div className="pdf-segment-alignment-note">
+                  Highlights may be approximate on this page.
+                </div>
+              ) : null}
+              {translatableParagraphs.map((para) => (
+                <PdfSegmentCard
+                  key={para.pid}
+                  para={para}
+                  pageNum={currentPage}
+                  isActive={para.pid === activePid || para.pid === hoverPid}
+                  onHoverPid={onHoverPid}
+                  onLocatePid={onLocatePid}
+                />
+              ))}
+            </div>
           ) : resolvedLoadingMessage ? (
             <div className="page-translation-loading-state">
               <div className="page-translation-spinner" />
@@ -708,6 +808,7 @@ export function TranslationPane(props: TranslationPaneProps) {
     return (
       <PdfTranslationPane
         currentPage={props.currentPage}
+        page={props.page}
         pageTranslation={props.pageTranslation}
         loadingMessage={props.loadingMessage}
         setupRequired={props.setupRequired}
@@ -722,6 +823,10 @@ export function TranslationPane(props: TranslationPaneProps) {
         onOpenSettings={props.onOpenSettings}
         onRetryPage={props.onRetryPage}
         canRetryPage={props.canRetryPage}
+        activePid={props.activePid}
+        hoverPid={props.hoverPid}
+        onHoverPid={props.onHoverPid}
+        onLocatePid={props.onLocatePid}
         selectionTranslation={props.selectionTranslation}
         onClearSelectionTranslation={props.onClearSelectionTranslation}
       />
