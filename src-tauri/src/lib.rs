@@ -20,13 +20,13 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{Emitter, Manager};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct TargetLanguage {
     label: String,
     code: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct TranslateSentence {
     sid: String,
     text: String,
@@ -1101,19 +1101,28 @@ async fn translate_page_text(
         &handle,
         &preset_id,
         request_id.as_deref(),
-        |preset| async {
-            translate_page_text_with_preset(
-                &handle,
-                &preset,
-                temperature,
-                &target_language,
-                &doc_id,
-                page,
-                trimmed_display,
-                &previous_context,
-                &next_context,
-            )
-            .await
+        |preset| {
+            let handle = handle.clone();
+            let target_language = target_language.clone();
+            let doc_id = doc_id.clone();
+            let previous_context = previous_context.clone();
+            let next_context = next_context.clone();
+            let trimmed_display = trimmed_display.to_string();
+
+            async move {
+                translate_page_text_with_preset(
+                    &handle,
+                    &preset,
+                    temperature,
+                    &target_language,
+                    &doc_id,
+                    page,
+                    trimmed_display.as_str(),
+                    &previous_context,
+                    &next_context,
+                )
+                .await
+            }
         },
     )
     .await?;
@@ -1273,18 +1282,23 @@ async fn translate_selection_text(
         &handle,
         &preset_id,
         None,
-        |preset| async {
-            let provider = preset.to_provider_config();
-            let translation = request_chat_completion(
-                &provider,
-                &preset.model,
-                0.0,
-                build_selection_translation_system_prompt(),
-                &build_selection_translation_prompt(&target_language, trimmed),
-            )
-            .await?;
+        |preset| {
+            let target_language = target_language.clone();
+            let trimmed = trimmed.to_string();
 
-            Ok(translation.trim().to_string())
+            async move {
+                let provider = preset.to_provider_config();
+                let translation = request_chat_completion(
+                    &provider,
+                    &preset.model,
+                    0.0,
+                    build_selection_translation_system_prompt(),
+                    &build_selection_translation_prompt(&target_language, trimmed.as_str()),
+                )
+                .await?;
+
+                Ok(translation.trim().to_string())
+            }
         },
     )
     .await?;
@@ -1914,29 +1928,34 @@ async fn openrouter_word_lookup(
         &handle,
         &preset_id,
         None,
-        |preset| async {
-            let provider = preset.to_provider_config();
-            let system_prompt = build_word_lookup_system_prompt();
-            let user_prompt = build_word_lookup_prompt(&word, &target_language);
+        |preset| {
+            let word = word.clone();
+            let target_language = target_language.clone();
 
-            let content = request_chat_completion(
-                &provider,
-                &preset.model,
-                0.0,
-                &system_prompt,
-                &user_prompt,
-            )
-            .await?;
+            async move {
+                let provider = preset.to_provider_config();
+                let system_prompt = build_word_lookup_system_prompt();
+                let user_prompt = build_word_lookup_prompt(&word, &target_language);
 
-            let json_content = extract_json_object(&content);
-
-            serde_json::from_str::<WordLookupResult>(&json_content).map_err(|e| {
-                format!(
-                    "Failed to parse word lookup JSON: {} (content: {})",
-                    e,
-                    truncate_for_error(&json_content)
+                let content = request_chat_completion(
+                    &provider,
+                    &preset.model,
+                    0.0,
+                    &system_prompt,
+                    &user_prompt,
                 )
-            })
+                .await?;
+
+                let json_content = extract_json_object(&content);
+
+                serde_json::from_str::<WordLookupResult>(&json_content).map_err(|e| {
+                    format!(
+                        "Failed to parse word lookup JSON: {} (content: {})",
+                        e,
+                        truncate_for_error(&json_content)
+                    )
+                })
+            }
         },
     )
     .await?;
@@ -2268,13 +2287,33 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_preset_test_prompt, build_selection_translation_prompt,
-        find_cached_sentence_translation, merge_saved_preset_credentials, sentence_cache_key,
-        CachedTranslations, TargetLanguage, PRESET_TEST_SAMPLE_TEXT, SENTENCE_PROMPT_VERSION,
+        build_fallback_preset_sequence, build_preset_test_prompt,
+        build_selection_translation_prompt, find_cached_sentence_translation,
+        legacy_shared_sentence_cache_key, merge_saved_preset_credentials,
+        sentence_cache_key, CachedTranslations, PRESET_TEST_SAMPLE_TEXT,
+        SENTENCE_PROMPT_VERSION, TargetLanguage,
     };
-    use crate::app_settings::TranslationPreset;
+    use crate::app_settings::{AppSettings, AppTheme, SettingsLanguage, TranslationPreset};
     use crate::providers::ProviderKind;
     use std::collections::HashMap;
+
+    fn preset(
+        id: &str,
+        provider_kind: ProviderKind,
+        model: &str,
+        api_key: Option<&str>,
+        base_url: Option<&str>,
+    ) -> TranslationPreset {
+        TranslationPreset {
+            id: id.to_string(),
+            label: id.to_string(),
+            provider_kind,
+            base_url: base_url.map(str::to_string),
+            api_key: api_key.map(str::to_string),
+            api_key_configured: api_key.is_some(),
+            model: model.to_string(),
+        }
+    }
 
     #[test]
     fn custom_language_prompt_prefers_the_custom_label() {
@@ -2356,29 +2395,119 @@ mod tests {
     }
 
     #[test]
-    fn sentence_cache_key_is_provider_independent() {
+    fn sentence_cache_key_tracks_provider_model_and_prompt_version() {
         let key = sentence_cache_key(
             "doc-1",
             "doc-1:1",
             "hash-1",
+            "preset-a",
+            "model-a",
             "zh-CN",
             SENTENCE_PROMPT_VERSION,
         );
 
-        assert_eq!(key, "doc-1|doc-1:1|hash-1|zh-CN|sentence-v1".to_string());
+        assert_eq!(
+            key,
+            "doc-1|doc-1:1|hash-1|preset-a|model-a|zh-CN|sentence-v1".to_string()
+        );
     }
 
     #[test]
     fn finds_legacy_sentence_cache_entries_across_provider_changes() {
         let mut entries = HashMap::new();
         entries.insert(
-            "doc-1|doc-1:1|hash-1|preset-a|model-a|zh-CN".to_string(),
+            legacy_shared_sentence_cache_key(
+                "doc-1",
+                "doc-1:1",
+                "hash-1",
+                "zh-CN",
+                SENTENCE_PROMPT_VERSION,
+            ),
             "legacy translation".to_string(),
         );
         let cache = CachedTranslations { entries };
 
-        let value = find_cached_sentence_translation(&cache, "doc-1", "doc-1:1", "hash-1", "zh-CN");
+        let value = find_cached_sentence_translation(
+            &cache,
+            "doc-1",
+            "doc-1:1",
+            "hash-1",
+            "preset-a",
+            "model-a",
+            "zh-CN",
+        );
 
         assert_eq!(value.as_deref(), Some("legacy translation"));
+    }
+
+    #[test]
+    fn fallback_sequence_wraps_once_and_skips_unusable_presets() {
+        let settings = AppSettings {
+            theme: AppTheme::System,
+            default_language: SettingsLanguage::default(),
+            active_preset_id: "custom".to_string(),
+            auto_fallback_enabled: true,
+            translate_all_slow_mode: false,
+            presets: vec![
+                preset(
+                    "openrouter",
+                    ProviderKind::OpenRouter,
+                    "openrouter/free",
+                    Some("sk-or"),
+                    None,
+                ),
+                preset(
+                    "deepseek-missing-key",
+                    ProviderKind::DeepSeek,
+                    "deepseek-chat",
+                    None,
+                    Some("https://api.deepseek.com"),
+                ),
+                preset(
+                    "custom",
+                    ProviderKind::OpenAiCompatible,
+                    "gpt-4o-mini",
+                    Some("sk-custom"),
+                    Some("https://example.com/v1"),
+                ),
+                preset("ollama", ProviderKind::Ollama, "llama3.2", None, None),
+                preset("blank-model", ProviderKind::OpenRouter, "", Some("sk-x"), None),
+            ],
+        };
+
+        let sequence = build_fallback_preset_sequence(&settings, "custom")
+            .expect("sequence should build");
+
+        assert_eq!(
+            sequence.iter().map(|preset| preset.id.as_str()).collect::<Vec<_>>(),
+            vec!["custom", "ollama", "openrouter"]
+        );
+    }
+
+    #[test]
+    fn fallback_sequence_uses_only_requested_preset_when_disabled() {
+        let settings = AppSettings {
+            theme: AppTheme::System,
+            default_language: SettingsLanguage::default(),
+            active_preset_id: "openrouter".to_string(),
+            auto_fallback_enabled: false,
+            translate_all_slow_mode: false,
+            presets: vec![
+                preset(
+                    "openrouter",
+                    ProviderKind::OpenRouter,
+                    "openrouter/free",
+                    Some("sk-or"),
+                    None,
+                ),
+                preset("ollama", ProviderKind::Ollama, "llama3.2", None, None),
+            ],
+        };
+
+        let sequence = build_fallback_preset_sequence(&settings, "openrouter")
+            .expect("sequence should build");
+
+        assert_eq!(sequence.len(), 1);
+        assert_eq!(sequence[0].id, "openrouter");
     }
 }
