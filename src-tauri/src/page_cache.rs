@@ -31,9 +31,7 @@ pub fn page_cache_key(
     language: &str,
     prompt_version: &str,
 ) -> String {
-    format!(
-        "{doc_id}|{page}|{source_hash}|{provider_id}|{model}|{language}|{prompt_version}"
-    )
+    format!("{doc_id}|{page}|{source_hash}|{provider_id}|{model}|{language}|{prompt_version}")
 }
 
 fn legacy_shared_page_cache_key(
@@ -119,8 +117,15 @@ pub fn list_cached_pages(
         .entries
         .iter()
         .filter(|(key, entry)| {
-            cache_entry_matches_scope(key, entry, doc_id, provider_id, model, language, prompt_version)
-                || cache_entry_matches_legacy_scope(key, entry, doc_id, language, prompt_version)
+            cache_entry_matches_scope(
+                key,
+                entry,
+                doc_id,
+                provider_id,
+                model,
+                language,
+                prompt_version,
+            ) || cache_entry_matches_legacy_scope(key, entry, doc_id, language, prompt_version)
         })
         .map(|(_, entry)| entry.page)
         .collect();
@@ -165,8 +170,15 @@ pub fn clear_cached_pages_for_document(
 ) -> usize {
     let before = cache.entries.len();
     cache.entries.retain(|key, entry| {
-        !cache_entry_matches_scope(key, entry, doc_id, provider_id, model, language, prompt_version)
-            && !cache_entry_matches_legacy_scope(key, entry, doc_id, language, prompt_version)
+        !cache_entry_matches_scope(
+            key,
+            entry,
+            doc_id,
+            provider_id,
+            model,
+            language,
+            prompt_version,
+        ) && !cache_entry_matches_legacy_scope(key, entry, doc_id, language, prompt_version)
     });
     before.saturating_sub(cache.entries.len())
 }
@@ -270,14 +282,7 @@ mod tests {
         let mut cache = build_cache();
 
         assert_eq!(
-            clear_cached_pages_for_document(
-                &mut cache,
-                "doc-a",
-                "openrouter",
-                "m1",
-                "zh-CN",
-                "v1"
-            ),
+            clear_cached_pages_for_document(&mut cache, "doc-a", "openrouter", "m1", "zh-CN", "v1"),
             3
         );
         assert_eq!(

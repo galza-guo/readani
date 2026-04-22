@@ -15,8 +15,8 @@ use page_cache::{
 use providers::{list_models, request_chat_completion, ProviderConfig, TranslationProviders};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::future::Future;
 use std::fs;
+use std::future::Future;
 use std::path::PathBuf;
 use tauri::{Emitter, Manager};
 
@@ -54,6 +54,21 @@ struct FlexibleTranslationResult {
 #[derive(Debug, Deserialize, Serialize)]
 struct CachedTranslations {
     entries: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranslationCacheBookSummary {
+    doc_id: String,
+    title: String,
+    cached_page_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranslationCacheSummary {
+    total_cache_size_bytes: u64,
+    books: Vec<TranslationCacheBookSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,6 +260,25 @@ fn save_cache(handle: &tauri::AppHandle, cache: &CachedTranslations) -> Result<(
         .map_err(|e| format!("readani could not save the local translation cache: {}", e))
 }
 
+fn remove_file_if_exists(path: &PathBuf) -> Result<(), String> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn save_page_cache_after_mutation(
+    handle: &tauri::AppHandle,
+    cache: &PageTranslationCache,
+) -> Result<(), String> {
+    if cache.entries.is_empty() {
+        remove_file_if_exists(&page_cache_file_path(handle)?)
+    } else {
+        save_page_cache(handle, cache)
+    }
+}
+
 fn load_legacy_openrouter_key(handle: &tauri::AppHandle) -> Result<String, String> {
     let path = openrouter_key_path(handle)?;
     let key = fs::read_to_string(&path)
@@ -417,7 +451,11 @@ fn build_fallback_preset_sequence(
             continue;
         }
 
-        if candidate.to_provider_config().validate_for_request().is_ok() {
+        if candidate
+            .to_provider_config()
+            .validate_for_request()
+            .is_ok()
+        {
             ordered.push(candidate);
         }
     }
@@ -1097,11 +1135,8 @@ async fn translate_page_text(
     if trimmed_display.is_empty() {
         return Err("Page text is empty.".to_string());
     }
-    let (result, fallback_trace) = execute_with_preset_fallback(
-        &handle,
-        &preset_id,
-        request_id.as_deref(),
-        |preset| {
+    let (result, fallback_trace) =
+        execute_with_preset_fallback(&handle, &preset_id, request_id.as_deref(), |preset| {
             let handle = handle.clone();
             let target_language = target_language.clone();
             let doc_id = doc_id.clone();
@@ -1123,9 +1158,8 @@ async fn translate_page_text(
                 )
                 .await
             }
-        },
-    )
-    .await?;
+        })
+        .await?;
 
     let (translated_text, is_cached) = result;
     Ok(PageTranslationResponse {
@@ -1146,8 +1180,14 @@ fn list_cached_page_translations(
     pages: Vec<PageCacheLookupInput>,
 ) -> Result<Vec<u32>, String> {
     let cache = load_page_cache(&handle)?;
-    let cached_pages =
-        list_cached_pages(&cache, &doc_id, &preset_id, &model, &target_language.code, PAGE_PROMPT_VERSION);
+    let cached_pages = list_cached_pages(
+        &cache,
+        &doc_id,
+        &preset_id,
+        &model,
+        &target_language.code,
+        PAGE_PROMPT_VERSION,
+    );
 
     let candidate_pages: std::collections::HashSet<u32> = cached_pages.into_iter().collect();
     let mut matches = Vec::new();
@@ -1242,7 +1282,7 @@ fn clear_cached_page_translation(
         &target_language.code,
         PAGE_PROMPT_VERSION,
     );
-    save_page_cache(&handle, &cache)
+    save_page_cache_after_mutation(&handle, &cache)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -1262,7 +1302,94 @@ fn clear_document_page_translations(
         &target_language.code,
         PAGE_PROMPT_VERSION,
     );
-    save_page_cache(&handle, &cache)
+    save_page_cache_after_mutation(&handle, &cache)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn get_translation_cache_summary(
+    handle: tauri::AppHandle,
+) -> Result<TranslationCacheSummary, String> {
+    let page_cache_path = page_cache_file_path(&handle)?;
+    let total_cache_size_bytes = match fs::metadata(&page_cache_path) {
+        Ok(metadata) => metadata.len(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => return Err(error.to_string()),
+    };
+
+    let cache = load_page_cache(&handle)?;
+    let recent_books = load_recent_books(&handle).unwrap_or(RecentBooksData { books: Vec::new() });
+    let recent_book_titles: HashMap<String, String> = recent_books
+        .books
+        .iter()
+        .map(|book| (book.id.clone(), book.title.clone()))
+        .collect();
+    let recent_book_order: HashMap<String, usize> = recent_books
+        .books
+        .iter()
+        .enumerate()
+        .map(|(index, book)| (book.id.clone(), index))
+        .collect();
+
+    let mut pages_by_doc_id: HashMap<String, HashSet<u32>> = HashMap::new();
+    for (key, entry) in &cache.entries {
+        if let Some(doc_id) = extract_doc_id_from_cache_key(key) {
+            pages_by_doc_id
+                .entry(doc_id.to_string())
+                .or_default()
+                .insert(entry.page);
+        }
+    }
+
+    let mut books_with_sort_keys: Vec<(usize, String, TranslationCacheBookSummary)> =
+        pages_by_doc_id
+            .into_iter()
+            .map(|(doc_id, pages)| {
+                let title = recent_book_titles
+                    .get(&doc_id)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Book {}", doc_id));
+                let sort_index = recent_book_order
+                    .get(&doc_id)
+                    .copied()
+                    .unwrap_or(usize::MAX);
+                let sort_title = title.to_lowercase();
+
+                (
+                    sort_index,
+                    sort_title,
+                    TranslationCacheBookSummary {
+                        doc_id,
+                        title,
+                        cached_page_count: pages.len() as u32,
+                    },
+                )
+            })
+            .collect();
+
+    books_with_sort_keys.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+
+    Ok(TranslationCacheSummary {
+        total_cache_size_bytes,
+        books: books_with_sort_keys
+            .into_iter()
+            .map(|(_, _, summary)| summary)
+            .collect(),
+    })
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn clear_cached_book_translations(handle: tauri::AppHandle, doc_id: String) -> Result<(), String> {
+    let mut cache = load_page_cache(&handle)?;
+    cache
+        .entries
+        .retain(|key, _| extract_doc_id_from_cache_key(key) != Some(doc_id.as_str()));
+    save_page_cache_after_mutation(&handle, &cache)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn clear_all_translation_cache(handle: tauri::AppHandle) -> Result<(), String> {
+    remove_file_if_exists(&page_cache_file_path(&handle)?)?;
+    remove_file_if_exists(&cache_file_path(&handle)?)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -1278,11 +1405,8 @@ async fn translate_selection_text(
         return Err("Selection text is empty.".to_string());
     }
 
-    let (translation, fallback_trace) = execute_with_preset_fallback(
-        &handle,
-        &preset_id,
-        None,
-        |preset| {
+    let (translation, fallback_trace) =
+        execute_with_preset_fallback(&handle, &preset_id, None, |preset| {
             let target_language = target_language.clone();
             let trimmed = trimmed.to_string();
 
@@ -1299,9 +1423,8 @@ async fn translate_selection_text(
 
                 Ok(translation.trim().to_string())
             }
-        },
-    )
-    .await?;
+        })
+        .await?;
 
     Ok(SelectionTranslationResponse {
         translation,
@@ -1582,6 +1705,10 @@ fn extract_doc_id(sid: &str) -> &str {
     sid.split(':').next().unwrap_or(sid)
 }
 
+fn extract_doc_id_from_cache_key(key: &str) -> Option<&str> {
+    key.split('|').next().filter(|segment| !segment.is_empty())
+}
+
 fn sentence_cache_key(
     doc_id: &str,
     sid: &str,
@@ -1591,9 +1718,7 @@ fn sentence_cache_key(
     language: &str,
     prompt_version: &str,
 ) -> String {
-    format!(
-        "{doc_id}|{sid}|{source_hash}|{provider_id}|{model}|{language}|{prompt_version}"
-    )
+    format!("{doc_id}|{sid}|{source_hash}|{provider_id}|{model}|{language}|{prompt_version}")
 }
 
 fn legacy_shared_sentence_cache_key(
@@ -1628,7 +1753,8 @@ fn find_cached_sentence_translation(
         return Some(value.clone());
     }
 
-    cache.entries
+    cache
+        .entries
         .get(&legacy_shared_sentence_cache_key(
             doc_id,
             sid,
@@ -1747,7 +1873,8 @@ async fn openrouter_translate(
     let settings = load_app_settings(&handle)?;
     let presets = build_fallback_preset_sequence(&settings, &preset_id)?;
     let attempt_count = presets.len();
-    let force_fresh_ids: HashSet<String> = force_fresh_ids.unwrap_or_default().into_iter().collect();
+    let force_fresh_ids: HashSet<String> =
+        force_fresh_ids.unwrap_or_default().into_iter().collect();
     let mut results: HashMap<String, String> = HashMap::new();
     let mut pending = sentences.clone();
     let mut attempted_preset_ids = Vec::with_capacity(attempt_count);
@@ -1786,10 +1913,12 @@ async fn openrouter_translate(
                 results: sentences
                     .iter()
                     .filter_map(|sentence| {
-                        results.get(&sentence.sid).map(|translation| TranslationResult {
-                            sid: sentence.sid.clone(),
-                            translation: translation.clone(),
-                        })
+                        results
+                            .get(&sentence.sid)
+                            .map(|translation| TranslationResult {
+                                sid: sentence.sid.clone(),
+                                translation: translation.clone(),
+                            })
                     })
                     .collect(),
                 fallback_trace: TranslationFallbackTrace {
@@ -1827,10 +1956,12 @@ async fn openrouter_translate(
                         results: sentences
                             .iter()
                             .filter_map(|sentence| {
-                                results.get(&sentence.sid).map(|translation| TranslationResult {
-                                    sid: sentence.sid.clone(),
-                                    translation: translation.clone(),
-                                })
+                                results
+                                    .get(&sentence.sid)
+                                    .map(|translation| TranslationResult {
+                                        sid: sentence.sid.clone(),
+                                        translation: translation.clone(),
+                                    })
                             })
                             .collect(),
                         fallback_trace: TranslationFallbackTrace {
@@ -1924,11 +2055,8 @@ async fn openrouter_word_lookup(
     target_language: TargetLanguage,
     word: String,
 ) -> Result<WordLookupResponse, String> {
-    let (result, fallback_trace) = execute_with_preset_fallback(
-        &handle,
-        &preset_id,
-        None,
-        |preset| {
+    let (result, fallback_trace) =
+        execute_with_preset_fallback(&handle, &preset_id, None, |preset| {
             let word = word.clone();
             let target_language = target_language.clone();
 
@@ -1956,9 +2084,8 @@ async fn openrouter_word_lookup(
                     )
                 })
             }
-        },
-    )
-    .await?;
+        })
+        .await?;
 
     Ok(WordLookupResponse {
         phonetic: result.phonetic,
@@ -2261,6 +2388,9 @@ pub fn run() {
             list_cached_page_translations,
             clear_cached_page_translation,
             clear_document_page_translations,
+            get_translation_cache_summary,
+            clear_cached_book_translations,
+            clear_all_translation_cache,
             translate_selection_text,
             openrouter_translate,
             openrouter_word_lookup,
@@ -2289,9 +2419,8 @@ mod tests {
     use super::{
         build_fallback_preset_sequence, build_preset_test_prompt,
         build_selection_translation_prompt, find_cached_sentence_translation,
-        legacy_shared_sentence_cache_key, merge_saved_preset_credentials,
-        sentence_cache_key, CachedTranslations, PRESET_TEST_SAMPLE_TEXT,
-        SENTENCE_PROMPT_VERSION, TargetLanguage,
+        legacy_shared_sentence_cache_key, merge_saved_preset_credentials, sentence_cache_key,
+        CachedTranslations, TargetLanguage, PRESET_TEST_SAMPLE_TEXT, SENTENCE_PROMPT_VERSION,
     };
     use crate::app_settings::{AppSettings, AppTheme, SettingsLanguage, TranslationPreset};
     use crate::providers::ProviderKind;
@@ -2428,13 +2557,7 @@ mod tests {
         let cache = CachedTranslations { entries };
 
         let value = find_cached_sentence_translation(
-            &cache,
-            "doc-1",
-            "doc-1:1",
-            "hash-1",
-            "preset-a",
-            "model-a",
-            "zh-CN",
+            &cache, "doc-1", "doc-1:1", "hash-1", "preset-a", "model-a", "zh-CN",
         );
 
         assert_eq!(value.as_deref(), Some("legacy translation"));
@@ -2471,15 +2594,24 @@ mod tests {
                     Some("https://example.com/v1"),
                 ),
                 preset("ollama", ProviderKind::Ollama, "llama3.2", None, None),
-                preset("blank-model", ProviderKind::OpenRouter, "", Some("sk-x"), None),
+                preset(
+                    "blank-model",
+                    ProviderKind::OpenRouter,
+                    "",
+                    Some("sk-x"),
+                    None,
+                ),
             ],
         };
 
-        let sequence = build_fallback_preset_sequence(&settings, "custom")
-            .expect("sequence should build");
+        let sequence =
+            build_fallback_preset_sequence(&settings, "custom").expect("sequence should build");
 
         assert_eq!(
-            sequence.iter().map(|preset| preset.id.as_str()).collect::<Vec<_>>(),
+            sequence
+                .iter()
+                .map(|preset| preset.id.as_str())
+                .collect::<Vec<_>>(),
             vec!["custom", "ollama", "openrouter"]
         );
     }
@@ -2504,8 +2636,8 @@ mod tests {
             ],
         };
 
-        let sequence = build_fallback_preset_sequence(&settings, "openrouter")
-            .expect("sequence should build");
+        let sequence =
+            build_fallback_preset_sequence(&settings, "openrouter").expect("sequence should build");
 
         assert_eq!(sequence.len(), 1);
         assert_eq!(sequence[0].id, "openrouter");
