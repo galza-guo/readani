@@ -6,6 +6,7 @@ import {
   getPdfAlignmentState,
   getTranslatablePdfParagraphs,
 } from "../lib/pdfSegments";
+import { getFriendlyProviderError } from "../lib/providerErrors";
 import { ExpandableIconButton } from "./reader/ExpandableIconButton";
 import type {
   PageDoc,
@@ -78,6 +79,18 @@ type EpubTranslationPaneProps = {
 };
 
 type TranslationPaneProps = PdfTranslationPaneProps | EpubTranslationPaneProps;
+
+function getFallbackAttemptSummary(
+  pageTranslation?: PageTranslationState,
+) {
+  const attemptCount = pageTranslation?.fallbackTrace?.attemptCount ?? 0;
+
+  if (attemptCount <= 1) {
+    return undefined;
+  }
+
+  return `Tried ${attemptCount} presets.`;
+}
 
 function TranslateIcon() {
   return (
@@ -220,12 +233,20 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
       className={`pdf-segment-card ${isActive ? "is-active" : ""}`}
       onMouseEnter={() => onHoverPid(para.pid)}
       onMouseLeave={() => onHoverPid(null)}
+      onClick={() => {
+        if (canLocate) {
+          onLocatePid(para.pid, pageNum);
+        }
+      }}
     >
       <div className="pdf-segment-card-actions">
         <button
           className="action-btn"
           type="button"
-          onClick={() => setSourceRevealed((current) => !current)}
+          onClick={(event) => {
+            event.stopPropagation();
+            setSourceRevealed((current) => !current);
+          }}
           title={sourceRevealed ? "Hide original text" : "Show original text"}
           aria-label={sourceRevealed ? "Hide original text" : "Show original text"}
         >
@@ -234,7 +255,10 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
         <button
           className="action-btn"
           type="button"
-          onClick={() => onLocatePid(para.pid, pageNum)}
+          onClick={(event) => {
+            event.stopPropagation();
+            onLocatePid(para.pid, pageNum);
+          }}
           title={
             canLocate
               ? "Locate in document"
@@ -489,6 +513,10 @@ function PdfTranslationPane({
   const alignmentState = getPdfAlignmentState(page);
   const showSegmentCards =
     pageTranslation?.status === "done" && translatableParagraphs.length > 0;
+  const fallbackAttemptSummary = getFallbackAttemptSummary(pageTranslation);
+  const resolvedErrorMessage = pageTranslation?.fallbackTrace?.lastError
+    ? getFriendlyProviderError(pageTranslation.fallbackTrace.lastError).message
+    : pageTranslation?.error;
 
   return (
     <div className="translation-pane page-translation-pane">
@@ -552,9 +580,8 @@ function PdfTranslationPane({
             <TranslationSetupPrompt onOpenSettings={onOpenSettings} />
           ) : pageTranslation?.status === "error" ? (
             <div className="page-translation-error">
-              <p>
-                {pageTranslation.error || "Translation failed for this page."}
-              </p>
+              {fallbackAttemptSummary ? <p>{fallbackAttemptSummary}</p> : null}
+              <p>{resolvedErrorMessage || "Translation failed for this page."}</p>
               {pageTranslation.errorChecks?.length ? (
                 <div className="page-translation-error-checks-wrap">
                   <div className="page-translation-error-checks-label">

@@ -13,6 +13,8 @@ describe("PdfViewer", () => {
         zoomMode="custom"
         manualScale={1}
         scrollAnchor="top"
+        paragraphs={[]}
+        highlightPid={null}
         onNavigateToPage={() => {}}
         onRequestPageChange={() => {}}
         onZoomModeChange={() => {}}
@@ -64,6 +66,8 @@ describe("PdfViewer", () => {
         zoomMode="custom"
         manualScale={1.2}
         scrollAnchor="top"
+        paragraphs={[]}
+        highlightPid={null}
         onNavigateToPage={() => {}}
         onRequestPageChange={() => {}}
         onZoomModeChange={() => {}}
@@ -79,5 +83,39 @@ describe("PdfViewer", () => {
     expect(html).not.toContain('class="btn pdf-zoom-trigger"');
     expect(html).not.toContain('class="btn btn-ghost pdf-zoom-expanded-toggle"');
     expect(html.match(/120%/g)?.length).toBe(1);
+  });
+
+  test("renders highlight overlays for the active PDF segment", () => {
+    const html = renderToStaticMarkup(
+      <PdfViewer
+        pdfDoc={{} as any}
+        pageSizes={[{ width: 100, height: 200 }]}
+        currentPage={1}
+        zoomMode="custom"
+        manualScale={1}
+        scrollAnchor="top"
+        paragraphs={[
+          {
+            pid: "p-1",
+            page: 1,
+            source: "Original paragraph text.",
+            translation: "Translated paragraph text.",
+            status: "done",
+            rects: [{ page: 1, x: 12, y: 20, w: 40, h: 12 }],
+          },
+        ]}
+        highlightPid="p-1"
+        onNavigateToPage={() => {}}
+        onRequestPageChange={() => {}}
+        onZoomModeChange={() => {}}
+        onManualScaleChange={() => {}}
+        onResolvedScaleChange={() => {}}
+        onSelectionText={() => {}}
+        onClearSelection={() => {}}
+      />
+    );
+
+    expect(html).toContain('class="pdf-overlay"');
+    expect(html).toContain('class="pdf-highlight"');
   });
 });

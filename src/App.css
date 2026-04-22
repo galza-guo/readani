@@ -1307,6 +1307,7 @@ body.is-resizing-split-y * {
   border-radius: 8px;
   background: var(--panel);
   padding: 14px 14px 13px;
+  cursor: pointer;
   transition:
     border-color 0.15s ease,
     background 0.15s ease,
@@ -2212,10 +2213,19 @@ body.is-resizing-split-y * {
   min-width: 0;
 }
 
+.settings-inline-control--switch {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .settings-inline-control .select-trigger,
 .settings-inline-control .language-combobox-trigger {
   width: 100%;
   min-width: 0;
+}
+
+.settings-block-inline-toggle {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .language-combobox-trigger {
@@ -2766,6 +2776,10 @@ body.is-resizing-split-y * {
 
 .settings-help-button:hover {
   color: var(--ink);
+}
+
+.settings-toggle-tooltip {
+  max-width: 320px;
 }
 
 .settings-help-popover {
