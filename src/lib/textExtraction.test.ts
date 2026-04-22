@@ -24,6 +24,18 @@ function glyph(
   };
 }
 
+function verticalGlyphs(text: string, x: number, startY: number) {
+  return Array.from(text).map((char, index) =>
+    glyph(char, x, startY + index * 18, {
+      direction: "ttb",
+      styleVertical: true,
+      isVertical: true,
+      w: 12,
+      h: 12,
+    }),
+  );
+}
+
 describe("textExtraction", () => {
   test("reads vertical pages right to left while dropping header/footer noise", () => {
     const glyphs: GlyphItem[] = [
@@ -49,7 +61,7 @@ describe("textExtraction", () => {
       pageHeight: 900,
     });
 
-    expect(paragraphs.map((paragraph) => paragraph.source)).toEqual(["或 许 如 此 船 已 启 航"]);
+    expect(paragraphs.map((paragraph) => paragraph.source)).toEqual(["或许如此船已启航"]);
   });
 
   test("does not classify vertical body text as a watermark just because it is rotated", () => {
@@ -64,5 +76,63 @@ describe("textExtraction", () => {
 
     expect(content).toHaveLength(1);
     expect(watermarks).toHaveLength(0);
+  });
+
+  test("keeps closing quotes with the sentence they belong to", () => {
+    const glyphs: GlyphItem[] = [
+      ...verticalGlyphs("彼は「本当に行くの？」と聞いた。", 520, 110),
+      ...verticalGlyphs("私は「はい！」と答えた。", 500, 110),
+    ];
+
+    const paragraphs = extractParagraphsFromGlyphs(glyphs, {
+      docId: "doc",
+      pageIndex: 0,
+      pageWidth: 600,
+      pageHeight: 900,
+    });
+
+    expect(paragraphs.map((paragraph) => paragraph.source)).toEqual([
+      "彼は「本当に行くの？」",
+      "と聞いた。",
+      "私は「はい！」",
+      "と答えた。",
+    ]);
+  });
+
+  test("does not split on OCR periods used like a CJK separator", () => {
+    const glyphs = verticalGlyphs("日本史と中国.琉球との接点を知ることに繫がろう。", 520, 110);
+
+    const paragraphs = extractParagraphsFromGlyphs(glyphs, {
+      docId: "doc",
+      pageIndex: 0,
+      pageWidth: 600,
+      pageHeight: 900,
+    });
+
+    expect(paragraphs.map((paragraph) => paragraph.source)).toEqual([
+      "日本史と中国・琉球との接点を知ることに繫がろう。",
+    ]);
+  });
+
+  test("keeps a short horizontal heading separate from vertical body text", () => {
+    const glyphs: GlyphItem[] = [
+      glyph("はじめに", 180, 40, {
+        w: 48,
+        h: 16,
+      }),
+      ...verticalGlyphs("長期にわたる同じ一族による支配である。", 520, 110),
+    ];
+
+    const paragraphs = extractParagraphsFromGlyphs(glyphs, {
+      docId: "doc",
+      pageIndex: 0,
+      pageWidth: 600,
+      pageHeight: 900,
+    });
+
+    expect(paragraphs.map((paragraph) => paragraph.source)).toEqual([
+      "はじめに",
+      "長期にわたる同じ一族による支配である。",
+    ]);
   });
 });

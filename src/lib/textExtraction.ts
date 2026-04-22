@@ -24,9 +24,22 @@ type Line = {
 
 type TextBlock = {
   items: GlyphItem[];
+  text?: string;
 };
 
 type WritingMode = "horizontal" | "vertical";
+
+type ReadingCharUnit = {
+  char: string;
+  item: GlyphItem;
+  itemIndex: number;
+};
+
+type ReadingTextBuildResult = {
+  text: string;
+  units: ReadingCharUnit[];
+  outputMap: number[];
+};
 
 function normalizeTextItems(page: PDFPageProxy, scale: number): Promise<GlyphItem[]> {
   return page.getTextContent().then((content) => {
@@ -285,6 +298,132 @@ function detectWritingMode(items: GlyphItem[]): WritingMode {
   return verticalScore > horizontalScore ? "vertical" : "horizontal";
 }
 
+function isCjkLikeChar(char: string) {
+  return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(
+    char,
+  );
+}
+
+function isLatinOrNumberChar(char: string) {
+  return /[\p{Script=Latin}\p{Number}]/u.test(char);
+}
+
+function isOpeningQuoteOrBracket(char: string) {
+  return /[("'“‘«‹「『（［【〈《〔｛]/u.test(char);
+}
+
+function isClosingQuoteOrBracket(char: string) {
+  return /[)"'”’»›」』）］】〉》〕｝〗〙〛]/u.test(char);
+}
+
+function isSentenceTerminalChar(char: string) {
+  return /[.!?。！？｡．]/u.test(char);
+}
+
+function isSentenceSuffixChar(char: string) {
+  return (
+    /\s/u.test(char) ||
+    isSentenceTerminalChar(char) ||
+    isClosingQuoteOrBracket(char) ||
+    /[…‥]/u.test(char)
+  );
+}
+
+function shouldKeepWhitespaceBetween(prevChar?: string, nextChar?: string) {
+  if (!prevChar || !nextChar) {
+    return false;
+  }
+
+  if (isCjkLikeChar(prevChar) || isCjkLikeChar(nextChar)) {
+    return false;
+  }
+
+  if (isOpeningQuoteOrBracket(prevChar) || isClosingQuoteOrBracket(nextChar)) {
+    return false;
+  }
+
+  if (/[\p{P}\p{S}]/u.test(nextChar)) {
+    return false;
+  }
+
+  return (
+    (isLatinOrNumberChar(prevChar) ||
+      /[,;:]/u.test(prevChar) ||
+      isClosingQuoteOrBracket(prevChar)) &&
+    isLatinOrNumberChar(nextChar)
+  );
+}
+
+function shouldInsertSyntheticSpace(
+  prevChar: string | undefined,
+  nextChar: string,
+  prevItem: GlyphItem | undefined,
+  nextItem: GlyphItem,
+  mode: WritingMode,
+) {
+  if (!prevChar || !prevItem) {
+    return false;
+  }
+
+  if (mode === "vertical" || prevItem.isVertical || nextItem.isVertical) {
+    return false;
+  }
+
+  if (isCjkLikeChar(prevChar) || isCjkLikeChar(nextChar)) {
+    return false;
+  }
+
+  if (isOpeningQuoteOrBracket(prevChar) || isClosingQuoteOrBracket(nextChar)) {
+    return false;
+  }
+
+  return (
+    (isLatinOrNumberChar(prevChar) || /[,;:]/u.test(prevChar)) &&
+    isLatinOrNumberChar(nextChar)
+  );
+}
+
+function guessSentenceLocale(text: string) {
+  if (/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text)) {
+    return "ja";
+  }
+  if (/[\p{Script=Hangul}]/u.test(text)) {
+    return "ko";
+  }
+  if (/[\p{Script=Han}]/u.test(text)) {
+    return "zh";
+  }
+  return "en";
+}
+
+function normalizeTextForSentenceSegmentation(text: string) {
+  return text
+    .replace(
+      /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])\.(?=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/gu,
+      "$1・",
+    )
+    .replace(
+      /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]),(?=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/gu,
+      "$1、",
+    );
+}
+
+function normalizeExtractedText(text: string) {
+  return normalizeTextForSentenceSegmentation(text)
+    .replace(
+      /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])，(?=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/gu,
+      "$1、",
+    )
+    .replace(
+      /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])'(?=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/gu,
+      "$1",
+    )
+    .replace(
+      /(^|[\p{P}\p{S}\s])'(?=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/gu,
+      "$1",
+    );
+}
+
 function getMedian(values: number[]): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -306,6 +445,9 @@ function filterVerticalMarginalia(items: GlyphItem[], pageHeight: number): Glyph
 
   return items.filter((item) => {
     if (isLikelyVerticalItem(item)) return true;
+    if (item.y < pageHeight * 0.25 && item.text.length <= 24) {
+      return true;
+    }
     const itemBottom = item.y + item.h;
     return itemBottom >= top - edgeBand && item.y <= bottom + edgeBand;
   });
@@ -362,160 +504,206 @@ function groupIntoVerticalColumns(items: GlyphItem[]): Line[] {
   return columns.sort((a, b) => b.y - a.y);
 }
 
-function getLineText(line: Line): string {
-  const sorted = [...line.items].sort((a, b) => a.x - b.x);
-  return sorted.map((item) => item.text).join(" ");
+function buildReadingText(lines: Line[], mode: WritingMode): ReadingTextBuildResult {
+  const orderedItems = lines.flatMap((line) =>
+    [...line.items].sort((left, right) =>
+      mode === "vertical" ? left.y - right.y : left.x - right.x,
+    ),
+  );
+  const units: ReadingCharUnit[] = [];
+
+  orderedItems.forEach((item, itemIndex) => {
+    for (const char of Array.from(item.text)) {
+      units.push({ char, item, itemIndex });
+    }
+  });
+
+  let text = "";
+  const outputMap: number[] = [];
+  let previousTextUnit: ReadingCharUnit | null = null;
+  let previousTextChar: string | undefined;
+
+  for (let index = 0; index < units.length; index += 1) {
+    const unit = units[index];
+
+    if (/\s/u.test(unit.char)) {
+      let nextVisibleChar: string | undefined;
+      for (let lookahead = index + 1; lookahead < units.length; lookahead += 1) {
+        if (!/\s/u.test(units[lookahead].char)) {
+          nextVisibleChar = units[lookahead].char;
+          break;
+        }
+      }
+
+      if (
+        shouldKeepWhitespaceBetween(previousTextChar, nextVisibleChar) &&
+        !text.endsWith(" ")
+      ) {
+        text += " ";
+        outputMap.push(-1);
+      }
+      continue;
+    }
+
+    if (
+      previousTextUnit &&
+      previousTextUnit.itemIndex !== unit.itemIndex &&
+      !text.endsWith(" ") &&
+      shouldInsertSyntheticSpace(
+        previousTextChar,
+        unit.char,
+        previousTextUnit.item,
+        unit.item,
+        mode,
+      )
+    ) {
+      text += " ";
+      outputMap.push(-1);
+    }
+
+    text += unit.char;
+    for (let offset = 0; offset < unit.char.length; offset += 1) {
+      outputMap.push(index);
+    }
+
+    previousTextUnit = unit;
+    previousTextChar = unit.char;
+  }
+
+  return { text, units, outputMap };
+}
+
+function fallbackSegmentTextRanges(text: string) {
+  const ranges: Array<{ start: number; end: number }> = [];
+  let rangeStart = 0;
+
+  for (let index = 0; index < text.length; index += 1) {
+    if (!isSentenceSuffixChar(text[index])) {
+      continue;
+    }
+
+    let suffixEnd = index;
+    let hasTerminal = isSentenceTerminalChar(text[index]);
+    while (suffixEnd + 1 < text.length && isSentenceSuffixChar(text[suffixEnd + 1])) {
+      suffixEnd += 1;
+      hasTerminal ||= isSentenceTerminalChar(text[suffixEnd]);
+    }
+
+    if (hasTerminal) {
+      ranges.push({ start: rangeStart, end: suffixEnd + 1 });
+      rangeStart = suffixEnd + 1;
+      index = suffixEnd;
+    }
+  }
+
+  if (rangeStart < text.length) {
+    ranges.push({ start: rangeStart, end: text.length });
+  }
+
+  return ranges.filter((range) => text.slice(range.start, range.end).trim().length > 0);
+}
+
+type IntlSegment = {
+  index: number;
+  segment: string;
+};
+
+type IntlSegmenterLike = {
+  segment(input: string): Iterable<IntlSegment>;
+};
+
+type IntlWithSegmenter = typeof Intl & {
+  Segmenter?: new (
+    locale: string,
+    options: { granularity: "sentence" },
+  ) => IntlSegmenterLike;
+};
+
+function segmentTextRanges(text: string) {
+  if (!text.trim()) {
+    return [];
+  }
+
+  const segmentationText = normalizeTextForSentenceSegmentation(text);
+
+  try {
+    const Segmenter = (Intl as IntlWithSegmenter).Segmenter;
+    if (typeof Intl !== "undefined" && Segmenter) {
+      const locale = guessSentenceLocale(segmentationText);
+      const segmenter = new Segmenter(locale, {
+        granularity: "sentence",
+      });
+      const ranges = Array.from(segmenter.segment(segmentationText), (segment) => ({
+        start: segment.index,
+        end: segment.index + segment.segment.length,
+      })).filter(
+        (range) =>
+          segmentationText.slice(range.start, range.end).trim().length > 0,
+      );
+
+      if (ranges.length > 0) {
+        return ranges;
+      }
+    }
+  } catch {
+    // Fall back to the local rule set below.
+  }
+
+  const fallbackRanges = fallbackSegmentTextRanges(segmentationText);
+  if (fallbackRanges.length > 0) {
+    return fallbackRanges;
+  }
+
+  return [{ start: 0, end: segmentationText.length }];
+}
+
+function segmentLines(lines: Line[], mode: WritingMode): TextBlock[] {
+  if (lines.length === 0) {
+    return [];
+  }
+
+  const { text, units, outputMap } = buildReadingText(lines, mode);
+  const ranges = segmentTextRanges(text);
+
+  return ranges
+    .map((range) => {
+      const seenItems = new Set<number>();
+      const items: GlyphItem[] = [];
+
+      for (let position = range.start; position < range.end; position += 1) {
+        const unitIndex = outputMap[position];
+        if (unitIndex === undefined || unitIndex < 0) {
+          continue;
+        }
+
+        const unit = units[unitIndex];
+        if (!seenItems.has(unit.itemIndex)) {
+          seenItems.add(unit.itemIndex);
+          items.push(unit.item);
+        }
+      }
+
+      return {
+        items,
+        text: text.slice(range.start, range.end).trim(),
+      };
+    })
+    .filter((block) => block.items.length > 0 && Boolean(block.text));
 }
 
 function groupIntoParagraphsHorizontal(lines: Line[]): TextBlock[] {
-  if (lines.length === 0) return [];
-
-  // Calculate average line height
-  const avgHeight =
-    lines.reduce((sum, line) => sum + line.items.reduce((h, item) => h + item.h, 0) / line.items.length, 0) /
-    lines.length;
-
-  // Get the leftmost X position of each line
-  const lineStarts = lines.map((line) => {
-    const sorted = [...line.items].sort((a, b) => a.x - b.x);
-    return sorted[0]?.x ?? 0;
-  });
-
-  // Get line widths (rightmost - leftmost)
-  const lineWidths = lines.map((line) => {
-    if (line.items.length === 0) return 0;
-    const sorted = [...line.items].sort((a, b) => a.x - b.x);
-    const left = sorted[0].x;
-    const right = sorted[sorted.length - 1].x + sorted[sorted.length - 1].w;
-    return right - left;
-  });
-
-  // Find the most common left margin (baseline for non-indented lines)
-  const sortedStarts = [...lineStarts].sort((a, b) => a - b);
-  const baselineX = sortedStarts[Math.floor(sortedStarts.length * 0.15)] ?? 0;
-
-  // Calculate average line width to detect short lines
-  const avgWidth = lineWidths.reduce((sum, w) => sum + w, 0) / lineWidths.length;
-
-  // Indentation threshold - if a line starts significantly to the right of baseline, it's indented
-  const indentThreshold = avgHeight * 1.2;
-
-  // Vertical gap thresholds - increased to be less aggressive
-  const normalGapThreshold = avgHeight * 1.8;
-  const largeGapThreshold = avgHeight * 2.5;
-
-  const blocks: TextBlock[] = [];
-  let current: TextBlock = { items: [] };
-  let previousY = lines[0].y;
-  let previousLineText = "";
-  let previousLineWidth = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const lineStart = lineStarts[i];
-    const lineWidth = lineWidths[i];
-    const lineText = getLineText(line);
-    const verticalGap = line.y - previousY;
-
-    // Check various conditions for a new paragraph
-    let isNewParagraph = false;
-
-    if (current.items.length > 0) {
-      // Check if this line clearly continues the previous sentence
-      // (previous doesn't end with sentence punctuation AND current starts with lowercase or continues)
-      const prevEndsSentence = /[.!?]["'"']?\s*$/.test(previousLineText);
-      const currentStartsLowercase = /^[a-z]/.test(lineText.trim());
-      const currentContinuesSentence = /^(the|a|an|and|or|but|in|on|at|to|for|of|with|that|this|it|is|was|were|are|be|been|being|have|has|had|do|does|did|will|would|could|should|may|might|must|shall)\s/i.test(lineText.trim());
-
-      // If previous line doesn't end a sentence and current continues, don't split
-      const isContinuation = !prevEndsSentence && (currentStartsLowercase || currentContinuesSentence);
-
-      if (isContinuation) {
-        // Don't start a new paragraph - this is a continuation
-        isNewParagraph = false;
-      } else {
-        // 1. Line is indented (starts significantly to the right of baseline)
-        const isIndented = lineStart > baselineX + indentThreshold;
-
-        // 2. Very large vertical gap between lines
-        const hasLargeGap = verticalGap > largeGapThreshold;
-
-        // 3. Moderate gap + previous line ended with sentence-ending punctuation
-        const hasMediumGap = verticalGap > normalGapThreshold;
-
-        // 4. Line starts with quotation mark (dialogue) after sentence end
-        const startsWithQuote = /^["'"'「『]/.test(lineText.trim());
-
-        // 5. Previous line was significantly shorter AND ended sentence
-        const prevWasShort = previousLineWidth < avgWidth * 0.65;
-
-        // 6. Line starts with capital letter after previous ended with punctuation
-        const startsWithCapital = /^[A-Z]/.test(lineText.trim());
-
-        // Determine if this is a new paragraph - be more conservative
-        if (isIndented && prevEndsSentence) {
-          isNewParagraph = true;
-        } else if (hasLargeGap && prevEndsSentence) {
-          isNewParagraph = true;
-        } else if (hasMediumGap && prevEndsSentence && startsWithCapital) {
-          isNewParagraph = true;
-        } else if (startsWithQuote && prevEndsSentence && hasMediumGap) {
-          isNewParagraph = true;
-        } else if (prevWasShort && prevEndsSentence && startsWithCapital && hasMediumGap) {
-          isNewParagraph = true;
-        }
-      }
-    }
-
-    if (isNewParagraph) {
-      blocks.push(current);
-      current = { items: [] };
-    }
-
-    current.items.push(...line.items);
-    previousY = line.y;
-    previousLineText = lineText;
-    previousLineWidth = lineWidth;
-  }
-
-  if (current.items.length > 0) {
-    blocks.push(current);
-  }
-
-  return blocks;
+  return segmentLines(lines, "horizontal");
 }
 
 function groupIntoParagraphsVertical(columns: Line[]): TextBlock[] {
-  if (columns.length === 0) return [];
-  const avgHeight =
-    columns.reduce((sum, col) => sum + col.items.reduce((h, item) => h + item.h, 0) / col.items.length, 0) /
-    columns.length;
-  const gapThreshold = Math.max(6, avgHeight * 1.6);
-
-  const blocks: TextBlock[] = [];
-  let current: TextBlock = { items: [] };
-
-  for (const column of columns) {
-    let previousY = column.items.length > 0 ? column.items[0].y : 0;
-    for (const item of column.items) {
-      const gap = item.y - previousY;
-      if (current.items.length > 0 && gap > gapThreshold) {
-        blocks.push(current);
-        current = { items: [] };
-      }
-      current.items.push(item);
-      previousY = item.y;
-    }
-  }
-
-  if (current.items.length > 0) {
-    blocks.push(current);
-  }
-
-  return blocks;
+  return segmentLines(columns, "vertical");
 }
 
 function buildParagraphText(block: TextBlock): { text: string; items: GlyphItem[] } {
+  if (block.text) {
+    return { text: normalizeExtractedText(block.text), items: block.items };
+  }
+
   let text = "";
 
   for (const item of block.items) {
@@ -525,7 +713,7 @@ function buildParagraphText(block: TextBlock): { text: string; items: GlyphItem[
     text += item.text;
   }
 
-  return { text: text.trim(), items: block.items };
+  return { text: normalizeExtractedText(text.trim()), items: block.items };
 }
 
 function buildParagraphRects(page: number, items: GlyphItem[]): { page: number; x: number; y: number; w: number; h: number }[] {
@@ -571,54 +759,12 @@ export function extractParagraphsFromGlyphs(
   { docId, pageIndex, pageWidth, pageHeight }: GlyphExtractionOptions
 ): Paragraph[] {
   const mode = detectWritingMode(glyphs);
-  const sourceGlyphs = mode === "vertical" ? filterVerticalMarginalia(glyphs, pageHeight) : glyphs;
+  const sourceGlyphs =
+    mode === "vertical" ? filterVerticalMarginalia(glyphs, pageHeight) : glyphs;
   const paragraphs: Paragraph[] = [];
-
-  // For horizontal text, detect and handle multi-column layout
-  if (mode === "horizontal") {
-    const columnBoundaries = detectColumnBoundaries(sourceGlyphs, pageWidth);
-    const numColumns = columnBoundaries.length - 1;
-
-    if (numColumns > 1) {
-      // Multi-column layout detected
-      assignColumnsToItems(sourceGlyphs, columnBoundaries);
-      const columnGroups = groupItemsByColumn(sourceGlyphs, numColumns);
-
-      // Process each column separately, left to right
-      for (const columnItems of columnGroups) {
-        if (columnItems.length === 0) continue;
-
-        const lines = groupIntoHorizontalLines(columnItems);
-        const internalParagraphs = groupIntoParagraphsHorizontal(lines);
-
-        for (const para of internalParagraphs) {
-          const { text, items } = buildParagraphText(para);
-          if (!text) continue;
-
-          const hash = hashString(text);
-          const pid = `${docId}:p${pageIndex + 1}:${hash}`;
-          paragraphs.push({
-            pid,
-            page: pageIndex + 1,
-            source: text,
-            status: "idle",
-            rects: buildParagraphRects(pageIndex + 1, items),
-          });
-        }
-      }
-
-      return paragraphs;
-    }
-  }
-
-  // Single column or vertical layout
-  const lines =
-    mode === "vertical" ? groupIntoVerticalColumns(sourceGlyphs) : groupIntoHorizontalLines(sourceGlyphs);
-  const internalParagraphs = mode === "vertical" ? groupIntoParagraphsVertical(lines) : groupIntoParagraphsHorizontal(lines);
-
-  for (const para of internalParagraphs) {
-    const { text, items } = buildParagraphText(para);
-    if (!text) continue;
+  const appendParagraphBlock = (block: TextBlock) => {
+    const { text, items } = buildParagraphText(block);
+    if (!text) return;
 
     const hash = hashString(text);
     const pid = `${docId}:p${pageIndex + 1}:${hash}`;
@@ -629,8 +775,82 @@ export function extractParagraphsFromGlyphs(
       status: "idle",
       rects: buildParagraphRects(pageIndex + 1, items),
     });
+  };
+
+  let leadingSupplementalBlocks: TextBlock[] = [];
+  let mainSourceGlyphs = sourceGlyphs;
+
+  if (mode === "vertical") {
+    const verticalBodyGlyphs = sourceGlyphs.filter(isLikelyVerticalItem);
+    const supplementalGlyphs = sourceGlyphs.filter(
+      (item) => !isLikelyVerticalItem(item),
+    );
+
+    if (verticalBodyGlyphs.length > 0) {
+      mainSourceGlyphs = verticalBodyGlyphs;
+    }
+
+    if (supplementalGlyphs.length > 0) {
+      const supplementalBlocks = groupIntoParagraphsHorizontal(
+        groupIntoHorizontalLines(supplementalGlyphs),
+      );
+
+      leadingSupplementalBlocks = supplementalBlocks.filter((block) => {
+        const { text, items } = buildParagraphText(block);
+        const top = Math.min(...items.map((item) => item.y));
+        const left = Math.min(...items.map((item) => item.x));
+        const right = Math.max(...items.map((item) => item.x + item.w));
+        return (
+          text.length <= 24 &&
+          top < pageHeight * 0.22 &&
+          right - left < pageWidth * 0.35
+        );
+      });
+
+    }
   }
 
+  leadingSupplementalBlocks.forEach(appendParagraphBlock);
+
+  // For horizontal text, detect and handle multi-column layout
+  if (mode === "horizontal") {
+    const columnBoundaries = detectColumnBoundaries(mainSourceGlyphs, pageWidth);
+    const numColumns = columnBoundaries.length - 1;
+
+    if (numColumns > 1) {
+      // Multi-column layout detected
+      assignColumnsToItems(mainSourceGlyphs, columnBoundaries);
+      const columnGroups = groupItemsByColumn(mainSourceGlyphs, numColumns);
+
+      // Process each column separately, left to right
+      for (const columnItems of columnGroups) {
+        if (columnItems.length === 0) continue;
+
+        const lines = groupIntoHorizontalLines(columnItems);
+        const internalParagraphs = groupIntoParagraphsHorizontal(lines);
+
+        for (const para of internalParagraphs) {
+          appendParagraphBlock(para);
+        }
+      }
+
+      return paragraphs;
+    }
+  }
+
+  // Single column or vertical layout
+  const lines =
+    mode === "vertical"
+      ? groupIntoVerticalColumns(mainSourceGlyphs)
+      : groupIntoHorizontalLines(mainSourceGlyphs);
+  const internalParagraphs =
+    mode === "vertical"
+      ? groupIntoParagraphsVertical(lines)
+      : groupIntoParagraphsHorizontal(lines);
+
+  for (const para of internalParagraphs) {
+    appendParagraphBlock(para);
+  }
   return paragraphs;
 }
 
