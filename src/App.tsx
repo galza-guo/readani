@@ -143,6 +143,7 @@ import type {
   SelectionTranslation,
   SelectionTranslationResult,
   TranslationFallbackTrace,
+  TranslationCacheSummary,
   TranslationPreset,
   TranslationProviderKind,
   TranslationSettings,
@@ -442,6 +443,11 @@ function AppContent() {
   const [settingsCloseConfirmOpen, setSettingsCloseConfirmOpen] =
     useState(false);
   const [settingsClosePending, setSettingsClosePending] = useState(false);
+  const [translationCacheSummary, setTranslationCacheSummary] =
+    useState<TranslationCacheSummary | null>(null);
+  const [translationCacheLoading, setTranslationCacheLoading] = useState(false);
+  const [translationCacheActionTarget, setTranslationCacheActionTarget] =
+    useState<string | "all" | null>(null);
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [apiKeyEditingPresetId, setApiKeyEditingPresetId] = useState<
     string | null
@@ -726,12 +732,22 @@ function AppContent() {
               },
             };
           });
-          setTranslationStatusMessage(payload.message);
+          if (!isTranslateAllRunningRef.current) {
+            showToast({
+              message: payload.message,
+              durationMs: 3200,
+            });
+          }
           return;
         }
 
         if (translationRequestId.current === context.requestId) {
-          setTranslationStatusMessage(payload.message);
+          if (!isTranslateAllRunningRef.current) {
+            showToast({
+              message: payload.message,
+              durationMs: 3200,
+            });
+          }
         }
       },
     ).then((dispose) => {
@@ -761,7 +777,7 @@ function AppContent() {
       unlistenProgress?.();
       unlistenFailure?.();
     };
-  }, []);
+  }, [showToast]);
 
   const clearPendingUpdate = useCallback(() => {
     const currentUpdate = pendingUpdateRef.current;
@@ -2275,6 +2291,9 @@ function AppContent() {
   const resetSettingsDialogState = useCallback(() => {
     clearPendingPresetAutosave();
     updateSettingsDraftState(null);
+    setTranslationCacheSummary(null);
+    setTranslationCacheLoading(false);
+    setTranslationCacheActionTarget(null);
     setEditingPresetId(null);
     setApiKeyEditingPresetId(null);
     setPresetApiKeyDrafts({});
@@ -2290,9 +2309,30 @@ function AppContent() {
     setSettingsCloseConfirmOpen(false);
   }, [clearPendingPresetAutosave, updateSettingsDraftState]);
 
+  const refreshTranslationCacheSummary = useCallback(async () => {
+    setTranslationCacheLoading(true);
+
+    try {
+      const summary = (await invoke(
+        "get_translation_cache_summary",
+      )) as TranslationCacheSummary;
+      setTranslationCacheSummary(summary);
+    } catch (error) {
+      console.error("Failed to load translation cache summary:", error);
+      showToast({
+        message: "Could not load the translation cache.",
+        tone: "error",
+        durationMs: 4200,
+      });
+    } finally {
+      setTranslationCacheLoading(false);
+    }
+  }, [showToast]);
+
   const handleOpenSettings = useCallback(() => {
     clearPendingPresetAutosave();
     updateSettingsDraftState(settings);
+    void refreshTranslationCacheSummary();
     setEditingPresetId(null);
     setApiKeyEditingPresetId(null);
     setPresetApiKeyDrafts({});
@@ -2311,9 +2351,19 @@ function AppContent() {
   }, [
     buildInitialPresetSaveStatuses,
     clearPendingPresetAutosave,
+    refreshTranslationCacheSummary,
     settings,
     updateSettingsDraftState,
   ]);
+
+  const showTranslationSetupToast = useCallback(() => {
+    showToast({
+      message: TRANSLATION_SETUP_REQUIRED_MESSAGE,
+      actionLabel: "Open Settings",
+      onAction: handleOpenSettings,
+      durationMs: 4200,
+    });
+  }, [handleOpenSettings, showToast]);
 
   const getDraftPresetById = useCallback((presetId: string) => {
     const sourceSettings = settingsDraftRef.current ?? settingsRef.current;
@@ -3003,6 +3053,58 @@ function AppContent() {
       }
     },
     [persistSettings, showToast, updateSettingsDraftState],
+  );
+
+  const handleClearAllTranslationCache = useCallback(async () => {
+    setTranslationCacheActionTarget("all");
+
+    try {
+      await invoke("clear_all_translation_cache");
+      textTranslationCacheRef.current.clear();
+      await refreshTranslationCacheSummary();
+      showToast({
+        message: "Cleared cached translations.",
+        durationMs: 3200,
+      });
+    } catch (error) {
+      console.error("Failed to clear all translation cache:", error);
+      showToast({
+        message: "Could not clear the translation cache.",
+        tone: "error",
+        durationMs: 4200,
+      });
+    } finally {
+      setTranslationCacheActionTarget((current) =>
+        current === "all" ? null : current,
+      );
+    }
+  }, [refreshTranslationCacheSummary, showToast]);
+
+  const handleClearCachedBookTranslations = useCallback(
+    async (docId: string, title: string) => {
+      setTranslationCacheActionTarget(docId);
+
+      try {
+        await invoke("clear_cached_book_translations", { docId });
+        await refreshTranslationCacheSummary();
+        showToast({
+          message: `Deleted cached pages for ${title}.`,
+          durationMs: 3200,
+        });
+      } catch (error) {
+        console.error("Failed to clear cached book translations:", error);
+        showToast({
+          message: "Could not delete that book's cached pages.",
+          tone: "error",
+          durationMs: 4200,
+        });
+      } finally {
+        setTranslationCacheActionTarget((current) =>
+          current === docId ? null : current,
+        );
+      }
+    },
+    [refreshTranslationCacheSummary, showToast],
   );
 
   const handleTestPreset = useCallback(
@@ -4013,6 +4115,7 @@ function AppContent() {
 
       if (!activePresetHasTranslationContext) {
         setTranslationStatusMessage(TRANSLATION_SETUP_REQUIRED_MESSAGE);
+        showTranslationSetupToast();
         return;
       }
 
@@ -4093,6 +4196,7 @@ function AppContent() {
     allPdfPagesExtracted,
     currentFileType,
     resetTranslateAllSlowModeRuntime,
+    showTranslationSetupToast,
     startTranslateAll,
     stopTranslateAll,
     translationProgress.isFullyTranslated,
@@ -4415,6 +4519,16 @@ function AppContent() {
           ? TRANSLATION_SETUP_REQUIRED_MESSAGE
           : getFallbackFailureStatusMessage(failureTrace, error),
       );
+      if (requiresSetup) {
+        showTranslationSetupToast();
+      } else if (!isBulkRun) {
+        showToast({
+          message: friendlyError.message,
+          detail: getProviderErrorDetail(failureTrace?.lastError ?? error),
+          tone: "error",
+          durationMs: 5200,
+        });
+      }
     } finally {
       translatingRef.current = false;
       if (scheduledResume) {
@@ -4444,6 +4558,7 @@ function AppContent() {
     resetTranslateAllSlowModeRuntime,
     scheduleTranslateAllResume,
     showFallbackSuccessToast,
+    showTranslationSetupToast,
     showToast,
   ]);
 
@@ -4452,6 +4567,7 @@ function AppContent() {
       if (!docIdRef.current) return;
       if (!activePresetHasTranslationContext) {
         setTranslationStatusMessage(TRANSLATION_SETUP_REQUIRED_MESSAGE);
+        showTranslationSetupToast();
         return;
       }
       const para = pagesRef.current
@@ -4479,7 +4595,12 @@ function AppContent() {
         void runTranslateQueue();
       }, 400);
     },
-    [activePresetHasTranslationContext, currentFileType, runTranslateQueue],
+    [
+      activePresetHasTranslationContext,
+      currentFileType,
+      runTranslateQueue,
+      showTranslationSetupToast,
+    ],
   );
 
   const handleLocatePid = useCallback(
@@ -4902,10 +5023,15 @@ function AppContent() {
     testAllDisabled: dialogSettings.presets.length === 0 || hasInvalidPreset,
     presetModels,
     presetModelMessages,
+    translationCacheSummary,
+    translationCacheLoading,
+    translationCacheActionTarget,
     onSettingsChange: handleReaderSettingsChange,
     sessionFallbackPresetId,
     onAddPreset: handleAddPreset,
     onDeletePreset: handleDeletePreset,
+    onDeleteAllTranslationCache: handleClearAllTranslationCache,
+    onDeleteCachedBook: handleClearCachedBookTranslations,
     onEditingPresetChange: handleEditingPresetChange,
     onActivatePreset: handleActivatePreset,
     onPresetChange: handlePresetChange,
@@ -5274,7 +5400,6 @@ function AppContent() {
                       pageTranslation={pageTranslations[currentPage]}
                       loadingMessage={currentPdfLoadingMessage}
                       setupRequired={showPdfSetupPrompt}
-                      statusMessage={translationStatusMessage}
                       progressLabel={translationProgressLabel}
                       progressDetailLabel={translateAllProgressDetail.label}
                       progressDetailState={translateAllProgressDetail.state}
@@ -5302,7 +5427,6 @@ function AppContent() {
                       pages={pages}
                       currentPage={currentPage}
                       setupRequired={showEpubSetupPrompt}
-                      statusMessage={translationStatusMessage}
                       progressLabel={translationProgressLabel}
                       progressDetailLabel={translateAllProgressDetail.label}
                       progressDetailState={translateAllProgressDetail.state}

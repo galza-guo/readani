@@ -64,6 +64,17 @@ export type TranslationSettings = {
   presets: TranslationPreset[];
 };
 
+export type TranslationCacheBookSummary = {
+  docId: string;
+  title: string;
+  cachedPageCount: number;
+};
+
+export type TranslationCacheSummary = {
+  totalCacheSizeBytes: number;
+  books: TranslationCacheBookSummary[];
+};
+
 export type TranslationFallbackTrace = {
   requestedPresetId: string;
   finalPresetId: string;
