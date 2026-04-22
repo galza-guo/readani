@@ -7,16 +7,18 @@ English | [简体中文](./README.zh-CN.md)
 </p>
 
 <p align="center">
-  A desktop bilingual reader for PDFs and EPUBs, built for staying in the text instead of bouncing between tabs.
+  A desktop bilingual reader for PDFs and EPUBs, built for staying in the text with sentence-by-sentence translation close at hand.
 </p>
 
 <p align="center">
-  <strong>v1.1.0</strong> · Tauri · React · TypeScript · pdf.js
+  <strong>v1.2.0</strong> · Tauri · React · TypeScript · pdf.js
 </p>
 
 ## What It Is
 
 `readani` keeps the original document on the left and the translation on the right, so you can read a foreign-language PDF or EPUB without constantly copying text into another tool.
+
+Instead of giving you one large translated block, it works sentence by sentence, so it is easier to check meaning, names, and references without losing your place.
 
 It is especially useful for research papers, essays, manuals, reports, and other documents where sentence-level context matters.
 
@@ -24,7 +26,7 @@ It is especially useful for research papers, essays, manuals, reports, and other
 
 - Side-by-side reading layout for source and translation
 - PDF-first reader with preserved EPUB support
-- Sentence-aware translation presentation
+- Sentence-by-sentence translation for more precise reading
 - Source-page text selection for quick translation lookups
 - Local cache for faster re-opens and repeat reads
 - English-only desktop UI with light, dark, and system theme modes
