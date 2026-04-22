@@ -1,10 +1,11 @@
 use crate::providers::{ProviderConfig, ProviderKind, TranslationProviders};
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_MODEL: &str = "openai/gpt-4o-mini";
+const DEFAULT_MODEL: &str = "openrouter/free";
 const DEFAULT_LANGUAGE_CODE: &str = "zh-CN";
 const DEFAULT_LANGUAGE_LABEL: &str = "Chinese (Simplified)";
 const DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
+const OLLAMA_BASE_URL: &str = "http://localhost:11434/v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -39,6 +40,8 @@ pub struct AppSettings {
     pub theme: AppTheme,
     pub default_language: SettingsLanguage,
     pub active_preset_id: String,
+    #[serde(default)]
+    pub auto_fallback_enabled: bool,
     pub presets: Vec<TranslationPreset>,
 }
 
@@ -62,7 +65,11 @@ impl TranslationPreset {
         let provider_kind = self.provider_kind.clone();
         let model = normalize_required_string(Some(&self.model)).unwrap_or_default();
         let base_url = normalize_base_url(self.base_url.as_deref(), &provider_kind);
-        let api_key = normalize_optional_string(self.api_key.as_deref());
+        let api_key = if provider_kind.uses_api_key() {
+            normalize_optional_string(self.api_key.as_deref())
+        } else {
+            None
+        };
         let label = build_preset_label(&provider_kind, &model);
         let id = normalize_required_string(Some(&self.id))
             .unwrap_or_else(|| slugify(&build_preset_id_seed(&provider_kind, &model)));
@@ -99,6 +106,7 @@ impl Default for AppSettings {
             theme: AppTheme::System,
             default_language: SettingsLanguage::default(),
             active_preset_id: String::new(),
+            auto_fallback_enabled: false,
             presets: vec![],
         }
     }
@@ -109,7 +117,9 @@ impl AppSettings {
         let mut normalized = self.clone();
         normalized.default_language = normalize_language(Some(&self.default_language));
         normalized.presets = normalize_presets(&self.presets);
-        normalized.presets.retain(|preset| !is_seeded_legacy_placeholder_preset(preset));
+        normalized
+            .presets
+            .retain(|preset| !is_seeded_legacy_placeholder_preset(preset));
 
         normalized.active_preset_id = if normalized.presets.is_empty() {
             String::new()
@@ -169,8 +179,22 @@ pub fn merge_app_settings(existing: AppSettings, incoming: AppSettings) -> AppSe
         .into_iter()
         .map(|preset| {
             let mut preset = preset;
-            if let Some(saved) = existing.presets.iter().find(|candidate| candidate.id == preset.id) {
-                if preset.api_key.as_deref().map(str::trim).unwrap_or("").is_empty() {
+            if let Some(saved) = existing
+                .presets
+                .iter()
+                .find(|candidate| candidate.id == preset.id)
+            {
+                if !preset.provider_kind.uses_api_key() {
+                    preset.api_key = None;
+                    return preset;
+                }
+                if preset
+                    .api_key
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or("")
+                    .is_empty()
+                {
                     preset.api_key = saved.api_key.clone();
                 }
             }
@@ -190,11 +214,11 @@ pub fn migrate_legacy_translation_providers(
 
     for provider in legacy.providers {
         let normalized_provider = provider.normalized();
+        let provider_kind = normalized_provider.kind.clone();
         let model = normalized_provider
             .default_model
             .clone()
-            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-        let provider_kind = normalized_provider.kind.clone();
+            .unwrap_or_else(|| default_model_for_provider_kind(&provider_kind).to_string());
         let mut preset = TranslationPreset {
             id: slugify(&build_preset_id_seed(&provider_kind, &model)),
             label: String::new(),
@@ -208,7 +232,10 @@ pub fn migrate_legacy_translation_providers(
 
         preset.id = dedupe_id(
             &preset.id,
-            &presets.iter().map(|item: &TranslationPreset| item.id.clone()).collect::<Vec<_>>(),
+            &presets
+                .iter()
+                .map(|item: &TranslationPreset| item.id.clone())
+                .collect::<Vec<_>>(),
         );
         preset.label = dedupe_label(
             &preset.label,
@@ -231,6 +258,7 @@ pub fn migrate_legacy_translation_providers(
         theme: theme.unwrap_or_default(),
         default_language: normalize_language(default_language.as_ref()),
         active_preset_id,
+        auto_fallback_enabled: false,
         presets,
     }
     .normalized()
@@ -240,6 +268,7 @@ pub fn build_preset_label(provider_kind: &ProviderKind, model: &str) -> String {
     let provider_label = match provider_kind {
         ProviderKind::OpenRouter => "OpenRouter",
         ProviderKind::DeepSeek => "DeepSeek",
+        ProviderKind::Ollama => "Ollama",
         ProviderKind::OpenAiCompatible => "Custom",
     };
     let trimmed_model = model.trim();
@@ -301,7 +330,12 @@ fn default_language_label(code: &str) -> &str {
 
 fn normalize_base_url(base_url: Option<&str>, provider_kind: &ProviderKind) -> Option<String> {
     match provider_kind {
-        ProviderKind::DeepSeek => normalize_optional_string(base_url).or_else(|| Some(DEEPSEEK_BASE_URL.to_string())),
+        ProviderKind::DeepSeek => {
+            normalize_optional_string(base_url).or_else(|| Some(DEEPSEEK_BASE_URL.to_string()))
+        }
+        ProviderKind::Ollama => {
+            normalize_optional_string(base_url).or_else(|| Some(OLLAMA_BASE_URL.to_string()))
+        }
         _ => normalize_optional_string(base_url),
     }
     .map(|value| value.trim_end_matches('/').to_string())
@@ -322,6 +356,7 @@ fn build_preset_id_seed(provider_kind: &ProviderKind, model: &str) -> String {
     let provider_seed = match provider_kind {
         ProviderKind::OpenRouter => "openrouter",
         ProviderKind::DeepSeek => "deepseek",
+        ProviderKind::Ollama => "ollama",
         ProviderKind::OpenAiCompatible => "openai-compatible",
     };
 
@@ -356,7 +391,10 @@ fn dedupe_label(label: &str, existing_labels: &[String]) -> String {
 
     let mut suffix = 2;
     let mut candidate = format!("{} ({})", label, suffix);
-    while existing_labels.iter().any(|existing| existing == &candidate) {
+    while existing_labels
+        .iter()
+        .any(|existing| existing == &candidate)
+    {
         suffix += 1;
         candidate = format!("{} ({})", label, suffix);
     }
@@ -377,40 +415,48 @@ fn dedupe_id(id: &str, existing_ids: &[String]) -> String {
     candidate
 }
 
-fn matches_legacy_active_provider(preset: &TranslationPreset, legacy_active_provider_id: &str) -> bool {
+fn matches_legacy_active_provider(
+    preset: &TranslationPreset,
+    legacy_active_provider_id: &str,
+) -> bool {
     match preset.provider_kind {
         ProviderKind::OpenRouter => legacy_active_provider_id == "openrouter",
         ProviderKind::DeepSeek => legacy_active_provider_id == "deepseek",
+        ProviderKind::Ollama => legacy_active_provider_id == "ollama",
         ProviderKind::OpenAiCompatible => legacy_active_provider_id == "openai-compatible",
     }
 }
 
-fn expected_default_model(provider_kind: &ProviderKind) -> &'static str {
+fn default_model_for_provider_kind(provider_kind: &ProviderKind) -> &'static str {
     match provider_kind {
         ProviderKind::OpenRouter => DEFAULT_MODEL,
         ProviderKind::DeepSeek => "deepseek-chat",
+        ProviderKind::Ollama => "llama3.2",
         ProviderKind::OpenAiCompatible => "gpt-4o-mini",
     }
 }
 
 fn is_seeded_legacy_placeholder_preset(preset: &TranslationPreset) -> bool {
-    let expected_model = expected_default_model(&preset.provider_kind);
+    let expected_model = default_model_for_provider_kind(&preset.provider_kind);
     let expected_id = slugify(&build_preset_id_seed(&preset.provider_kind, expected_model));
     let expected_base_url = match preset.provider_kind {
         ProviderKind::DeepSeek => Some(DEEPSEEK_BASE_URL.to_string()),
+        ProviderKind::Ollama => Some(OLLAMA_BASE_URL.to_string()),
         ProviderKind::OpenRouter | ProviderKind::OpenAiCompatible => None,
     };
 
     preset.id == expected_id
         && preset.model.trim() == expected_model
-        && normalize_base_url(preset.base_url.as_deref(), &preset.provider_kind) == expected_base_url
+        && normalize_base_url(preset.base_url.as_deref(), &preset.provider_kind)
+            == expected_base_url
         && normalize_optional_string(preset.api_key.as_deref()).is_none()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        migrate_legacy_translation_providers, AppSettings, AppTheme, SettingsLanguage, TranslationPreset,
+        migrate_legacy_translation_providers, AppSettings, AppTheme, SettingsLanguage,
+        TranslationPreset,
     };
     use crate::providers::{ProviderConfig, ProviderKind, TranslationProviders};
 
@@ -442,7 +488,7 @@ mod tests {
                     base_url: None,
                     api_key: Some("sk-or-test".to_string()),
                     api_key_configured: true,
-                    default_model: Some("openai/gpt-4o-mini".to_string()),
+                    default_model: Some("openrouter/free".to_string()),
                 },
                 ProviderConfig {
                     id: "openai-compatible".to_string(),
@@ -495,7 +541,7 @@ mod tests {
                 base_url: None,
                 api_key: Some("sk-or-test".to_string()),
                 api_key_configured: false,
-                model: " openai/gpt-4o-mini ".to_string(),
+                model: " openrouter/free ".to_string(),
             }],
         };
 
@@ -503,9 +549,37 @@ mod tests {
 
         assert_eq!(normalized.default_language.code, "zh-CN");
         assert_eq!(normalized.active_preset_id, "openrouter-default");
-        assert_eq!(normalized.presets[0].label, "OpenRouter · openai/gpt-4o-mini");
+        assert_eq!(normalized.presets[0].label, "OpenRouter · openrouter/free");
         assert_eq!(normalized.presets[0].api_key.as_deref(), Some("sk-or-test"));
         assert!(normalized.presets[0].api_key_configured);
+    }
+
+    #[test]
+    fn normalization_gives_ollama_a_default_base_url_and_discards_api_keys() {
+        let settings = AppSettings {
+            theme: AppTheme::System,
+            default_language: SettingsLanguage::default(),
+            active_preset_id: "ollama".to_string(),
+            presets: vec![TranslationPreset {
+                id: "ollama".to_string(),
+                label: "".to_string(),
+                provider_kind: ProviderKind::Ollama,
+                base_url: None,
+                api_key: Some("ignored".to_string()),
+                api_key_configured: true,
+                model: " llama3.2 ".to_string(),
+            }],
+        };
+
+        let normalized = settings.normalized();
+
+        assert_eq!(normalized.presets[0].label, "Ollama · llama3.2");
+        assert_eq!(
+            normalized.presets[0].base_url.as_deref(),
+            Some("http://localhost:11434/v1")
+        );
+        assert_eq!(normalized.presets[0].api_key, None);
+        assert!(!normalized.presets[0].api_key_configured);
     }
 
     #[test]
@@ -556,16 +630,16 @@ mod tests {
         let settings = AppSettings {
             theme: AppTheme::System,
             default_language: SettingsLanguage::default(),
-            active_preset_id: "openrouter-openai-gpt-4o-mini".to_string(),
+            active_preset_id: "openrouter-openrouter-free".to_string(),
             presets: vec![
                 TranslationPreset {
-                    id: "openrouter-openai-gpt-4o-mini".to_string(),
-                    label: "OpenRouter · openai/gpt-4o-mini".to_string(),
+                    id: "openrouter-openrouter-free".to_string(),
+                    label: "OpenRouter · openrouter/free".to_string(),
                     provider_kind: ProviderKind::OpenRouter,
                     base_url: None,
                     api_key: None,
                     api_key_configured: false,
-                    model: "openai/gpt-4o-mini".to_string(),
+                    model: "openrouter/free".to_string(),
                 },
                 TranslationPreset {
                     id: "deepseek-deepseek-chat".to_string(),
@@ -584,6 +658,15 @@ mod tests {
                     api_key: None,
                     api_key_configured: false,
                     model: "gpt-4o-mini".to_string(),
+                },
+                TranslationPreset {
+                    id: "ollama-llama3-2".to_string(),
+                    label: "Ollama · llama3.2".to_string(),
+                    provider_kind: ProviderKind::Ollama,
+                    base_url: Some("http://localhost:11434/v1".to_string()),
+                    api_key: None,
+                    api_key_configured: false,
+                    model: "llama3.2".to_string(),
                 },
             ],
         };

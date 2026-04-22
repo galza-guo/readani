@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ProviderKind {
@@ -6,6 +7,8 @@ pub enum ProviderKind {
     OpenRouter,
     #[serde(rename = "deepseek", alias = "deep-seek")]
     DeepSeek,
+    #[serde(rename = "ollama")]
+    Ollama,
     #[serde(rename = "openai-compatible", alias = "open-ai-compatible")]
     OpenAiCompatible,
 }
@@ -55,6 +58,14 @@ struct ModelRecord {
     id: String,
 }
 
+const OLLAMA_BASE_URL: &str = "http://localhost:11434/v1";
+
+impl ProviderKind {
+    pub fn uses_api_key(&self) -> bool {
+        !matches!(self, Self::Ollama)
+    }
+}
+
 impl ProviderConfig {
     pub fn default_openrouter(api_key: Option<String>) -> Self {
         let mut provider = Self {
@@ -64,7 +75,7 @@ impl ProviderConfig {
             base_url: None,
             api_key,
             api_key_configured: false,
-            default_model: Some("openai/gpt-4o-mini".to_string()),
+            default_model: Some("openrouter/free".to_string()),
         };
         provider.normalize();
         provider
@@ -96,10 +107,24 @@ impl ProviderConfig {
         }
     }
 
+    pub fn default_ollama() -> Self {
+        let mut provider = Self {
+            id: "ollama".to_string(),
+            label: "Ollama".to_string(),
+            kind: ProviderKind::Ollama,
+            base_url: Some(OLLAMA_BASE_URL.to_string()),
+            api_key: None,
+            api_key_configured: false,
+            default_model: Some("llama3.2".to_string()),
+        };
+        provider.normalize();
+        provider
+    }
+
     pub fn models_url(&self) -> Result<String, String> {
         match self.kind {
             ProviderKind::OpenRouter => Ok("https://openrouter.ai/api/v1/models".to_string()),
-            ProviderKind::DeepSeek | ProviderKind::OpenAiCompatible => {
+            ProviderKind::DeepSeek | ProviderKind::Ollama | ProviderKind::OpenAiCompatible => {
                 Ok(format!("{}/models", self.resolved_base_url()?))
             }
         }
@@ -110,7 +135,7 @@ impl ProviderConfig {
             ProviderKind::OpenRouter => {
                 Ok("https://openrouter.ai/api/v1/chat/completions".to_string())
             }
-            ProviderKind::DeepSeek | ProviderKind::OpenAiCompatible => {
+            ProviderKind::DeepSeek | ProviderKind::Ollama | ProviderKind::OpenAiCompatible => {
                 Ok(format!("{}/chat/completions", self.resolved_base_url()?))
             }
         }
@@ -139,10 +164,14 @@ impl ProviderConfig {
         if matches!(self.kind, ProviderKind::DeepSeek) && self.base_url.is_none() {
             self.base_url = Some("https://api.deepseek.com".to_string());
         }
-        self.api_key = self
-            .api_key
-            .take()
-            .and_then(|value| normalize_optional_string(&value));
+        if self.kind.uses_api_key() {
+            self.api_key = self
+                .api_key
+                .take()
+                .and_then(|value| normalize_optional_string(&value));
+        } else {
+            self.api_key = None;
+        }
         self.default_model = self
             .default_model
             .take()
@@ -174,12 +203,20 @@ impl ProviderConfig {
                 .unwrap_or("https://api.deepseek.com")
                 .trim_end_matches('/')
                 .to_string()),
+            ProviderKind::Ollama => Ok(self
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(OLLAMA_BASE_URL)
+                .trim_end_matches('/')
+                .to_string()),
             ProviderKind::OpenAiCompatible => self.required_base_url(),
             ProviderKind::OpenRouter => Err("OpenRouter does not use a base URL.".to_string()),
         }
     }
 
-    fn validate_for_request(&self) -> Result<(), String> {
+    pub fn validate_for_request(&self) -> Result<(), String> {
         match self.kind {
             ProviderKind::OpenRouter => {
                 if self.authorization_token().is_none() {
@@ -191,6 +228,10 @@ impl ProviderConfig {
                 if self.authorization_token().is_none() {
                     return Err("DeepSeek API key is missing.".to_string());
                 }
+                self.resolved_base_url()?;
+                Ok(())
+            }
+            ProviderKind::Ollama => {
                 self.resolved_base_url()?;
                 Ok(())
             }
@@ -217,6 +258,7 @@ impl TranslationProviders {
             providers: vec![
                 ProviderConfig::default_openrouter(openrouter_key),
                 ProviderConfig::default_deepseek(),
+                ProviderConfig::default_ollama(),
                 ProviderConfig::default_openai_compatible(),
             ],
         }
@@ -275,6 +317,45 @@ fn extract_message_content(content: &serde_json::Value) -> Result<String, String
     }
 }
 
+fn build_http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(90))
+        .build()
+        .map_err(|error| format!("Failed to prepare the network client: {}", error))
+}
+
+fn truncate_http_body(body: &str) -> String {
+    const MAX_LEN: usize = 280;
+    let trimmed = body.trim();
+
+    if trimmed.len() > MAX_LEN {
+        format!("{}...", &trimmed[..MAX_LEN])
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn summarize_http_error_body(body: &str) -> String {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        for pointer in ["/error/message", "/message", "/error"] {
+            if let Some(message) = value.pointer(pointer).and_then(serde_json::Value::as_str) {
+                let normalized = message.trim();
+                if !normalized.is_empty() {
+                    return truncate_http_body(normalized);
+                }
+            }
+        }
+    }
+
+    truncate_http_body(trimmed)
+}
+
 pub async fn request_chat_completion(
     provider: &ProviderConfig,
     model: &str,
@@ -284,7 +365,7 @@ pub async fn request_chat_completion(
 ) -> Result<String, String> {
     provider.validate_for_request()?;
 
-    let client = reqwest::Client::new();
+    let client = build_http_client()?;
     let mut request = client
         .post(provider.chat_completions_url()?)
         .header("Content-Type", "application/json")
@@ -306,11 +387,26 @@ pub async fn request_chat_completion(
     if !response.status().is_success() {
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
-        return Err(format!("{} error: {} {}", provider.label, status, text));
+        let detail = summarize_http_error_body(&text);
+        return if detail.is_empty() {
+            Err(format!("{} error: {}", provider.label, status))
+        } else {
+            Err(format!("{} error: {} {}", provider.label, status, detail))
+        };
     }
 
-    let parsed: ChatCompletionResponse =
-        response.json().await.map_err(|error| error.to_string())?;
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("{} response read failed: {}", provider.label, error))?;
+    let parsed: ChatCompletionResponse = serde_json::from_str(&body).map_err(|error| {
+        format!(
+            "{} returned unreadable JSON: {} (body: {})",
+            provider.label,
+            error,
+            summarize_http_error_body(&body)
+        )
+    })?;
     let message = parsed
         .choices
         .first()
@@ -322,7 +418,7 @@ pub async fn request_chat_completion(
 pub async fn list_models(provider: &ProviderConfig) -> Result<Vec<String>, String> {
     provider.validate_for_request()?;
 
-    let client = reqwest::Client::new();
+    let client = build_http_client()?;
     let mut request = client.get(provider.models_url()?);
 
     if let Some(token) = provider.authorization_token() {
@@ -334,10 +430,26 @@ pub async fn list_models(provider: &ProviderConfig) -> Result<Vec<String>, Strin
     if !response.status().is_success() {
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
-        return Err(format!("{} error: {} {}", provider.label, status, text));
+        let detail = summarize_http_error_body(&text);
+        return if detail.is_empty() {
+            Err(format!("{} error: {}", provider.label, status))
+        } else {
+            Err(format!("{} error: {} {}", provider.label, status, detail))
+        };
     }
 
-    let parsed: ModelListResponse = response.json().await.map_err(|error| error.to_string())?;
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("{} response read failed: {}", provider.label, error))?;
+    let parsed: ModelListResponse = serde_json::from_str(&body).map_err(|error| {
+        format!(
+            "{} returned unreadable JSON: {} (body: {})",
+            provider.label,
+            error,
+            summarize_http_error_body(&body)
+        )
+    })?;
     let mut models = Vec::new();
 
     for record in parsed.data {
@@ -383,16 +495,55 @@ mod tests {
     }
 
     #[test]
+    fn ollama_uses_local_default_base_url_and_does_not_require_an_api_key() {
+        let provider = ProviderConfig {
+            id: "ollama".to_string(),
+            label: "Ollama".to_string(),
+            kind: ProviderKind::Ollama,
+            base_url: None,
+            api_key: Some("ignored".to_string()),
+            api_key_configured: true,
+            default_model: Some("llama3.2".to_string()),
+        }
+        .normalized();
+
+        assert_eq!(
+            provider.models_url().unwrap(),
+            "http://localhost:11434/v1/models"
+        );
+        assert_eq!(
+            provider.chat_completions_url().unwrap(),
+            "http://localhost:11434/v1/chat/completions"
+        );
+        assert_eq!(provider.authorization_token(), None);
+        provider.validate_for_request().unwrap();
+    }
+
+    #[test]
     fn provider_kind_accepts_legacy_values_and_serializes_canonical_frontend_values() {
-        assert_eq!(from_str::<ProviderKind>("\"open-router\"").unwrap(), ProviderKind::OpenRouter);
-        assert_eq!(from_str::<ProviderKind>("\"deep-seek\"").unwrap(), ProviderKind::DeepSeek);
+        assert_eq!(
+            from_str::<ProviderKind>("\"open-router\"").unwrap(),
+            ProviderKind::OpenRouter
+        );
+        assert_eq!(
+            from_str::<ProviderKind>("\"deep-seek\"").unwrap(),
+            ProviderKind::DeepSeek
+        );
+        assert_eq!(
+            from_str::<ProviderKind>("\"ollama\"").unwrap(),
+            ProviderKind::Ollama
+        );
         assert_eq!(
             from_str::<ProviderKind>("\"open-ai-compatible\"").unwrap(),
             ProviderKind::OpenAiCompatible
         );
 
-        assert_eq!(to_string(&ProviderKind::OpenRouter).unwrap(), "\"openrouter\"");
+        assert_eq!(
+            to_string(&ProviderKind::OpenRouter).unwrap(),
+            "\"openrouter\""
+        );
         assert_eq!(to_string(&ProviderKind::DeepSeek).unwrap(), "\"deepseek\"");
+        assert_eq!(to_string(&ProviderKind::Ollama).unwrap(), "\"ollama\"");
         assert_eq!(
             to_string(&ProviderKind::OpenAiCompatible).unwrap(),
             "\"openai-compatible\""

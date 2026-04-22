@@ -2,20 +2,23 @@ mod app_settings;
 mod page_cache;
 mod providers;
 
-use chrono::{DateTime, Utc};
 use app_settings::{
-    merge_app_settings, migrate_legacy_translation_providers, AppSettings, TranslationPreset,
+    merge_app_settings, migrate_legacy_translation_providers, AppSettings, SettingsLanguage,
+    TranslationPreset,
 };
+use chrono::{DateTime, Utc};
 use page_cache::{
-    clear_cached_page, clear_cached_pages_for_document, list_cached_pages, page_cache_key,
-    CachedPageTranslation, PageTranslationCache, PAGE_PROMPT_VERSION,
+    clear_cached_page, clear_cached_pages_for_document, find_cached_page_translation,
+    list_cached_pages, page_cache_key, CachedPageTranslation, PageTranslationCache,
+    PAGE_PROMPT_VERSION,
 };
 use providers::{list_models, request_chat_completion, ProviderConfig, TranslationProviders};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::fs;
 use std::path::PathBuf;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[derive(Debug, Deserialize)]
 struct TargetLanguage {
@@ -52,6 +55,37 @@ struct FlexibleTranslationResult {
 struct CachedTranslations {
     entries: HashMap<String, String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TranslationFallbackTrace {
+    requested_preset_id: String,
+    final_preset_id: String,
+    used_fallback: bool,
+    attempted_preset_ids: Vec<String>,
+    attempt_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranslationFallbackProgressEvent {
+    request_id: String,
+    message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranslationFallbackFailureEvent {
+    request_id: String,
+    trace: TranslationFallbackTrace,
+}
+
+const SENTENCE_PROMPT_VERSION: &str = "sentence-v1";
+const PRESET_TEST_SAMPLE_TEXT: &str = "This is a short translation test.";
+const FALLBACK_PROGRESS_EVENT: &str = "translation-fallback-progress";
+const FALLBACK_FAILURE_EVENT: &str = "translation-fallback-failure";
 
 const LEGACY_APP_IDENTIFIER: &str = "com.xnu.pdfread";
 const MIGRATABLE_APP_CONFIG_FILES: &[&str] = &[
@@ -172,8 +206,10 @@ fn load_page_cache(handle: &tauri::AppHandle) -> Result<PageTranslationCache, St
     if !path.exists() {
         return Ok(PageTranslationCache::default());
     }
-    let data = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&data).map_err(|e| e.to_string())
+    let data = fs::read_to_string(path)
+        .map_err(|e| format!("readani could not read the local translation cache: {}", e))?;
+    serde_json::from_str(&data)
+        .map_err(|e| format!("readani could not read the local translation cache: {}", e))
 }
 
 fn save_page_cache(handle: &tauri::AppHandle, cache: &PageTranslationCache) -> Result<(), String> {
@@ -182,7 +218,8 @@ fn save_page_cache(handle: &tauri::AppHandle, cache: &PageTranslationCache) -> R
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let data = serde_json::to_string_pretty(cache).map_err(|e| e.to_string())?;
-    fs::write(path, data).map_err(|e| e.to_string())
+    fs::write(path, data)
+        .map_err(|e| format!("readani could not save the local translation cache: {}", e))
 }
 
 fn load_cache(handle: &tauri::AppHandle) -> Result<CachedTranslations, String> {
@@ -192,8 +229,10 @@ fn load_cache(handle: &tauri::AppHandle) -> Result<CachedTranslations, String> {
             entries: HashMap::new(),
         });
     }
-    let data = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&data).map_err(|e| e.to_string())
+    let data = fs::read_to_string(path)
+        .map_err(|e| format!("readani could not read the local translation cache: {}", e))?;
+    serde_json::from_str(&data)
+        .map_err(|e| format!("readani could not read the local translation cache: {}", e))
 }
 
 fn save_cache(handle: &tauri::AppHandle, cache: &CachedTranslations) -> Result<(), String> {
@@ -202,7 +241,8 @@ fn save_cache(handle: &tauri::AppHandle, cache: &CachedTranslations) -> Result<(
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let data = serde_json::to_string_pretty(cache).map_err(|e| e.to_string())?;
-    fs::write(path, data).map_err(|e| e.to_string())
+    fs::write(path, data)
+        .map_err(|e| format!("readani could not save the local translation cache: {}", e))
 }
 
 fn load_legacy_openrouter_key(handle: &tauri::AppHandle) -> Result<String, String> {
@@ -348,10 +388,299 @@ fn resolve_preset(
     }
 }
 
+fn preset_has_translation_context(preset: &TranslationPreset) -> bool {
+    !preset.id.trim().is_empty() && !preset.model.trim().is_empty()
+}
+
+fn build_fallback_preset_sequence(
+    settings: &AppSettings,
+    requested_preset_id: &str,
+) -> Result<Vec<TranslationPreset>, String> {
+    let requested_index = settings
+        .presets
+        .iter()
+        .position(|preset| preset.id == requested_preset_id)
+        .ok_or_else(|| format!("Unknown preset: {}", requested_preset_id))?;
+
+    let requested = settings.presets[requested_index].clone().normalized();
+    let mut ordered = vec![requested];
+
+    if !settings.auto_fallback_enabled {
+        return Ok(ordered);
+    }
+
+    for offset in 1..settings.presets.len() {
+        let index = (requested_index + offset) % settings.presets.len();
+        let candidate = settings.presets[index].clone().normalized();
+
+        if !preset_has_translation_context(&candidate) {
+            continue;
+        }
+
+        if candidate.to_provider_config().validate_for_request().is_ok() {
+            ordered.push(candidate);
+        }
+    }
+
+    Ok(ordered)
+}
+
+fn summarize_fallback_error_for_progress(error: &str) -> &'static str {
+    let normalized = error.to_lowercase();
+
+    if normalized.contains("timed out") || normalized.contains("timeout") {
+        return "timed out";
+    }
+    if normalized.contains("invalid api key")
+        || normalized.contains("incorrect api key")
+        || normalized.contains("unauthorized")
+        || normalized.contains("401")
+    {
+        return "was not accepted";
+    }
+    if normalized.contains("too many requests")
+        || normalized.contains("rate limit")
+        || normalized.contains("429")
+    {
+        return "hit a rate limit";
+    }
+    if normalized.contains("quota")
+        || normalized.contains("insufficient")
+        || normalized.contains("credit")
+        || normalized.contains("balance")
+        || normalized.contains("payment required")
+        || normalized.contains("402")
+    {
+        return "ran out of usage";
+    }
+    if (normalized.contains("model") && normalized.contains("not found"))
+        || normalized.contains("unknown model")
+        || normalized.contains("invalid model")
+    {
+        return "does not support that model";
+    }
+    if normalized.contains("error sending request")
+        || normalized.contains("error trying to connect")
+        || normalized.contains("client error (connect)")
+        || normalized.contains("connection refused")
+        || normalized.contains("connection reset")
+        || normalized.contains("connection closed before message completed")
+        || normalized.contains("broken pipe")
+        || normalized.contains("tls")
+        || normalized.contains("certificate")
+    {
+        return "could not connect";
+    }
+
+    "failed"
+}
+
+fn should_retry_with_fallback(error: &str) -> bool {
+    let normalized = error.to_lowercase();
+
+    if normalized.contains("could not save this page locally")
+        || normalized.contains("could not save these results locally")
+        || normalized.contains("could not read the local translation cache")
+    {
+        return false;
+    }
+
+    normalized.contains("no active preset configured")
+        || normalized.contains("no preset configured")
+        || normalized.contains("api key is missing")
+        || normalized.contains("base url is missing")
+        || normalized.contains("invalid api key")
+        || normalized.contains("incorrect api key")
+        || normalized.contains("api key was not accepted")
+        || normalized.contains("unauthorized")
+        || normalized.contains("401")
+        || ((normalized.contains("model") && normalized.contains("not found"))
+            || normalized.contains("unknown model")
+            || normalized.contains("invalid model"))
+        || normalized.contains("base url")
+        || normalized.contains("not found")
+        || normalized.contains("404")
+        || normalized.contains("does not use a base url")
+        || normalized.contains("enotfound")
+        || normalized.contains("dns")
+        || normalized.contains("error sending request")
+        || normalized.contains("error trying to connect")
+        || normalized.contains("client error (connect)")
+        || normalized.contains("connection refused")
+        || normalized.contains("connection reset")
+        || normalized.contains("connection closed before message completed")
+        || normalized.contains("broken pipe")
+        || normalized.contains("tls")
+        || normalized.contains("certificate")
+        || normalized.contains("too many requests")
+        || normalized.contains("rate limit")
+        || normalized.contains("429")
+        || normalized.contains("quota")
+        || normalized.contains("insufficient")
+        || normalized.contains("credit")
+        || normalized.contains("balance")
+        || normalized.contains("payment required")
+        || normalized.contains("402")
+        || normalized.contains("maximum context length")
+        || normalized.contains("context_length_exceeded")
+        || normalized.contains("prompt is too long")
+        || normalized.contains("too many tokens")
+        || normalized.contains("context window")
+        || normalized.contains("input is too long")
+        || normalized.contains("service unavailable")
+        || normalized.contains("bad gateway")
+        || normalized.contains("gateway timeout")
+        || normalized.contains("502")
+        || normalized.contains("503")
+        || normalized.contains("504")
+        || normalized.contains("returned unreadable json")
+        || normalized.contains("failed to parse translation json")
+        || normalized.contains("returned no choices")
+        || normalized.contains("without text content")
+        || normalized.contains("unsupported response format")
+        || normalized.contains("returned an empty translation")
+        || normalized.contains("returned incomplete translations")
+        || normalized.contains("timed out")
+        || normalized.contains("timeout")
+        || normalized.contains("failed to fetch")
+        || normalized.contains("network")
+        || normalized.contains("connection")
+        || normalized.contains("socket")
+}
+
+fn emit_fallback_progress(
+    handle: &tauri::AppHandle,
+    request_id: Option<&str>,
+    failed_preset: &TranslationPreset,
+    next_preset: &TranslationPreset,
+    error: &str,
+    next_attempt_index: usize,
+    attempt_count: usize,
+) {
+    let Some(request_id) = request_id else {
+        return;
+    };
+
+    let payload = TranslationFallbackProgressEvent {
+        request_id: request_id.to_string(),
+        message: format!(
+            "{} {}. Trying {} ({}/{})...",
+            failed_preset.label,
+            summarize_fallback_error_for_progress(error),
+            next_preset.label,
+            next_attempt_index + 1,
+            attempt_count
+        ),
+    };
+
+    let _ = handle.emit(FALLBACK_PROGRESS_EVENT, payload);
+}
+
+fn emit_fallback_failure(
+    handle: &tauri::AppHandle,
+    request_id: Option<&str>,
+    trace: &TranslationFallbackTrace,
+) {
+    let Some(request_id) = request_id else {
+        return;
+    };
+
+    let payload = TranslationFallbackFailureEvent {
+        request_id: request_id.to_string(),
+        trace: trace.clone(),
+    };
+
+    let _ = handle.emit(FALLBACK_FAILURE_EVENT, payload);
+}
+
+async fn execute_with_preset_fallback<T, F, Fut>(
+    handle: &tauri::AppHandle,
+    requested_preset_id: &str,
+    request_id: Option<&str>,
+    mut execute: F,
+) -> Result<(T, TranslationFallbackTrace), String>
+where
+    F: FnMut(TranslationPreset) -> Fut,
+    Fut: Future<Output = Result<T, String>>,
+{
+    let settings = load_app_settings(handle)?;
+    let presets = build_fallback_preset_sequence(&settings, requested_preset_id)?;
+    let attempt_count = presets.len();
+    let mut attempted_preset_ids = Vec::with_capacity(attempt_count);
+    let mut last_error: Option<String> = None;
+
+    for (index, preset) in presets.iter().cloned().enumerate() {
+        attempted_preset_ids.push(preset.id.clone());
+
+        match execute(preset.clone()).await {
+            Ok(value) => {
+                return Ok((
+                    value,
+                    TranslationFallbackTrace {
+                        requested_preset_id: requested_preset_id.to_string(),
+                        final_preset_id: preset.id,
+                        used_fallback: index > 0,
+                        attempted_preset_ids,
+                        attempt_count: index + 1,
+                        last_error,
+                    },
+                ));
+            }
+            Err(error) => {
+                let has_next = index + 1 < presets.len();
+                let retryable = has_next && should_retry_with_fallback(&error);
+                last_error = Some(error.clone());
+
+                if retryable {
+                    emit_fallback_progress(
+                        handle,
+                        request_id,
+                        &preset,
+                        &presets[index + 1],
+                        &error,
+                        index + 1,
+                        attempt_count,
+                    );
+                    continue;
+                }
+
+                let trace = TranslationFallbackTrace {
+                    requested_preset_id: requested_preset_id.to_string(),
+                    final_preset_id: preset.id,
+                    used_fallback: index > 0,
+                    attempted_preset_ids,
+                    attempt_count: index + 1,
+                    last_error: Some(error.clone()),
+                };
+                emit_fallback_failure(handle, request_id, &trace);
+                return Err(error);
+            }
+        }
+    }
+
+    let error = last_error.unwrap_or_else(|| "Translation failed.".to_string());
+    let trace = TranslationFallbackTrace {
+        requested_preset_id: requested_preset_id.to_string(),
+        final_preset_id: requested_preset_id.to_string(),
+        used_fallback: false,
+        attempted_preset_ids,
+        attempt_count: 0,
+        last_error: Some(error.clone()),
+    };
+    emit_fallback_failure(handle, request_id, &trace);
+    Err(error)
+}
+
 fn merge_saved_preset_credentials(
     saved_presets: &[TranslationPreset],
     mut incoming: TranslationPreset,
 ) -> TranslationPreset {
+    if !incoming.provider_kind.uses_api_key() {
+        incoming.api_key = None;
+        incoming.api_key_configured = false;
+        return incoming;
+    }
+
     if let Some(saved) = saved_presets.iter().find(|preset| preset.id == incoming.id) {
         let incoming_key_missing = incoming
             .api_key
@@ -468,9 +797,21 @@ struct PresetTestResult {
     label: String,
     ok: bool,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
 }
 
-async fn run_preset_test(preset: TranslationPreset) -> PresetTestResult {
+fn settings_language_to_target_language(language: &SettingsLanguage) -> TargetLanguage {
+    TargetLanguage {
+        label: language.label.clone(),
+        code: language.code.clone(),
+    }
+}
+
+async fn run_preset_test(
+    preset: TranslationPreset,
+    target_language: &TargetLanguage,
+) -> PresetTestResult {
     let normalized = preset.normalized();
     if normalized.model.trim().is_empty() {
         return PresetTestResult {
@@ -478,6 +819,7 @@ async fn run_preset_test(preset: TranslationPreset) -> PresetTestResult {
             label: normalized.label,
             ok: false,
             message: "Model is required.".to_string(),
+            detail: None,
         };
     }
     let provider = normalized.to_provider_config();
@@ -485,8 +827,8 @@ async fn run_preset_test(preset: TranslationPreset) -> PresetTestResult {
         &provider,
         &normalized.model,
         0.0,
-        "You are a connection test. Reply with OK.",
-        "Reply with OK.",
+        build_selection_translation_system_prompt(),
+        &build_preset_test_prompt(target_language),
     )
     .await;
 
@@ -495,14 +837,19 @@ async fn run_preset_test(preset: TranslationPreset) -> PresetTestResult {
             preset_id: normalized.id,
             label: normalized.label,
             ok: true,
-            message: "Connected".to_string(),
+            message: "Short translation test passed.".to_string(),
+            detail: None,
         },
-        Err(error) => PresetTestResult {
-            preset_id: normalized.id,
-            label: normalized.label,
-            ok: false,
-            message: error,
-        },
+        Err(error) => {
+            let detail = error.clone();
+            PresetTestResult {
+                preset_id: normalized.id,
+                label: normalized.label,
+                ok: false,
+                message: error,
+                detail: Some(detail),
+            }
+        }
     }
 }
 
@@ -576,7 +923,8 @@ async fn test_translation_preset(
 ) -> Result<PresetTestResult, String> {
     let saved_settings = load_app_settings(&handle)?;
     let merged = merge_saved_preset_credentials(&saved_settings.presets, preset);
-    Ok(run_preset_test(merged).await)
+    let target_language = settings_language_to_target_language(&saved_settings.default_language);
+    Ok(run_preset_test(merged, &target_language).await)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -585,10 +933,11 @@ async fn test_all_translation_presets(
     presets: Vec<TranslationPreset>,
 ) -> Result<Vec<PresetTestResult>, String> {
     let saved_settings = load_app_settings(&handle)?;
+    let target_language = settings_language_to_target_language(&saved_settings.default_language);
     let mut results = Vec::with_capacity(presets.len());
     for preset in presets {
         let merged = merge_saved_preset_credentials(&saved_settings.presets, preset);
-        results.push(run_preset_test(merged).await);
+        results.push(run_preset_test(merged, &target_language).await);
     }
     Ok(results)
 }
@@ -599,6 +948,21 @@ struct PageTranslationResponse {
     page: u32,
     translated_text: String,
     is_cached: bool,
+    fallback_trace: TranslationFallbackTrace,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchTranslationResponse {
+    results: Vec<TranslationResult>,
+    fallback_trace: TranslationFallbackTrace,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SelectionTranslationResponse {
+    translation: String,
+    fallback_trace: TranslationFallbackTrace,
 }
 
 #[derive(Debug, Deserialize)]
@@ -606,6 +970,14 @@ struct PageTranslationResponse {
 struct PageCacheLookupInput {
     page: u32,
     display_text: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WordLookupResponse {
+    phonetic: Option<String>,
+    definitions: Vec<WordDefinitionResult>,
+    fallback_trace: TranslationFallbackTrace,
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -628,57 +1000,51 @@ async fn list_preset_models(
     list_models(&provider).await
 }
 
-#[tauri::command(rename_all = "camelCase")]
-async fn translate_page_text(
-    handle: tauri::AppHandle,
-    preset_id: String,
-    model: String,
+async fn translate_page_text_with_preset(
+    handle: &tauri::AppHandle,
+    preset: &TranslationPreset,
     temperature: f32,
-    target_language: TargetLanguage,
-    doc_id: String,
+    target_language: &TargetLanguage,
+    doc_id: &str,
     page: u32,
-    display_text: String,
-    previous_context: String,
-    next_context: String,
-) -> Result<PageTranslationResponse, String> {
-    let trimmed_display = display_text.trim();
-    if trimmed_display.is_empty() {
-        return Err("Page text is empty.".to_string());
-    }
-    if model.trim().is_empty() {
-        return Err("Model is required.".to_string());
-    }
-
-    let preset = resolve_preset(&handle, Some(&preset_id))?;
+    display_text: &str,
+    previous_context: &str,
+    next_context: &str,
+) -> Result<(String, bool), String> {
     let provider = preset.to_provider_config();
-    let source_hash = hash_source_text(trimmed_display);
+    let source_hash = hash_source_text(display_text);
     let cache_key = page_cache_key(
-        &doc_id,
+        doc_id,
         page,
         &source_hash,
         &preset.id,
-        &model,
+        &preset.model,
         &target_language.code,
         PAGE_PROMPT_VERSION,
     );
 
-    let mut cache = load_page_cache(&handle)?;
-    if let Some(entry) = cache.entries.get(&cache_key) {
-        return Ok(PageTranslationResponse {
-            page,
-            translated_text: entry.translated_text.clone(),
-            is_cached: true,
-        });
+    let mut cache = load_page_cache(handle)?;
+    if let Some(entry) = find_cached_page_translation(
+        &cache,
+        doc_id,
+        page,
+        &source_hash,
+        &preset.id,
+        &preset.model,
+        &target_language.code,
+        PAGE_PROMPT_VERSION,
+    ) {
+        return Ok((entry.translated_text.clone(), true));
     }
 
     let translated_text = request_chat_completion(
         &provider,
-        &model,
+        &preset.model,
         temperature,
         &build_page_translation_system_prompt(),
         &build_page_translation_prompt(
-            &target_language,
-            trimmed_display,
+            target_language,
+            display_text,
             previous_context.trim(),
             next_context.trim(),
         ),
@@ -696,19 +1062,68 @@ async fn translate_page_text(
             page,
             translated_text: translated_text.clone(),
             source_hash,
-            provider_id: preset.id,
-            model,
-            language: target_language.code,
+            provider_id: preset.id.clone(),
+            model: preset.model.clone(),
+            language: target_language.code.clone(),
             prompt_version: PAGE_PROMPT_VERSION.to_string(),
             cached_at: Utc::now(),
         },
     );
-    save_page_cache(&handle, &cache)?;
+    save_page_cache(handle, &cache).map_err(|error| {
+        format!(
+            "Translation succeeded, but readani could not save this page locally: {}",
+            error
+        )
+    })?;
 
+    Ok((translated_text, false))
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn translate_page_text(
+    handle: tauri::AppHandle,
+    preset_id: String,
+    _model: String,
+    temperature: f32,
+    target_language: TargetLanguage,
+    doc_id: String,
+    page: u32,
+    display_text: String,
+    previous_context: String,
+    next_context: String,
+    request_id: Option<String>,
+) -> Result<PageTranslationResponse, String> {
+    let trimmed_display = display_text.trim();
+    if trimmed_display.is_empty() {
+        return Err("Page text is empty.".to_string());
+    }
+    let (result, fallback_trace) = execute_with_preset_fallback(
+        &handle,
+        &preset_id,
+        request_id.as_deref(),
+        |preset| async {
+            translate_page_text_with_preset(
+                &handle,
+                &preset,
+                temperature,
+                &target_language,
+                &doc_id,
+                page,
+                trimmed_display,
+                &previous_context,
+                &next_context,
+            )
+            .await
+        },
+    )
+    .await?;
+
+    let (translated_text, is_cached) = result;
     Ok(PageTranslationResponse {
         page,
         translated_text,
-        is_cached: false,
+        is_cached,
+        fallback_trace,
     })
 }
 
@@ -722,14 +1137,8 @@ fn list_cached_page_translations(
     pages: Vec<PageCacheLookupInput>,
 ) -> Result<Vec<u32>, String> {
     let cache = load_page_cache(&handle)?;
-    let cached_pages = list_cached_pages(
-        &cache,
-        &doc_id,
-        &preset_id,
-        &model,
-        &target_language.code,
-        PAGE_PROMPT_VERSION,
-    );
+    let cached_pages =
+        list_cached_pages(&cache, &doc_id, &preset_id, &model, &target_language.code, PAGE_PROMPT_VERSION);
 
     let candidate_pages: std::collections::HashSet<u32> = cached_pages.into_iter().collect();
     let mut matches = Vec::new();
@@ -741,7 +1150,8 @@ fn list_cached_page_translations(
         }
 
         let source_hash = hash_source_text(trimmed_display);
-        let cache_key = page_cache_key(
+        if find_cached_page_translation(
+            &cache,
             &doc_id,
             input.page,
             &source_hash,
@@ -749,9 +1159,9 @@ fn list_cached_page_translations(
             &model,
             &target_language.code,
             PAGE_PROMPT_VERSION,
-        );
-
-        if cache.entries.contains_key(&cache_key) {
+        )
+        .is_some()
+        {
             matches.push(input.page);
         }
     }
@@ -759,6 +1169,49 @@ fn list_cached_page_translations(
     matches.sort_unstable();
     matches.dedup();
     Ok(matches)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn get_cached_page_translation(
+    handle: tauri::AppHandle,
+    preset_id: String,
+    model: String,
+    target_language: TargetLanguage,
+    doc_id: String,
+    page: u32,
+    display_text: String,
+) -> Result<Option<PageTranslationResponse>, String> {
+    let trimmed_display = display_text.trim();
+    if trimmed_display.is_empty() {
+        return Ok(None);
+    }
+
+    let source_hash = hash_source_text(trimmed_display);
+    let cache = load_page_cache(&handle)?;
+    let entry = find_cached_page_translation(
+        &cache,
+        &doc_id,
+        page,
+        &source_hash,
+        &preset_id,
+        &model,
+        &target_language.code,
+        PAGE_PROMPT_VERSION,
+    );
+
+    Ok(entry.map(|entry| PageTranslationResponse {
+        page,
+        translated_text: entry.translated_text,
+        is_cached: true,
+        fallback_trace: TranslationFallbackTrace {
+            requested_preset_id: preset_id.clone(),
+            final_preset_id: preset_id.clone(),
+            used_fallback: false,
+            attempted_preset_ids: vec![preset_id.clone()],
+            attempt_count: 1,
+            last_error: None,
+        },
+    }))
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -807,27 +1260,39 @@ fn clear_document_page_translations(
 async fn translate_selection_text(
     handle: tauri::AppHandle,
     preset_id: String,
-    model: String,
+    _model: String,
     target_language: TargetLanguage,
     text: String,
-) -> Result<String, String> {
+) -> Result<SelectionTranslationResponse, String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Err("Selection text is empty.".to_string());
     }
 
-    let preset = resolve_preset(&handle, Some(&preset_id))?;
-    let provider = preset.to_provider_config();
-    let translation = request_chat_completion(
-        &provider,
-        &model,
-        0.0,
-        build_selection_translation_system_prompt(),
-        &build_selection_translation_prompt(&target_language, trimmed),
+    let (translation, fallback_trace) = execute_with_preset_fallback(
+        &handle,
+        &preset_id,
+        None,
+        |preset| async {
+            let provider = preset.to_provider_config();
+            let translation = request_chat_completion(
+                &provider,
+                &preset.model,
+                0.0,
+                build_selection_translation_system_prompt(),
+                &build_selection_translation_prompt(&target_language, trimmed),
+            )
+            .await?;
+
+            Ok(translation.trim().to_string())
+        },
     )
     .await?;
 
-    Ok(translation.trim().to_string())
+    Ok(SelectionTranslationResponse {
+        translation,
+        fallback_trace,
+    })
 }
 
 fn build_system_prompt() -> String {
@@ -868,7 +1333,11 @@ fn target_language_prompt_text(target_language: &TargetLanguage) -> String {
 fn build_word_lookup_prompt(word: &str, target_language: &TargetLanguage) -> String {
     let target = target_language_prompt_text(target_language);
     let label = target_language.label.trim();
-    let meaning_language = if label.is_empty() { target.as_str() } else { label };
+    let meaning_language = if label.is_empty() {
+        target.as_str()
+    } else {
+        label
+    };
 
     format!(
         r#"Look up the word "{}" and provide its definition in {}.
@@ -947,10 +1416,11 @@ fn build_selection_translation_system_prompt() -> &'static str {
 
 fn build_selection_translation_prompt(target_language: &TargetLanguage, text: &str) -> String {
     let target = target_language_prompt_text(target_language);
-    format!(
-        "Target language: {}\nSelected text:\n{}",
-        target, text
-    )
+    format!("Target language: {}\nSelected text:\n{}", target, text)
+}
+
+fn build_preset_test_prompt(target_language: &TargetLanguage) -> String {
+    build_selection_translation_prompt(target_language, PRESET_TEST_SAMPLE_TEXT)
 }
 
 #[tauri::command]
@@ -1098,128 +1568,384 @@ fn extract_doc_id(sid: &str) -> &str {
     sid.split(':').next().unwrap_or(sid)
 }
 
-#[tauri::command(rename_all = "camelCase")]
-async fn openrouter_translate(
-    handle: tauri::AppHandle,
-    preset_id: String,
-    model: String,
+fn sentence_cache_key(
+    doc_id: &str,
+    sid: &str,
+    source_hash: &str,
+    provider_id: &str,
+    model: &str,
+    language: &str,
+    prompt_version: &str,
+) -> String {
+    format!(
+        "{doc_id}|{sid}|{source_hash}|{provider_id}|{model}|{language}|{prompt_version}"
+    )
+}
+
+fn legacy_shared_sentence_cache_key(
+    doc_id: &str,
+    sid: &str,
+    source_hash: &str,
+    language: &str,
+    prompt_version: &str,
+) -> String {
+    format!("{doc_id}|{sid}|{source_hash}|{language}|{prompt_version}")
+}
+
+fn find_cached_sentence_translation(
+    cache: &CachedTranslations,
+    doc_id: &str,
+    sid: &str,
+    source_hash: &str,
+    provider_id: &str,
+    model: &str,
+    language: &str,
+) -> Option<String> {
+    let shared_key = sentence_cache_key(
+        doc_id,
+        sid,
+        source_hash,
+        provider_id,
+        model,
+        language,
+        SENTENCE_PROMPT_VERSION,
+    );
+    if let Some(value) = cache.entries.get(&shared_key) {
+        return Some(value.clone());
+    }
+
+    cache.entries
+        .get(&legacy_shared_sentence_cache_key(
+            doc_id,
+            sid,
+            source_hash,
+            language,
+            SENTENCE_PROMPT_VERSION,
+        ))
+        .cloned()
+}
+
+async fn request_sentence_translations_with_preset(
+    handle: &tauri::AppHandle,
+    preset: &TranslationPreset,
     temperature: f32,
-    target_language: TargetLanguage,
-    sentences: Vec<TranslateSentence>,
+    target_language: &TargetLanguage,
+    sentences: &[TranslateSentence],
 ) -> Result<Vec<TranslationResult>, String> {
     if sentences.is_empty() {
         return Ok(Vec::new());
     }
 
-    let preset = resolve_preset(&handle, Some(&preset_id))?;
     let provider = preset.to_provider_config();
-    let mut cache = load_cache(&handle)?;
-    let cache_key = |sid: &str, text: &str| {
-        let doc_id = extract_doc_id(sid);
-        let source_hash = hash_source_text(text);
-        format!(
-            "{}|{}|{}|{}|{}|{}",
-            doc_id, sid, source_hash, preset.id, model, target_language.code
+    let system_prompt = build_system_prompt();
+    let user_prompt = build_user_prompt(target_language, sentences);
+
+    let mut content = request_chat_completion(
+        &provider,
+        &preset.model,
+        temperature,
+        &system_prompt,
+        &user_prompt,
+    )
+    .await?;
+    let mut parsed = parse_translation_json(&content);
+
+    if parsed.is_err() {
+        let strict_user_prompt = format!(
+            "Return ONLY this JSON array format with no extra text. Target language: {} ({})\nInput JSON: {}",
+            target_language.label,
+            target_language.code,
+            serde_json::to_string(sentences).unwrap_or_else(|_| "[]".to_string())
+        );
+        content = request_chat_completion(
+            &provider,
+            &preset.model,
+            temperature,
+            &system_prompt,
+            &strict_user_prompt,
         )
-    };
-
-    let mut results: HashMap<String, String> = HashMap::new();
-    let mut missing: Vec<TranslateSentence> = Vec::new();
-
-    for sentence in sentences.iter() {
-        if let Some(value) = cache.entries.get(&cache_key(&sentence.sid, &sentence.text)) {
-            results.insert(sentence.sid.clone(), value.clone());
-        } else {
-            missing.push(TranslateSentence {
-                sid: sentence.sid.clone(),
-                text: sentence.text.clone(),
-            });
-        }
+        .await?;
+        parsed = parse_translation_json(&content);
     }
 
-    if !missing.is_empty() {
-        let system_prompt = build_system_prompt();
-        let user_prompt = build_user_prompt(&target_language, &missing);
+    let translations = parsed.map_err(|e| format!("Failed to parse translation JSON: {}", e))?;
+    let mut cache = load_cache(handle)?;
 
-        let mut content =
-            request_chat_completion(&provider, &model, temperature, &system_prompt, &user_prompt)
-                .await?;
-        let mut parsed = parse_translation_json(&content);
+    for item in &translations {
+        let source_text = sentences
+            .iter()
+            .find(|sentence| sentence.sid == item.sid)
+            .map(|sentence| sentence.text.as_str())
+            .unwrap_or("");
+        let doc_id = extract_doc_id(&item.sid);
+        let source_hash = hash_source_text(source_text);
+        cache.entries.insert(
+            sentence_cache_key(
+                doc_id,
+                &item.sid,
+                &source_hash,
+                &preset.id,
+                &preset.model,
+                &target_language.code,
+                SENTENCE_PROMPT_VERSION,
+            ),
+            item.translation.clone(),
+        );
+    }
 
-        if parsed.is_err() {
-            let strict_user_prompt = format!(
-                "Return ONLY this JSON array format with no extra text. Target language: {} ({})\nInput JSON: {}",
-                target_language.label,
-                target_language.code,
-                serde_json::to_string(&missing).unwrap_or_else(|_| "[]".to_string())
-            );
-            content = request_chat_completion(
-                &provider,
-                &model,
-                temperature,
-                &system_prompt,
-                &strict_user_prompt,
+    if !translations.is_empty() {
+        save_cache(handle, &cache).map_err(|error| {
+            format!(
+                "Translation succeeded, but readani could not save these results locally: {}",
+                error
             )
-            .await?;
-            parsed = parse_translation_json(&content);
-        }
-
-        let translations = parsed.map_err(|e| format!("Failed to parse translation JSON: {}", e))?;
-        for item in translations {
-            let source_text = missing
-                .iter()
-                .find(|sentence| sentence.sid == item.sid)
-                .map(|sentence| sentence.text.as_str())
-                .unwrap_or("");
-            cache
-                .entries
-                .insert(cache_key(&item.sid, source_text), item.translation.clone());
-            results.insert(item.sid.clone(), item.translation);
-        }
-        save_cache(&handle, &cache)?;
+        })?;
     }
 
-    let mut output: Vec<TranslationResult> = Vec::new();
-    for sentence in sentences {
-        if let Some(translation) = results.get(&sentence.sid) {
-            output.push(TranslationResult {
-                sid: sentence.sid,
-                translation: translation.clone(),
+    Ok(translations)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn openrouter_translate(
+    handle: tauri::AppHandle,
+    preset_id: String,
+    _model: String,
+    temperature: f32,
+    target_language: TargetLanguage,
+    sentences: Vec<TranslateSentence>,
+    force_fresh_ids: Option<Vec<String>>,
+    request_id: Option<String>,
+) -> Result<BatchTranslationResponse, String> {
+    if sentences.is_empty() {
+        return Ok(BatchTranslationResponse {
+            results: Vec::new(),
+            fallback_trace: TranslationFallbackTrace {
+                requested_preset_id: preset_id.clone(),
+                final_preset_id: preset_id,
+                used_fallback: false,
+                attempted_preset_ids: Vec::new(),
+                attempt_count: 0,
+                last_error: None,
+            },
+        });
+    }
+
+    let settings = load_app_settings(&handle)?;
+    let presets = build_fallback_preset_sequence(&settings, &preset_id)?;
+    let attempt_count = presets.len();
+    let force_fresh_ids: HashSet<String> = force_fresh_ids.unwrap_or_default().into_iter().collect();
+    let mut results: HashMap<String, String> = HashMap::new();
+    let mut pending = sentences.clone();
+    let mut attempted_preset_ids = Vec::with_capacity(attempt_count);
+    let mut last_error: Option<String> = None;
+
+    for (index, preset) in presets.iter().cloned().enumerate() {
+        attempted_preset_ids.push(preset.id.clone());
+
+        let cache = load_cache(&handle)?;
+        let mut still_pending = Vec::new();
+        for sentence in std::mem::take(&mut pending) {
+            let doc_id = extract_doc_id(&sentence.sid);
+            let source_hash = hash_source_text(&sentence.text);
+            let is_force_fresh = force_fresh_ids.contains(&sentence.sid);
+
+            if !is_force_fresh {
+                if let Some(value) = find_cached_sentence_translation(
+                    &cache,
+                    doc_id,
+                    &sentence.sid,
+                    &source_hash,
+                    &preset.id,
+                    &preset.model,
+                    &target_language.code,
+                ) {
+                    results.insert(sentence.sid.clone(), value);
+                    continue;
+                }
+            }
+
+            still_pending.push(sentence);
+        }
+
+        if still_pending.is_empty() {
+            return Ok(BatchTranslationResponse {
+                results: sentences
+                    .iter()
+                    .filter_map(|sentence| {
+                        results.get(&sentence.sid).map(|translation| TranslationResult {
+                            sid: sentence.sid.clone(),
+                            translation: translation.clone(),
+                        })
+                    })
+                    .collect(),
+                fallback_trace: TranslationFallbackTrace {
+                    requested_preset_id: preset_id.clone(),
+                    final_preset_id: preset.id,
+                    used_fallback: index > 0,
+                    attempted_preset_ids,
+                    attempt_count: index + 1,
+                    last_error,
+                },
             });
         }
+
+        match request_sentence_translations_with_preset(
+            &handle,
+            &preset,
+            temperature,
+            &target_language,
+            &still_pending,
+        )
+        .await
+        {
+            Ok(translations) => {
+                for item in &translations {
+                    results.insert(item.sid.clone(), item.translation.clone());
+                }
+
+                let unresolved: Vec<TranslateSentence> = still_pending
+                    .into_iter()
+                    .filter(|sentence| !results.contains_key(&sentence.sid))
+                    .collect();
+
+                if unresolved.is_empty() {
+                    return Ok(BatchTranslationResponse {
+                        results: sentences
+                            .iter()
+                            .filter_map(|sentence| {
+                                results.get(&sentence.sid).map(|translation| TranslationResult {
+                                    sid: sentence.sid.clone(),
+                                    translation: translation.clone(),
+                                })
+                            })
+                            .collect(),
+                        fallback_trace: TranslationFallbackTrace {
+                            requested_preset_id: preset_id.clone(),
+                            final_preset_id: preset.id,
+                            used_fallback: index > 0,
+                            attempted_preset_ids,
+                            attempt_count: index + 1,
+                            last_error,
+                        },
+                    });
+                }
+
+                let error = format!("{} returned incomplete translations.", preset.label);
+                let has_next = index + 1 < presets.len();
+                last_error = Some(error.clone());
+                if has_next && should_retry_with_fallback(&error) {
+                    emit_fallback_progress(
+                        &handle,
+                        request_id.as_deref(),
+                        &preset,
+                        &presets[index + 1],
+                        &error,
+                        index + 1,
+                        attempt_count,
+                    );
+                    pending = unresolved;
+                    continue;
+                }
+
+                let trace = TranslationFallbackTrace {
+                    requested_preset_id: preset_id.clone(),
+                    final_preset_id: preset.id,
+                    used_fallback: index > 0,
+                    attempted_preset_ids,
+                    attempt_count: index + 1,
+                    last_error: Some(error.clone()),
+                };
+                emit_fallback_failure(&handle, request_id.as_deref(), &trace);
+                return Err(error);
+            }
+            Err(error) => {
+                let has_next = index + 1 < presets.len();
+                last_error = Some(error.clone());
+                if has_next && should_retry_with_fallback(&error) {
+                    emit_fallback_progress(
+                        &handle,
+                        request_id.as_deref(),
+                        &preset,
+                        &presets[index + 1],
+                        &error,
+                        index + 1,
+                        attempt_count,
+                    );
+                    pending = still_pending;
+                    continue;
+                }
+
+                let trace = TranslationFallbackTrace {
+                    requested_preset_id: preset_id.clone(),
+                    final_preset_id: preset.id,
+                    used_fallback: index > 0,
+                    attempted_preset_ids,
+                    attempt_count: index + 1,
+                    last_error: Some(error.clone()),
+                };
+                emit_fallback_failure(&handle, request_id.as_deref(), &trace);
+                return Err(error);
+            }
+        }
     }
 
-    Ok(output)
+    let error = last_error.unwrap_or_else(|| "Translation failed.".to_string());
+    let trace = TranslationFallbackTrace {
+        requested_preset_id: preset_id.clone(),
+        final_preset_id: preset_id.clone(),
+        used_fallback: false,
+        attempted_preset_ids,
+        attempt_count: 0,
+        last_error: Some(error.clone()),
+    };
+    emit_fallback_failure(&handle, request_id.as_deref(), &trace);
+    Err(error)
 }
 
 #[tauri::command(rename_all = "camelCase")]
 async fn openrouter_word_lookup(
     handle: tauri::AppHandle,
     preset_id: String,
-    model: String,
+    _model: String,
     target_language: TargetLanguage,
     word: String,
-) -> Result<WordLookupResult, String> {
-    let preset = resolve_preset(&handle, Some(&preset_id))?;
-    let provider = preset.to_provider_config();
-    let system_prompt = build_word_lookup_system_prompt();
-    let user_prompt = build_word_lookup_prompt(&word, &target_language);
+) -> Result<WordLookupResponse, String> {
+    let (result, fallback_trace) = execute_with_preset_fallback(
+        &handle,
+        &preset_id,
+        None,
+        |preset| async {
+            let provider = preset.to_provider_config();
+            let system_prompt = build_word_lookup_system_prompt();
+            let user_prompt = build_word_lookup_prompt(&word, &target_language);
 
-    let content =
-        request_chat_completion(&provider, &model, 0.0, &system_prompt, &user_prompt).await?;
+            let content = request_chat_completion(
+                &provider,
+                &preset.model,
+                0.0,
+                &system_prompt,
+                &user_prompt,
+            )
+            .await?;
 
-    // Try to extract JSON from the response
-    let json_content = extract_json_object(&content);
+            let json_content = extract_json_object(&content);
 
-    let result: WordLookupResult = serde_json::from_str(&json_content).map_err(|e| {
-        format!(
-            "Failed to parse word lookup JSON: {} (content: {})",
-            e,
-            truncate_for_error(&json_content)
-        )
-    })?;
+            serde_json::from_str::<WordLookupResult>(&json_content).map_err(|e| {
+                format!(
+                    "Failed to parse word lookup JSON: {} (content: {})",
+                    e,
+                    truncate_for_error(&json_content)
+                )
+            })
+        },
+    )
+    .await?;
 
-    Ok(result)
+    Ok(WordLookupResponse {
+        phonetic: result.phonetic,
+        definitions: result.definitions,
+        fallback_trace,
+    })
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -1512,6 +2238,7 @@ pub fn run() {
             list_provider_models,
             list_preset_models,
             translate_page_text,
+            get_cached_page_translation,
             list_cached_page_translations,
             clear_cached_page_translation,
             clear_document_page_translations,
@@ -1540,9 +2267,14 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_selection_translation_prompt, merge_saved_preset_credentials, TargetLanguage};
+    use super::{
+        build_preset_test_prompt, build_selection_translation_prompt,
+        find_cached_sentence_translation, merge_saved_preset_credentials, sentence_cache_key,
+        CachedTranslations, TargetLanguage, PRESET_TEST_SAMPLE_TEXT, SENTENCE_PROMPT_VERSION,
+    };
     use crate::app_settings::TranslationPreset;
     use crate::providers::ProviderKind;
+    use std::collections::HashMap;
 
     #[test]
     fn custom_language_prompt_prefers_the_custom_label() {
@@ -1556,6 +2288,17 @@ mod tests {
 
         assert!(prompt.contains("Hong Kong Traditional Chinese"));
         assert!(!prompt.contains("custom:hong-kong-traditional-chinese"));
+    }
+
+    #[test]
+    fn preset_test_prompt_uses_a_short_translation_sample() {
+        let prompt = build_preset_test_prompt(&TargetLanguage {
+            label: "Chinese (Simplified)".to_string(),
+            code: "zh-CN".to_string(),
+        });
+
+        assert!(prompt.contains("Target language: Chinese (Simplified) (zh-CN)"));
+        assert!(prompt.contains(PRESET_TEST_SAMPLE_TEXT));
     }
 
     #[test]
@@ -1583,5 +2326,59 @@ mod tests {
 
         assert_eq!(merged.api_key.as_deref(), Some("sk-saved"));
         assert!(merged.api_key_configured);
+    }
+
+    #[test]
+    fn does_not_merge_saved_api_keys_into_ollama_presets() {
+        let saved = TranslationPreset {
+            id: "preset-1".to_string(),
+            label: "Ollama".to_string(),
+            provider_kind: ProviderKind::Ollama,
+            base_url: Some("http://localhost:11434/v1".to_string()),
+            api_key: Some("old-key".to_string()),
+            api_key_configured: true,
+            model: "llama3.2".to_string(),
+        };
+        let incoming = TranslationPreset {
+            id: "preset-1".to_string(),
+            label: "Ollama".to_string(),
+            provider_kind: ProviderKind::Ollama,
+            base_url: Some("http://localhost:11434/v1".to_string()),
+            api_key: None,
+            api_key_configured: false,
+            model: "llama3.2".to_string(),
+        };
+
+        let merged = merge_saved_preset_credentials(&[saved], incoming);
+
+        assert_eq!(merged.api_key, None);
+        assert!(!merged.api_key_configured);
+    }
+
+    #[test]
+    fn sentence_cache_key_is_provider_independent() {
+        let key = sentence_cache_key(
+            "doc-1",
+            "doc-1:1",
+            "hash-1",
+            "zh-CN",
+            SENTENCE_PROMPT_VERSION,
+        );
+
+        assert_eq!(key, "doc-1|doc-1:1|hash-1|zh-CN|sentence-v1".to_string());
+    }
+
+    #[test]
+    fn finds_legacy_sentence_cache_entries_across_provider_changes() {
+        let mut entries = HashMap::new();
+        entries.insert(
+            "doc-1|doc-1:1|hash-1|preset-a|model-a|zh-CN".to_string(),
+            "legacy translation".to_string(),
+        );
+        let cache = CachedTranslations { entries };
+
+        let value = find_cached_sentence_translation(&cache, "doc-1", "doc-1:1", "hash-1", "zh-CN");
+
+        assert_eq!(value.as_deref(), Some("legacy translation"));
     }
 }

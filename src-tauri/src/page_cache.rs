@@ -31,7 +31,19 @@ pub fn page_cache_key(
     language: &str,
     prompt_version: &str,
 ) -> String {
-    format!("{doc_id}|{page}|{source_hash}|{provider_id}|{model}|{language}|{prompt_version}")
+    format!(
+        "{doc_id}|{page}|{source_hash}|{provider_id}|{model}|{language}|{prompt_version}"
+    )
+}
+
+fn legacy_shared_page_cache_key(
+    doc_id: &str,
+    page: u32,
+    source_hash: &str,
+    language: &str,
+    prompt_version: &str,
+) -> String {
+    format!("{doc_id}|{page}|{source_hash}|{language}|{prompt_version}")
 }
 
 fn cache_entry_matches_scope(
@@ -44,10 +56,55 @@ fn cache_entry_matches_scope(
     prompt_version: &str,
 ) -> bool {
     key.starts_with(&format!("{doc_id}|"))
-        && entry.provider_id == provider_id
-        && entry.model == model
         && entry.language == language
         && entry.prompt_version == prompt_version
+        && entry.provider_id == provider_id
+        && entry.model == model
+}
+
+fn cache_entry_matches_legacy_scope(
+    key: &str,
+    entry: &CachedPageTranslation,
+    doc_id: &str,
+    language: &str,
+    prompt_version: &str,
+) -> bool {
+    key == legacy_shared_page_cache_key(
+        doc_id,
+        entry.page,
+        &entry.source_hash,
+        language,
+        prompt_version,
+    ) && entry.language == language
+        && entry.prompt_version == prompt_version
+}
+
+pub fn find_cached_page_translation(
+    cache: &PageTranslationCache,
+    doc_id: &str,
+    page: u32,
+    source_hash: &str,
+    provider_id: &str,
+    model: &str,
+    language: &str,
+    prompt_version: &str,
+) -> Option<CachedPageTranslation> {
+    let key = page_cache_key(
+        doc_id,
+        page,
+        source_hash,
+        provider_id,
+        model,
+        language,
+        prompt_version,
+    );
+    if let Some(entry) = cache.entries.get(&key) {
+        return Some(entry.clone());
+    }
+
+    let legacy_key =
+        legacy_shared_page_cache_key(doc_id, page, source_hash, language, prompt_version);
+    cache.entries.get(&legacy_key).cloned()
 }
 
 pub fn list_cached_pages(
@@ -62,15 +119,8 @@ pub fn list_cached_pages(
         .entries
         .iter()
         .filter(|(key, entry)| {
-            cache_entry_matches_scope(
-                key,
-                entry,
-                doc_id,
-                provider_id,
-                model,
-                language,
-                prompt_version,
-            )
+            cache_entry_matches_scope(key, entry, doc_id, provider_id, model, language, prompt_version)
+                || cache_entry_matches_legacy_scope(key, entry, doc_id, language, prompt_version)
         })
         .map(|(_, entry)| entry.page)
         .collect();
@@ -91,7 +141,7 @@ pub fn clear_cached_page(
 ) -> usize {
     let before = cache.entries.len();
     cache.entries.retain(|key, entry| {
-        !cache_entry_matches_scope(
+        (!cache_entry_matches_scope(
             key,
             entry,
             doc_id,
@@ -99,7 +149,8 @@ pub fn clear_cached_page(
             model,
             language,
             prompt_version,
-        ) || entry.page != page
+        ) && !cache_entry_matches_legacy_scope(key, entry, doc_id, language, prompt_version))
+            || entry.page != page
     });
     before.saturating_sub(cache.entries.len())
 }
@@ -114,15 +165,8 @@ pub fn clear_cached_pages_for_document(
 ) -> usize {
     let before = cache.entries.len();
     cache.entries.retain(|key, entry| {
-        !cache_entry_matches_scope(
-            key,
-            entry,
-            doc_id,
-            provider_id,
-            model,
-            language,
-            prompt_version,
-        )
+        !cache_entry_matches_scope(key, entry, doc_id, provider_id, model, language, prompt_version)
+            && !cache_entry_matches_legacy_scope(key, entry, doc_id, language, prompt_version)
     });
     before.saturating_sub(cache.entries.len())
 }
@@ -130,8 +174,8 @@ pub fn clear_cached_pages_for_document(
 #[cfg(test)]
 mod tests {
     use super::{
-        clear_cached_page, clear_cached_pages_for_document, list_cached_pages, page_cache_key,
-        CachedPageTranslation, PageTranslationCache,
+        clear_cached_page, clear_cached_pages_for_document, find_cached_page_translation,
+        list_cached_pages, page_cache_key, CachedPageTranslation, PageTranslationCache,
     };
     use chrono::Utc;
     use std::collections::HashMap;
@@ -172,7 +216,7 @@ mod tests {
             },
         );
         entries.insert(
-            page_cache_key("doc-a", 1, "hash-4", "openrouter", "m2", "zh-CN", "v1"),
+            "doc-a|1|hash-4|zh-CN|v1".to_string(),
             CachedPageTranslation {
                 page: 1,
                 translated_text: "other-model".to_string(),
@@ -189,16 +233,16 @@ mod tests {
     }
 
     #[test]
-    fn page_cache_key_changes_when_provider_or_prompt_version_changes() {
-        let a = page_cache_key("doc", 12, "hash", "openrouter", "m1", "zh-CN", "v1");
-        let b = page_cache_key("doc", 12, "hash", "custom", "m1", "zh-CN", "v1");
-        let c = page_cache_key("doc", 12, "hash", "openrouter", "m1", "zh-CN", "v2");
-        assert_ne!(a, b);
+    fn page_cache_key_is_provider_independent_and_changes_with_prompt_version() {
+        let a = page_cache_key("doc", 12, "hash", "preset-a", "model-a", "zh-CN", "v1");
+        let b = page_cache_key("doc", 12, "hash", "preset-a", "model-a", "zh-CN", "v1");
+        let c = page_cache_key("doc", 12, "hash", "preset-a", "model-b", "zh-CN", "v1");
+        assert_eq!(a, b);
         assert_ne!(a, c);
     }
 
     #[test]
-    fn lists_cached_pages_for_one_document_and_settings_tuple() {
+    fn lists_cached_pages_for_one_document_and_language_scope() {
         let cache = build_cache();
 
         assert_eq!(
@@ -213,7 +257,7 @@ mod tests {
 
         assert_eq!(
             clear_cached_page(&mut cache, "doc-a", 1, "openrouter", "m1", "zh-CN", "v1"),
-            1
+            2
         );
         assert_eq!(
             list_cached_pages(&cache, "doc-a", "openrouter", "m1", "zh-CN", "v1"),
@@ -222,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn clears_all_matching_cached_pages_without_touching_other_documents_or_models() {
+    fn clears_all_matching_cached_pages_without_touching_other_documents() {
         let mut cache = build_cache();
 
         assert_eq!(
@@ -234,7 +278,7 @@ mod tests {
                 "zh-CN",
                 "v1"
             ),
-            2
+            3
         );
         assert_eq!(
             list_cached_pages(&cache, "doc-a", "openrouter", "m1", "zh-CN", "v1"),
@@ -244,9 +288,25 @@ mod tests {
             list_cached_pages(&cache, "doc-b", "openrouter", "m1", "zh-CN", "v1"),
             vec![1]
         );
-        assert_eq!(
-            list_cached_pages(&cache, "doc-a", "openrouter", "m2", "zh-CN", "v1"),
-            vec![1]
-        );
+    }
+
+    #[test]
+    fn finds_cached_page_translation_from_legacy_shared_keys() {
+        let cache = build_cache();
+
+        let entry = find_cached_page_translation(
+            &cache,
+            "doc-a",
+            1,
+            "hash-4",
+            "deepseek",
+            "deepseek-chat",
+            "zh-CN",
+            "v1",
+        )
+        .expect("legacy entry should be found");
+
+        assert_eq!(entry.translated_text, "other-model");
+        assert_eq!(entry.provider_id, "openrouter");
     }
 }
