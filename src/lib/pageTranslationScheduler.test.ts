@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { PageDoc, PageTranslationState } from "../types";
+import type { PageDoc } from "../types";
 import {
   dequeueNextPage,
   enqueueBackgroundPages,
@@ -67,11 +67,11 @@ describe("pageTranslationScheduler queues", () => {
 });
 
 describe("pageTranslationScheduler progress", () => {
-  test("counts cached and freshly translated translatable pages", () => {
+  test("counts only pages whose translatable paragraphs are all done", () => {
     const pages: PageDoc[] = [
       {
         page: 1,
-        paragraphs: [{ pid: "a", page: 1, source: "A readable first page.", status: "idle", rects: [] }],
+        paragraphs: [{ pid: "a", page: 1, source: "A readable first page.", translation: "Translated.", status: "done", rects: [] }],
       },
       {
         page: 2,
@@ -82,22 +82,38 @@ describe("pageTranslationScheduler progress", () => {
         paragraphs: [{ pid: "c", page: 3, source: "Another readable page.", status: "idle", rects: [] }],
       },
     ];
-    const pageTranslations: Record<number, PageTranslationState> = {
-      3: {
-        page: 3,
-        displayText: "Another readable page.",
-        previousContext: "",
-        nextContext: "",
-        status: "done",
-        translatedText: "Another readable page translated.",
-      },
-    };
 
     expect(
       getPageTranslationProgress({
         pages,
-        pageTranslations,
-        cachedPages: [1],
+      })
+    ).toEqual({
+      translatedCount: 1,
+      totalCount: 2,
+      isFullyTranslated: false,
+      unitLabel: "pages",
+    });
+  });
+
+  test("reports fully translated when all translatable pages have done paragraphs", () => {
+    const pages: PageDoc[] = [
+      {
+        page: 1,
+        paragraphs: [{ pid: "a", page: 1, source: "A readable first page.", translation: "Translated.", status: "done", rects: [] }],
+      },
+      {
+        page: 2,
+        paragraphs: [{ pid: "b", page: 2, source: "Symbols --- ...", status: "idle", rects: [] }],
+      },
+      {
+        page: 3,
+        paragraphs: [{ pid: "c", page: 3, source: "Another readable page.", translation: "Also translated.", status: "done", rects: [] }],
+      },
+    ];
+
+    expect(
+      getPageTranslationProgress({
+        pages,
       })
     ).toEqual({
       translatedCount: 2,

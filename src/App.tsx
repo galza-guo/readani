@@ -1039,10 +1039,8 @@ function AppContent() {
     () =>
       getPageTranslationProgress({
         pages,
-        pageTranslations,
-        cachedPages: [],
       }),
-    [pageTranslations, pages],
+    [pages],
   );
 
   const epubSectionTranslationProgress = useMemo(

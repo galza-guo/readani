@@ -1,11 +1,9 @@
-import type { PageDoc, PageTranslationState } from "../types";
+import type { PageDoc } from "../types";
 import { hasUsablePageText } from "./pageText";
 import { isPdfPageFullyTranslated } from "./pdfSegments";
 
 type PageTranslationProgressArgs = {
   pages: PageDoc[];
-  pageTranslations: Record<number, PageTranslationState>;
-  cachedPages: Iterable<number>;
 };
 
 type PageTranslationProgress = {
@@ -121,19 +119,9 @@ export function shouldContinueQueuedPageTranslations({
 
 export function getPageTranslationProgress({
   pages,
-  pageTranslations,
-  cachedPages,
 }: PageTranslationProgressArgs): PageTranslationProgress {
-  const cachedPageSet = new Set(cachedPages);
   const translatablePages = pages.filter((page) => hasUsablePageText(getPageSourceText(page)));
-  const translatedPages = translatablePages.filter((page) => {
-    const translation = pageTranslations[page.page];
-    return (
-      isPdfPageFullyTranslated(page) ||
-      cachedPageSet.has(page.page) ||
-      translation?.status === "done"
-    );
-  });
+  const translatedPages = translatablePages.filter((page) => isPdfPageFullyTranslated(page));
 
   return {
     translatedCount: translatedPages.length,
