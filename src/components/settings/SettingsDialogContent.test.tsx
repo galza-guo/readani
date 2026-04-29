@@ -103,7 +103,7 @@ describe("SettingsDialogContent", () => {
     expect(html).toContain('id="auto-translate-next-pages"');
     expect(html).toContain('role="combobox"');
     expect(html).not.toContain('type="number"');
-    ["0 (off)", "1", "3", "5", "10", "20"].forEach((label) => {
+    ["Off", "1", "3", "5", "10", "20"].forEach((label) => {
       expect(settingsDialogSource).toContain(`label: "${label}"`);
     });
     expect(settingsDialogSource).not.toContain("0 turns it off.");

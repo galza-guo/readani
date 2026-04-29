@@ -66,7 +66,7 @@ export type SettingsDialogContentProps = {
 type SavedIndicatorPhase = "visible" | "fading";
 
 const AUTO_TRANSLATE_NEXT_PAGE_OPTIONS = [
-  { value: 0, label: "0 (off)" },
+  { value: 0, label: "Off" },
   { value: 1, label: "1" },
   { value: 3, label: "3" },
   { value: 5, label: "5" },
