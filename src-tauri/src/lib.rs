@@ -32,7 +32,7 @@ struct TranslateSentence {
     text: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct TranslationResult {
     sid: String,
     translation: String,
@@ -62,6 +62,7 @@ struct TranslationCacheBookSummary {
     doc_id: String,
     title: String,
     cached_page_count: u32,
+    is_legacy_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -258,6 +259,17 @@ fn save_cache(handle: &tauri::AppHandle, cache: &CachedTranslations) -> Result<(
     let data = serde_json::to_string_pretty(cache).map_err(|e| e.to_string())?;
     fs::write(path, data)
         .map_err(|e| format!("readani could not save the local translation cache: {}", e))
+}
+
+fn save_cache_after_mutation(
+    handle: &tauri::AppHandle,
+    cache: &CachedTranslations,
+) -> Result<(), String> {
+    if cache.entries.is_empty() {
+        remove_file_if_exists(&cache_file_path(handle)?)
+    } else {
+        save_cache(handle, cache)
+    }
 }
 
 fn remove_file_if_exists(path: &PathBuf) -> Result<(), String> {
@@ -1010,6 +1022,20 @@ struct PageCacheLookupInput {
     display_text: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CachedPdfPageLookupInput {
+    page: u32,
+    paragraphs: Vec<TranslateSentence>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CachedPdfPageTranslation {
+    page: u32,
+    translations: Vec<TranslationResult>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WordLookupResponse {
@@ -1264,6 +1290,24 @@ fn get_cached_page_translation(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+fn get_cached_pdf_page_translations(
+    handle: tauri::AppHandle,
+    preset_id: String,
+    model: String,
+    target_language: TargetLanguage,
+    pages: Vec<CachedPdfPageLookupInput>,
+) -> Result<Vec<CachedPdfPageTranslation>, String> {
+    let cache = load_cache(&handle)?;
+    Ok(find_fully_cached_pdf_pages(
+        &cache,
+        &pages,
+        &preset_id,
+        &model,
+        &target_language.code,
+    ))
+}
+
+#[tauri::command(rename_all = "camelCase")]
 fn clear_cached_page_translation(
     handle: tauri::AppHandle,
     preset_id: String,
@@ -1309,14 +1353,18 @@ fn clear_document_page_translations(
 fn get_translation_cache_summary(
     handle: tauri::AppHandle,
 ) -> Result<TranslationCacheSummary, String> {
+    let cache_path = cache_file_path(&handle)?;
     let page_cache_path = page_cache_file_path(&handle)?;
-    let total_cache_size_bytes = match fs::metadata(&page_cache_path) {
-        Ok(metadata) => metadata.len(),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(error) => return Err(error.to_string()),
-    };
+    let total_cache_size_bytes = [cache_path, page_cache_path]
+        .into_iter()
+        .try_fold(0_u64, |total, path| match fs::metadata(path) {
+            Ok(metadata) => Ok(total + metadata.len()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(total),
+            Err(error) => Err(error.to_string()),
+        })?;
 
-    let cache = load_page_cache(&handle)?;
+    let cache = load_cache(&handle)?;
+    let legacy_page_cache = load_page_cache(&handle)?;
     let recent_books = load_recent_books(&handle).unwrap_or(RecentBooksData { books: Vec::new() });
     let recent_book_titles: HashMap<String, String> = recent_books
         .books
@@ -1330,10 +1378,11 @@ fn get_translation_cache_summary(
         .map(|(index, book)| (book.id.clone(), index))
         .collect();
 
-    let mut pages_by_doc_id: HashMap<String, HashSet<u32>> = HashMap::new();
-    for (key, entry) in &cache.entries {
+    let pages_by_doc_id = collect_sentence_cached_pages(&cache);
+    let mut legacy_pages_by_doc_id: HashMap<String, HashSet<u32>> = HashMap::new();
+    for (key, entry) in &legacy_page_cache.entries {
         if let Some(doc_id) = extract_doc_id_from_cache_key(key) {
-            pages_by_doc_id
+            legacy_pages_by_doc_id
                 .entry(doc_id.to_string())
                 .or_default()
                 .insert(entry.page);
@@ -1361,10 +1410,43 @@ fn get_translation_cache_summary(
                         doc_id,
                         title,
                         cached_page_count: pages.len() as u32,
+                        is_legacy_only: false,
                     },
                 )
             })
             .collect();
+
+    let live_doc_ids: HashSet<String> = books_with_sort_keys
+        .iter()
+        .map(|(_, _, summary)| summary.doc_id.clone())
+        .collect();
+    books_with_sort_keys.extend(
+        legacy_pages_by_doc_id
+            .into_iter()
+            .filter(|(doc_id, _)| !live_doc_ids.contains(doc_id))
+            .map(|(doc_id, pages)| {
+                let title = recent_book_titles
+                    .get(&doc_id)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Book {}", doc_id));
+                let sort_index = recent_book_order
+                    .get(&doc_id)
+                    .copied()
+                    .unwrap_or(usize::MAX);
+                let sort_title = title.to_lowercase();
+
+                (
+                    sort_index,
+                    sort_title,
+                    TranslationCacheBookSummary {
+                        doc_id,
+                        title,
+                        cached_page_count: pages.len() as u32,
+                        is_legacy_only: true,
+                    },
+                )
+            }),
+    );
 
     books_with_sort_keys.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
 
@@ -1379,11 +1461,15 @@ fn get_translation_cache_summary(
 
 #[tauri::command(rename_all = "camelCase")]
 fn clear_cached_book_translations(handle: tauri::AppHandle, doc_id: String) -> Result<(), String> {
-    let mut cache = load_page_cache(&handle)?;
-    cache
+    let mut sentence_cache = load_cache(&handle)?;
+    clear_cached_sentence_entries_for_document(&mut sentence_cache, &doc_id);
+    save_cache_after_mutation(&handle, &sentence_cache)?;
+
+    let mut page_cache = load_page_cache(&handle)?;
+    page_cache
         .entries
         .retain(|key, _| extract_doc_id_from_cache_key(key) != Some(doc_id.as_str()));
-    save_page_cache_after_mutation(&handle, &cache)
+    save_page_cache_after_mutation(&handle, &page_cache)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -1709,6 +1795,52 @@ fn extract_doc_id_from_cache_key(key: &str) -> Option<&str> {
     key.split('|').next().filter(|segment| !segment.is_empty())
 }
 
+fn extract_sid_from_sentence_cache_key(key: &str) -> Option<&str> {
+    let mut parts = key.split('|');
+    parts.next()?;
+    parts.next().filter(|segment| !segment.is_empty())
+}
+
+fn extract_pdf_page_from_sid(sid: &str) -> Option<u32> {
+    let (_, rest) = sid.split_once(":p")?;
+    let page = rest.split(':').next()?;
+    page.parse().ok()
+}
+
+fn collect_sentence_cached_pages(cache: &CachedTranslations) -> HashMap<String, HashSet<u32>> {
+    let mut pages_by_doc_id: HashMap<String, HashSet<u32>> = HashMap::new();
+
+    for key in cache.entries.keys() {
+        let Some(doc_id) = extract_doc_id_from_cache_key(key) else {
+            continue;
+        };
+        let Some(sid) = extract_sid_from_sentence_cache_key(key) else {
+            continue;
+        };
+        let Some(page) = extract_pdf_page_from_sid(sid) else {
+            continue;
+        };
+
+        pages_by_doc_id
+            .entry(doc_id.to_string())
+            .or_default()
+            .insert(page);
+    }
+
+    pages_by_doc_id
+}
+
+fn clear_cached_sentence_entries_for_document(
+    cache: &mut CachedTranslations,
+    doc_id: &str,
+) -> usize {
+    let before = cache.entries.len();
+    cache
+        .entries
+        .retain(|key, _| extract_doc_id_from_cache_key(key) != Some(doc_id));
+    before.saturating_sub(cache.entries.len())
+}
+
 fn sentence_cache_key(
     doc_id: &str,
     sid: &str,
@@ -1763,6 +1895,56 @@ fn find_cached_sentence_translation(
             SENTENCE_PROMPT_VERSION,
         ))
         .cloned()
+}
+
+fn find_fully_cached_pdf_pages(
+    cache: &CachedTranslations,
+    pages: &[CachedPdfPageLookupInput],
+    provider_id: &str,
+    model: &str,
+    language: &str,
+) -> Vec<CachedPdfPageTranslation> {
+    let mut cached_pages = Vec::new();
+
+    for page in pages {
+        if page.paragraphs.is_empty() {
+            continue;
+        }
+
+        let mut translations = Vec::with_capacity(page.paragraphs.len());
+        let mut is_complete = true;
+
+        for paragraph in &page.paragraphs {
+            let doc_id = extract_doc_id(&paragraph.sid);
+            let source_hash = hash_source_text(&paragraph.text);
+            let Some(translation) = find_cached_sentence_translation(
+                cache,
+                doc_id,
+                &paragraph.sid,
+                &source_hash,
+                provider_id,
+                model,
+                language,
+            ) else {
+                is_complete = false;
+                break;
+            };
+
+            translations.push(TranslationResult {
+                sid: paragraph.sid.clone(),
+                translation,
+            });
+        }
+
+        if is_complete && translations.len() == page.paragraphs.len() {
+            cached_pages.push(CachedPdfPageTranslation {
+                page: page.page,
+                translations,
+            });
+        }
+    }
+
+    cached_pages
 }
 
 async fn request_sentence_translations_with_preset(
@@ -2385,6 +2567,7 @@ pub fn run() {
             list_preset_models,
             translate_page_text,
             get_cached_page_translation,
+            get_cached_pdf_page_translations,
             list_cached_page_translations,
             clear_cached_page_translation,
             clear_document_page_translations,
@@ -2418,13 +2601,16 @@ pub fn run() {
 mod tests {
     use super::{
         build_fallback_preset_sequence, build_preset_test_prompt,
-        build_selection_translation_prompt, find_cached_sentence_translation,
-        legacy_shared_sentence_cache_key, merge_saved_preset_credentials, sentence_cache_key,
-        CachedTranslations, TargetLanguage, PRESET_TEST_SAMPLE_TEXT, SENTENCE_PROMPT_VERSION,
+        build_selection_translation_prompt, clear_cached_sentence_entries_for_document,
+        collect_sentence_cached_pages, find_cached_sentence_translation,
+        find_fully_cached_pdf_pages, hash_source_text, legacy_shared_sentence_cache_key,
+        merge_saved_preset_credentials, sentence_cache_key, CachedPdfPageLookupInput,
+        CachedTranslations, TargetLanguage, TranslateSentence, PRESET_TEST_SAMPLE_TEXT,
+        SENTENCE_PROMPT_VERSION,
     };
     use crate::app_settings::{AppSettings, AppTheme, SettingsLanguage, TranslationPreset};
     use crate::providers::ProviderKind;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     fn preset(
         id: &str,
@@ -2561,6 +2747,213 @@ mod tests {
         );
 
         assert_eq!(value.as_deref(), Some("legacy translation"));
+    }
+
+    #[test]
+    fn collects_pdf_sentence_cache_pages_by_document() {
+        let cache = CachedTranslations {
+            entries: HashMap::from([
+                (
+                    sentence_cache_key(
+                        "doc-a",
+                        "doc-a:p1:hash-1",
+                        "hash-1",
+                        "preset-a",
+                        "model-a",
+                        "zh-CN",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "A1".to_string(),
+                ),
+                (
+                    sentence_cache_key(
+                        "doc-a",
+                        "doc-a:p1:hash-2",
+                        "hash-2",
+                        "preset-a",
+                        "model-a",
+                        "zh-CN",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "A2".to_string(),
+                ),
+                (
+                    sentence_cache_key(
+                        "doc-a",
+                        "doc-a:p2:hash-3",
+                        "hash-3",
+                        "preset-a",
+                        "model-a",
+                        "zh-CN",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "A3".to_string(),
+                ),
+                (
+                    sentence_cache_key(
+                        "doc-b",
+                        "doc-b:p7:hash-4",
+                        "hash-4",
+                        "preset-a",
+                        "model-a",
+                        "zh-CN",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "B1".to_string(),
+                ),
+                (
+                    sentence_cache_key(
+                        "epub",
+                        "epub:9",
+                        "hash-5",
+                        "preset-a",
+                        "model-a",
+                        "zh-CN",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "ignored".to_string(),
+                ),
+            ]),
+        };
+
+        let grouped = collect_sentence_cached_pages(&cache);
+
+        assert_eq!(
+            grouped,
+            HashMap::from([
+                ("doc-a".to_string(), HashSet::from([1_u32, 2_u32])),
+                ("doc-b".to_string(), HashSet::from([7_u32])),
+            ])
+        );
+    }
+
+    #[test]
+    fn clears_only_sentence_cache_entries_for_one_document() {
+        let mut cache = CachedTranslations {
+            entries: HashMap::from([
+                (
+                    sentence_cache_key(
+                        "doc-a",
+                        "doc-a:p1:hash-1",
+                        "hash-1",
+                        "preset-a",
+                        "model-a",
+                        "zh-CN",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "A1".to_string(),
+                ),
+                (
+                    sentence_cache_key(
+                        "doc-a",
+                        "doc-a:p2:hash-2",
+                        "hash-2",
+                        "preset-a",
+                        "model-a",
+                        "zh-CN",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "A2".to_string(),
+                ),
+                (
+                    sentence_cache_key(
+                        "doc-b",
+                        "doc-b:p3:hash-3",
+                        "hash-3",
+                        "preset-a",
+                        "model-a",
+                        "zh-CN",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "B1".to_string(),
+                ),
+            ]),
+        };
+
+        let removed = clear_cached_sentence_entries_for_document(&mut cache, "doc-a");
+
+        assert_eq!(removed, 2);
+        assert_eq!(cache.entries.len(), 1);
+        assert!(cache.entries.keys().all(|key| key.starts_with("doc-b|")));
+    }
+
+    #[test]
+    fn finds_only_fully_cached_pdf_pages_for_rehydration() {
+        let cache = CachedTranslations {
+            entries: HashMap::from([
+                (
+                    sentence_cache_key(
+                        "doc-a",
+                        "doc-a:p1:hash-1",
+                        &hash_source_text("First paragraph"),
+                        "preset-a",
+                        "model-a",
+                        "zh-CN",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "Translated first paragraph.".to_string(),
+                ),
+                (
+                    sentence_cache_key(
+                        "doc-a",
+                        "doc-a:p1:hash-2",
+                        &hash_source_text("Second paragraph"),
+                        "preset-a",
+                        "model-a",
+                        "zh-CN",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "Translated second paragraph.".to_string(),
+                ),
+                (
+                    sentence_cache_key(
+                        "doc-a",
+                        "doc-a:p2:hash-3",
+                        &hash_source_text("Third paragraph"),
+                        "preset-a",
+                        "model-a",
+                        "zh-CN",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "Translated third paragraph.".to_string(),
+                ),
+            ]),
+        };
+        let pages = vec![
+            CachedPdfPageLookupInput {
+                page: 1,
+                paragraphs: vec![
+                    TranslateSentence {
+                        sid: "doc-a:p1:hash-1".to_string(),
+                        text: "First paragraph".to_string(),
+                    },
+                    TranslateSentence {
+                        sid: "doc-a:p1:hash-2".to_string(),
+                        text: "Second paragraph".to_string(),
+                    },
+                ],
+            },
+            CachedPdfPageLookupInput {
+                page: 2,
+                paragraphs: vec![
+                    TranslateSentence {
+                        sid: "doc-a:p2:hash-3".to_string(),
+                        text: "Third paragraph".to_string(),
+                    },
+                    TranslateSentence {
+                        sid: "doc-a:p2:missing".to_string(),
+                        text: "Missing paragraph".to_string(),
+                    },
+                ],
+            },
+        ];
+
+        let cached_pages =
+            find_fully_cached_pdf_pages(&cache, &pages, "preset-a", "model-a", "zh-CN");
+
+        assert_eq!(cached_pages.len(), 1);
+        assert_eq!(cached_pages[0].page, 1);
+        assert_eq!(cached_pages[0].translations.len(), 2);
     }
 
     #[test]
