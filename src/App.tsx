@@ -3825,7 +3825,10 @@ function AppContent() {
       if (currentFileType !== "pdf" || !settingsLoaded) return;
 
       const currentPreset = getEffectivePreset(settingsRef.current);
-      let nextForegroundQueue = [...foregroundPageTranslateQueueRef.current];
+      let nextForegroundQueue =
+        options.priority === "foreground"
+          ? []
+          : [...foregroundPageTranslateQueueRef.current];
       let nextBackgroundQueue = [...backgroundPageTranslateQueueRef.current];
       let nextRequestVersions = pageTranslationRequestVersionsRef.current;
       const updates: Record<number, PageTranslationState> = {};
@@ -3895,9 +3898,10 @@ function AppContent() {
         );
         const existing = pageTranslationsRef.current[pageNumber];
         const inputChanged =
-          existing?.displayText !== payload.displayText ||
-          existing?.previousContext !== payload.previousContext ||
-          existing?.nextContext !== payload.nextContext;
+          Boolean(existing) &&
+          (existing.displayText !== payload.displayText ||
+            existing.previousContext !== payload.previousContext ||
+            existing.nextContext !== payload.nextContext);
         const shouldForceFresh = Boolean(options.forceFresh || inputChanged);
         const translatableParagraphs = getTranslatablePdfParagraphs(pageDoc);
 
@@ -3968,15 +3972,14 @@ function AppContent() {
           continue;
         }
 
-        updates[pageNumber] = {
-          ...nextState,
-          status: "queued",
-          activityMessage: "Queued for translation...",
-          error: undefined,
-          errorChecks: undefined,
-        };
-
         if (options.priority === "foreground") {
+          updates[pageNumber] = {
+            ...nextState,
+            status: "queued",
+            activityMessage: "Queued for translation...",
+            error: undefined,
+            errorChecks: undefined,
+          };
           nextForegroundQueue = enqueueForegroundPage(
             nextForegroundQueue,
             pageNumber,
