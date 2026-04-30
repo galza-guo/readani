@@ -236,6 +236,32 @@ export function getFriendlyProviderError(
   };
 }
 
+export type TranslateAllSlowModeErrorAction =
+  | "retry"
+  | "pause"
+  | "skip"
+  | "stop";
+
+export function getTranslateAllSlowModeErrorAction(
+  kind: FriendlyProviderError["kind"],
+): TranslateAllSlowModeErrorAction {
+  switch (kind) {
+    case "rate-limit":
+    case "network-request":
+    case "timeout":
+    case "provider-unavailable":
+    case "provider-response":
+    case "unknown":
+      return "retry";
+    case "usage-limit":
+      return "pause";
+    case "context-limit":
+      return "skip";
+    default:
+      return "stop";
+  }
+}
+
 export function getProviderErrorDetail(error: unknown) {
   const friendly = getFriendlyProviderError(error);
   const rawMessage = friendly.rawMessage.trim();

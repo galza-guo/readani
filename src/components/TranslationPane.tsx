@@ -28,11 +28,13 @@ import type {
 type TranslationPaneChromeProps = {
   progressLabel?: string | null;
   progressDetailLabel?: string | null;
-  progressDetailState?: "running" | "stopping" | null;
+  progressDetailState?: "running" | "stopping" | "waiting" | "paused" | null;
   bulkActionLabel: string;
   onBulkAction: () => void;
   bulkActionDisabled: boolean;
   bulkActionRunning: boolean;
+  secondaryActionLabel?: string | null;
+  onSecondaryAction?: () => void;
   statusMap?: PageProgressStatus[];
   currentPage?: number;
   onSeekPage?: (page: number) => void;
@@ -47,11 +49,13 @@ type PdfTranslationPaneProps = {
   setupRequired?: boolean;
   progressLabel?: string | null;
   progressDetailLabel?: string | null;
-  progressDetailState?: "running" | "stopping" | null;
+  progressDetailState?: "running" | "stopping" | "waiting" | "paused" | null;
   bulkActionLabel: string;
   onBulkAction: () => void;
   bulkActionDisabled: boolean;
   bulkActionRunning: boolean;
+  secondaryActionLabel?: string | null;
+  onSecondaryAction?: () => void;
   onOpenSettings: () => void;
   onRetryPage: (page: number) => void;
   canRetryPage: boolean;
@@ -72,11 +76,13 @@ type EpubTranslationPaneProps = {
   setupRequired?: boolean;
   progressLabel?: string | null;
   progressDetailLabel?: string | null;
-  progressDetailState?: "running" | "stopping" | null;
+  progressDetailState?: "running" | "stopping" | "waiting" | "paused" | null;
   bulkActionLabel: string;
   onBulkAction: () => void;
   bulkActionDisabled: boolean;
   bulkActionRunning: boolean;
+  secondaryActionLabel?: string | null;
+  onSecondaryAction?: () => void;
   onOpenSettings: () => void;
   activePid?: string | null;
   hoverPid?: string | null;
@@ -699,10 +705,15 @@ function TranslationPaneFooter({
   onBulkAction,
   bulkActionDisabled,
   bulkActionRunning: _bulkActionRunning,
+  secondaryActionLabel,
+  onSecondaryAction,
   statusMap,
   currentPage,
   onSeekPage,
 }: TranslationPaneChromeProps) {
+  const showEllipsis =
+    progressDetailState === "running" || progressDetailState === "stopping";
+
   return (
     <div className="translation-pane-footer">
       <div className="translation-pane-footer-progress">
@@ -726,7 +737,7 @@ function TranslationPaneFooter({
             aria-live="polite"
           >
             <span>{progressDetailLabel}</span>
-            {progressDetailState ? (
+            {showEllipsis ? (
               <span
                 className="translation-pane-progress-ellipsis"
                 aria-hidden="true"
@@ -735,14 +746,25 @@ function TranslationPaneFooter({
           </span>
         ) : null}
       </div>
-      <button
-        className="btn btn-small btn-quiet-action"
-        type="button"
-        onClick={onBulkAction}
-        disabled={bulkActionDisabled}
-      >
-        {bulkActionLabel}
-      </button>
+      <div className="translation-pane-footer-actions">
+        {secondaryActionLabel && onSecondaryAction ? (
+          <button
+            className="btn btn-small btn-quiet-action translation-pane-secondary-action"
+            type="button"
+            onClick={onSecondaryAction}
+          >
+            {secondaryActionLabel}
+          </button>
+        ) : null}
+        <button
+          className="btn btn-small btn-quiet-action"
+          type="button"
+          onClick={onBulkAction}
+          disabled={bulkActionDisabled}
+        >
+          {bulkActionLabel}
+        </button>
+      </div>
     </div>
   );
 }
@@ -760,6 +782,8 @@ function PdfTranslationPane({
   onBulkAction,
   bulkActionDisabled,
   bulkActionRunning,
+  secondaryActionLabel,
+  onSecondaryAction,
   onOpenSettings,
   onRetryPage,
   canRetryPage,
@@ -1094,6 +1118,8 @@ function PdfTranslationPane({
         onBulkAction={onBulkAction}
         bulkActionDisabled={bulkActionDisabled}
         bulkActionRunning={bulkActionRunning}
+        secondaryActionLabel={secondaryActionLabel}
+        onSecondaryAction={onSecondaryAction}
         statusMap={statusMap}
         currentPage={currentPage}
         onSeekPage={onSeekPage}
@@ -1153,6 +1179,8 @@ function EpubTranslationPane({
   onBulkAction,
   bulkActionDisabled,
   bulkActionRunning,
+  secondaryActionLabel,
+  onSecondaryAction,
   onOpenSettings,
   activePid,
   hoverPid,
@@ -1223,6 +1251,8 @@ function EpubTranslationPane({
         onBulkAction={onBulkAction}
         bulkActionDisabled={bulkActionDisabled}
         bulkActionRunning={bulkActionRunning}
+        secondaryActionLabel={secondaryActionLabel}
+        onSecondaryAction={onSecondaryAction}
         statusMap={statusMap}
         currentPage={currentPage}
         onSeekPage={onSeekPage}
@@ -1298,6 +1328,8 @@ export function TranslationPane(props: TranslationPaneProps) {
         onBulkAction={props.onBulkAction}
         bulkActionDisabled={props.bulkActionDisabled}
         bulkActionRunning={props.bulkActionRunning}
+        secondaryActionLabel={props.secondaryActionLabel}
+        onSecondaryAction={props.onSecondaryAction}
         onOpenSettings={props.onOpenSettings}
         onRetryPage={props.onRetryPage}
         canRetryPage={props.canRetryPage}
@@ -1325,6 +1357,8 @@ export function TranslationPane(props: TranslationPaneProps) {
       onBulkAction={props.onBulkAction}
       bulkActionDisabled={props.bulkActionDisabled}
       bulkActionRunning={props.bulkActionRunning}
+      secondaryActionLabel={props.secondaryActionLabel}
+      onSecondaryAction={props.onSecondaryAction}
       onOpenSettings={props.onOpenSettings}
       activePid={props.activePid}
       hoverPid={props.hoverPid}

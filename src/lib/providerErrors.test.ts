@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   TRANSLATION_SETUP_REQUIRED_MESSAGE,
+  type FriendlyProviderError,
   getProviderErrorDetail,
   getFriendlyProviderError,
+  getTranslateAllSlowModeErrorAction,
 } from "./providerErrors";
 
 describe("provider error mapping", () => {
@@ -97,5 +99,41 @@ describe("provider error mapping", () => {
     expect(getProviderErrorDetail("Provider returned malformed JSON.")).toBe(
       undefined,
     );
+  });
+});
+
+describe("getTranslateAllSlowModeErrorAction", () => {
+  const retryKinds: FriendlyProviderError["kind"][] = [
+    "rate-limit",
+    "network-request",
+    "timeout",
+    "provider-unavailable",
+    "provider-response",
+    "unknown",
+  ];
+  const pauseKinds: FriendlyProviderError["kind"][] = ["usage-limit"];
+  const skipKinds: FriendlyProviderError["kind"][] = ["context-limit"];
+  const stopKinds: FriendlyProviderError["kind"][] = [
+    "setup-required",
+    "invalid-api-key",
+    "base-url",
+    "model",
+    "local-cache",
+  ];
+
+  test.each(retryKinds)("classifies %s as retry", (kind) => {
+    expect(getTranslateAllSlowModeErrorAction(kind)).toBe("retry");
+  });
+
+  test.each(pauseKinds)("classifies %s as pause", (kind) => {
+    expect(getTranslateAllSlowModeErrorAction(kind)).toBe("pause");
+  });
+
+  test.each(skipKinds)("classifies %s as skip", (kind) => {
+    expect(getTranslateAllSlowModeErrorAction(kind)).toBe("skip");
+  });
+
+  test.each(stopKinds)("classifies %s as stop", (kind) => {
+    expect(getTranslateAllSlowModeErrorAction(kind)).toBe("stop");
   });
 });

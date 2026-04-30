@@ -30,9 +30,11 @@ function renderPdfPane(options: {
   setupRequired?: boolean;
   progressLabel?: string | null;
   progressDetailLabel?: string | null;
-  progressDetailState?: "running" | "stopping" | null;
+  progressDetailState?: "running" | "stopping" | "waiting" | "paused" | null;
   bulkActionLabel?: string;
   bulkActionRunning?: boolean;
+  secondaryActionLabel?: string | null;
+  onSecondaryAction?: () => void;
   canRetryPage?: boolean;
   activePid?: string | null;
   hoverPid?: string | null;
@@ -64,6 +66,8 @@ function renderPdfPane(options: {
         onBulkAction={() => {}}
         bulkActionDisabled={false}
         bulkActionRunning={options.bulkActionRunning ?? false}
+        secondaryActionLabel={options.secondaryActionLabel}
+        onSecondaryAction={options.onSecondaryAction}
         onOpenSettings={() => {}}
         onRetryPage={() => {}}
         canRetryPage={options.canRetryPage ?? true}
@@ -133,6 +137,36 @@ describe("TranslationPane", () => {
     expect(html).toContain("translation-pane-progress-text");
     expect(html).toContain("translation-pane-progress-detail is-running");
     expect(html).toContain(">Stop Translating All<");
+  });
+
+  test("renders waiting state without animated ellipsis", () => {
+    const html = renderPdfPane({
+      progressDetailLabel: "Network error on page 4. Retrying in 45s",
+      progressDetailState: "waiting",
+      bulkActionLabel: "Stop Translating All",
+      bulkActionRunning: true,
+    });
+
+    expect(html).toContain("translation-pane-progress-detail is-waiting");
+    expect(html).toContain(">Network error on page 4. Retrying in 45s<");
+    expect(html).not.toContain("translation-pane-progress-ellipsis");
+  });
+
+  test("renders paused state with Continue and secondary Stop", () => {
+    const html = renderPdfPane({
+      progressDetailLabel: "Paused — out of credits or quota.",
+      progressDetailState: "paused",
+      bulkActionLabel: "Continue",
+      bulkActionRunning: true,
+      secondaryActionLabel: "Stop",
+      onSecondaryAction: () => {},
+    });
+
+    expect(html).toContain("translation-pane-progress-detail is-paused");
+    expect(html).toContain(">Continue<");
+    expect(html).toContain(">Stop<");
+    expect(html).toContain("translation-pane-secondary-action");
+    expect(html).not.toContain("translation-pane-progress-ellipsis");
   });
 
   test("shows fallback attempt count before the final page error message", () => {

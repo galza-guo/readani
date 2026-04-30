@@ -1672,6 +1672,14 @@ body.is-resizing-split-y * {
   color: var(--warning);
 }
 
+.translation-pane-progress-detail.is-waiting {
+  color: var(--ink-muted);
+}
+
+.translation-pane-progress-detail.is-paused {
+  color: var(--warning);
+}
+
 .translation-pane-progress-ellipsis {
   display: inline-block;
   width: 14px;
@@ -1700,6 +1708,16 @@ body.is-resizing-split-y * {
   flex-direction: column;
   gap: 2px;
   flex: 1;
+}
+
+.translation-pane-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.translation-pane-secondary-action {
+  color: var(--ink-muted);
 }
 
 .translation-progress-bar {

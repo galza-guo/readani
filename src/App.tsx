@@ -118,6 +118,7 @@ import {
   TRANSLATION_SETUP_REQUIRED_MESSAGE,
   getProviderErrorDetail,
   getFriendlyProviderError,
+  getTranslateAllSlowModeErrorAction,
 } from "./lib/providerErrors";
 import { READANI_RELEASES_URL } from "./lib/release";
 import {
@@ -134,10 +135,13 @@ import {
 } from "./lib/pageTranslationScheduler";
 import {
   addCompletedTranslateAllUnits,
+  getTranslateAllTransientRetryLabel,
   getTranslateAllRateLimitBackoffMs,
   resetCompletedUnitsAfterPause,
+  selectSlowModeEpubPageBatch,
+  shouldAutoResumeTranslateAllQueue,
   shouldPauseTranslateAll,
-  TRANSLATE_ALL_SLOW_MODE_BATCH_SIZE,
+  TRANSLATE_ALL_MAX_RETRIES_PER_PAGE,
   TRANSLATE_ALL_SLOW_MODE_PAUSE_MS,
 } from "./lib/translateAllSlowMode";
 import type {
@@ -259,42 +263,6 @@ function invokeWithTimeout<T>(
       window.clearTimeout(timeoutId);
     }
   });
-}
-
-function selectSlowModeEpubBatch(
-  queuedParagraphIds: string[],
-  pages: PageDoc[],
-) {
-  const paragraphPageById = new Map<string, number>();
-  for (const page of pages) {
-    for (const paragraph of page.paragraphs) {
-      paragraphPageById.set(paragraph.pid, page.page);
-    }
-  }
-
-  const pageBatch = new Set<number>();
-  const selectedParagraphIds: string[] = [];
-
-  for (const paragraphId of queuedParagraphIds) {
-    const pageNumber = paragraphPageById.get(paragraphId);
-    if (pageNumber === undefined) {
-      continue;
-    }
-
-    if (
-      !pageBatch.has(pageNumber) &&
-      pageBatch.size >= TRANSLATE_ALL_SLOW_MODE_BATCH_SIZE
-    ) {
-      break;
-    }
-
-    pageBatch.add(pageNumber);
-    selectedParagraphIds.push(paragraphId);
-  }
-
-  return selectedParagraphIds.length > 0
-    ? selectedParagraphIds
-    : queuedParagraphIds.slice(0, 1);
 }
 
 function hasLoadedPdfTranslation(translation?: PageTranslationState) {
@@ -504,9 +472,10 @@ function AppContent() {
   } | null>(null);
   const [isTranslateAllRunning, setIsTranslateAllRunning] = useState(false);
   const [translateAllWaitState, setTranslateAllWaitState] = useState<{
-    kind: "slow-pause" | "rate-limit";
-    resumeAt: number;
+    kind: "slow-pause" | "rate-limit" | "transient-retry" | "usage-limit";
+    resumeAt?: number;
     page: number | null;
+    errorKind?: string;
   } | null>(null);
   const [translateAllWaitTick, setTranslateAllWaitTick] = useState(() =>
     Date.now(),
@@ -558,6 +527,11 @@ function AppContent() {
   const translateAllCompletedUnitsRef = useRef(0);
   const translateAllRateLimitStreakRef = useRef(0);
   const translateAllErrorToastShownRef = useRef(false);
+  const translateAllPdfRetryCountRef = useRef<Map<number, number>>(new Map());
+  const translateAllEpubRetryCountRef = useRef<Map<number, number>>(new Map());
+  const [translateAllUsageLimitPaused, setTranslateAllUsageLimitPaused] =
+    useState(false);
+  const translateAllUsageLimitPausedRef = useRef(false);
   const fallbackToastEligiblePdfPagesRef = useRef<Set<number>>(new Set());
   const pdfTranslationSessionRef = useRef(0);
   const pdfOutlineRequestIdRef = useRef(0);
@@ -995,14 +969,19 @@ function AppContent() {
     clearTranslateAllResumeTimer();
     translateAllCompletedUnitsRef.current = 0;
     translateAllRateLimitStreakRef.current = 0;
+    translateAllPdfRetryCountRef.current.clear();
+    translateAllEpubRetryCountRef.current.clear();
+    setTranslateAllUsageLimitPaused(false);
+    translateAllUsageLimitPausedRef.current = false;
   }, [clearTranslateAllResumeTimer]);
 
   const scheduleTranslateAllResume = useCallback(
     (
       delayMs: number,
       waitState: {
-        kind: "slow-pause" | "rate-limit";
+        kind: "slow-pause" | "rate-limit" | "transient-retry";
         page: number | null;
+        errorKind?: string;
       },
       resumeWork: () => void,
     ) => {
@@ -1103,6 +1082,10 @@ function AppContent() {
   ]);
 
   const translateAllActionLabel = useMemo(() => {
+    if (translateAllUsageLimitPaused) {
+      return "Continue";
+    }
+
     if (isTranslateAllStopRequested) {
       return "Stopping...";
     }
@@ -1112,7 +1095,7 @@ function AppContent() {
     }
 
     return getFullBookActionLabel(translationProgress);
-  }, [isTranslateAllRunning, isTranslateAllStopRequested, translationProgress]);
+  }, [isTranslateAllRunning, isTranslateAllStopRequested, translateAllUsageLimitPaused, translationProgress]);
 
   const translateAllProgressDetail = useMemo(() => {
     if (!isTranslateAllRunning) {
@@ -1123,24 +1106,52 @@ function AppContent() {
     }
 
     if (translateAllWaitState) {
-      const remainingSeconds = Math.max(
-        1,
-        Math.ceil((translateAllWaitState.resumeAt - translateAllWaitTick) / 1_000),
-      );
+      if (translateAllWaitState.kind === "usage-limit") {
+        return {
+          label: "Paused — out of credits or quota.",
+          state: "paused" as const,
+        };
+      }
+
+      const remainingSeconds = translateAllWaitState.resumeAt
+        ? Math.max(
+            1,
+            Math.ceil((translateAllWaitState.resumeAt - translateAllWaitTick) / 1_000),
+          )
+        : 0;
 
       if (translateAllWaitState.kind === "slow-pause") {
         return {
           label: `Slow mode pause. Continuing in ${remainingSeconds}s`,
-          state: "running" as const,
+          state: "waiting" as const,
         };
       }
 
+      if (translateAllWaitState.kind === "transient-retry") {
+        return {
+          label: getTranslateAllTransientRetryLabel({
+            errorKind: translateAllWaitState.errorKind,
+            page: translateAllWaitState.page,
+            remainingSeconds,
+          }),
+          state: "waiting" as const,
+        };
+      }
+
+      // Legacy rate-limit kind
       return {
         label:
           currentFileType === "pdf" && translateAllWaitState.page !== null
             ? `Rate limit hit on page ${translateAllWaitState.page}. Retrying in ${remainingSeconds}s`
             : `Rate limit hit. Retrying in ${remainingSeconds}s`,
-        state: "running" as const,
+        state: "waiting" as const,
+      };
+    }
+
+    if (translateAllUsageLimitPaused) {
+      return {
+        label: "Paused — out of credits or quota.",
+        state: "paused" as const,
       };
     }
 
@@ -1182,6 +1193,7 @@ function AppContent() {
     isTranslateAllRunning,
     isTranslateAllStopRequested,
     pageTranslationInFlightPage,
+    translateAllUsageLimitPaused,
     translateAllWaitState,
     translateAllWaitTick,
     translationProgress.isFullyTranslated,
@@ -3605,6 +3617,7 @@ function AppContent() {
       }
       if (isTranslateAllRunningRef.current) {
         translateAllRateLimitStreakRef.current = 0;
+        translateAllPdfRetryCountRef.current.delete(nextPage);
 
         if (
           settingsRef.current.translateAllSlowMode &&
@@ -3651,22 +3664,278 @@ function AppContent() {
       }
 
       const friendlyError = getFriendlyFallbackError(failureTrace, error);
-      const shouldRetryAfterRateLimit =
+      const isSlowModeBulkRun =
         isTranslateAllRunningRef.current &&
-        settingsRef.current.translateAllSlowMode &&
-        friendlyError.kind === "rate-limit";
+        settingsRef.current.translateAllSlowMode;
 
-      if (shouldRetryAfterRateLimit) {
-        translateAllRateLimitStreakRef.current += 1;
-        const retryDelayMs = getTranslateAllRateLimitBackoffMs(
-          translateAllRateLimitStreakRef.current,
-        );
-        backgroundPageTranslateQueueRef.current = [
-          nextPage,
-          ...backgroundPageTranslateQueueRef.current.filter(
-            (queuedPage) => queuedPage !== nextPage,
-          ),
-        ];
+      if (isSlowModeBulkRun) {
+        const action = getTranslateAllSlowModeErrorAction(friendlyError.kind);
+
+        if (action === "retry") {
+          const currentRetryCount =
+            translateAllPdfRetryCountRef.current.get(nextPage) ?? 0;
+
+          if (currentRetryCount < TRANSLATE_ALL_MAX_RETRIES_PER_PAGE) {
+            translateAllPdfRetryCountRef.current.set(
+              nextPage,
+              currentRetryCount + 1,
+            );
+            translateAllRateLimitStreakRef.current += 1;
+            const retryDelayMs = getTranslateAllRateLimitBackoffMs(
+              translateAllRateLimitStreakRef.current,
+            );
+            backgroundPageTranslateQueueRef.current = [
+              nextPage,
+              ...backgroundPageTranslateQueueRef.current.filter(
+                (queuedPage) => queuedPage !== nextPage,
+              ),
+            ];
+            setPages((prev) =>
+              prev.map((page) =>
+                page.page === nextPage
+                  ? {
+                      ...page,
+                      paragraphs: page.paragraphs.map((paragraph) =>
+                        pendingParagraphIds.has(paragraph.pid)
+                          ? { ...paragraph, status: "idle" as const }
+                          : paragraph,
+                      ),
+                    }
+                  : page,
+              ),
+            );
+            setPageTranslations((prev) => ({
+              ...prev,
+              [nextPage]: {
+                page: nextPage,
+                displayText: payload.displayText,
+                previousContext: payload.previousContext,
+                nextContext: payload.nextContext,
+                translatedText: prev[nextPage]?.translatedText,
+                status: "queued",
+                activityMessage: undefined,
+                error: undefined,
+                errorChecks: undefined,
+                fallbackTrace: failureTrace,
+              },
+            }));
+            scheduledResume = true;
+            setTranslationStatusMessage(null);
+            scheduleTranslateAllResume(
+              retryDelayMs,
+              {
+                kind: "transient-retry",
+                page: nextPage,
+                errorKind: friendlyError.kind,
+              },
+              () => {
+                void runPageTranslationQueue();
+              },
+            );
+            return;
+          } else {
+            translateAllPdfRetryCountRef.current.delete(nextPage);
+            setPages((prev) =>
+              prev.map((page) =>
+                page.page === nextPage
+                  ? {
+                      ...page,
+                      paragraphs: page.paragraphs.map((paragraph) =>
+                        pendingParagraphIds.has(paragraph.pid)
+                          ? { ...paragraph, status: "error" as const }
+                          : paragraph,
+                      ),
+                    }
+                  : page,
+              ),
+            );
+            setPageTranslations((prev) => ({
+              ...prev,
+              [nextPage]: {
+                page: nextPage,
+                displayText: payload.displayText,
+                previousContext: payload.previousContext,
+                nextContext: payload.nextContext,
+                status: "error",
+                error: friendlyError.message,
+                errorChecks: friendlyError.checks,
+                fallbackTrace: failureTrace,
+              },
+            }));
+            showToast({
+              message: `Skipped page ${nextPage} after repeated errors.`,
+              tone: "neutral",
+              durationMs: 4000,
+            });
+            didError = false;
+          }
+        } else if (action === "pause") {
+          backgroundPageTranslateQueueRef.current = [
+            nextPage,
+            ...backgroundPageTranslateQueueRef.current.filter(
+              (queuedPage) => queuedPage !== nextPage,
+            ),
+          ];
+          setPages((prev) =>
+            prev.map((page) =>
+              page.page === nextPage
+                ? {
+                    ...page,
+                    paragraphs: page.paragraphs.map((paragraph) =>
+                      pendingParagraphIds.has(paragraph.pid)
+                        ? { ...paragraph, status: "idle" as const }
+                        : paragraph,
+                    ),
+                  }
+                : page,
+            ),
+          );
+          setPageTranslations((prev) => ({
+            ...prev,
+            [nextPage]: {
+              page: nextPage,
+              displayText: payload.displayText,
+              previousContext: payload.previousContext,
+              nextContext: payload.nextContext,
+              translatedText: prev[nextPage]?.translatedText,
+              status: "queued",
+              activityMessage: undefined,
+              error: undefined,
+              errorChecks: undefined,
+              fallbackTrace: failureTrace,
+            },
+          }));
+          setTranslateAllUsageLimitPaused(true);
+          translateAllUsageLimitPausedRef.current = true;
+          setTranslateAllWaitState({
+            kind: "usage-limit",
+            page: nextPage,
+            errorKind: friendlyError.kind,
+          });
+          setTranslationStatusMessage(null);
+          showToast({
+            message: "Translation paused — account may be out of credits.",
+            detail: friendlyError.message,
+            tone: "error",
+            durationMs: 6000,
+          });
+          return;
+        } else if (action === "skip") {
+          setPageTranslations((prev) => ({
+            ...prev,
+            [nextPage]: {
+              page: nextPage,
+              displayText: payload.displayText,
+              previousContext: payload.previousContext,
+              nextContext: payload.nextContext,
+              status: "error",
+              error: friendlyError.message,
+              errorChecks: friendlyError.checks,
+              fallbackTrace: failureTrace,
+            },
+          }));
+          showToast({
+            message: `Skipped page ${nextPage} — too large for this model.`,
+            tone: "neutral",
+            durationMs: 4000,
+          });
+          setPages((prev) =>
+            prev.map((page) =>
+              page.page === nextPage
+                ? {
+                    ...page,
+                    paragraphs: page.paragraphs.map((paragraph) =>
+                      pendingParagraphIds.has(paragraph.pid)
+                        ? { ...paragraph, status: "error" as const }
+                        : paragraph,
+                    ),
+                  }
+                : page,
+            ),
+          );
+          didError = false;
+        } else {
+          // action === "stop"
+          if (!translateAllErrorToastShownRef.current) {
+            showToast({
+              message: `Translate All hit an error on page ${nextPage}.`,
+              detail: getFallbackFailureStatusMessage(failureTrace, error),
+              tone: "error",
+              durationMs: 5200,
+            });
+            translateAllErrorToastShownRef.current = true;
+          }
+          foregroundPageTranslateQueueRef.current = [];
+          backgroundPageTranslateQueueRef.current = [];
+          didError = true;
+          const nextParagraphStatus =
+            friendlyError.kind === "setup-required"
+              ? ("idle" as const)
+              : ("error" as const);
+          setPages((prev) =>
+            prev.map((page) =>
+              page.page === nextPage
+                ? {
+                    ...page,
+                    paragraphs: page.paragraphs.map((paragraph) =>
+                      pendingParagraphIds.has(paragraph.pid)
+                        ? { ...paragraph, status: nextParagraphStatus }
+                        : paragraph,
+                    ),
+                  }
+                : page,
+            ),
+          );
+          setPageTranslations((prev) => ({
+            ...prev,
+            [nextPage]: {
+              page: nextPage,
+              displayText: payload.displayText,
+              previousContext: payload.previousContext,
+              nextContext: payload.nextContext,
+              status:
+                friendlyError.kind === "setup-required"
+                  ? "setup-required"
+                  : "error",
+              activityMessage: undefined,
+              error: friendlyError.message,
+              errorChecks: friendlyError.checks,
+              fallbackTrace: failureTrace,
+            },
+          }));
+          setTranslationStatusMessage(
+            friendlyError.kind === "setup-required"
+              ? TRANSLATION_SETUP_REQUIRED_MESSAGE
+              : getFallbackFailureStatusMessage(failureTrace, error),
+          );
+        }
+      } else {
+        // Non-slow-mode or non-bulk-run: original behavior
+        if (
+          isTranslateAllRunningRef.current &&
+          !translateAllErrorToastShownRef.current
+        ) {
+          showToast({
+            message: `Translate All hit an error on page ${nextPage}.`,
+            detail: getFallbackFailureStatusMessage(failureTrace, error),
+            tone: "error",
+            durationMs: 5200,
+          });
+          translateAllErrorToastShownRef.current = true;
+        }
+        if (isTranslateAllRunningRef.current) {
+          foregroundPageTranslateQueueRef.current = [];
+          backgroundPageTranslateQueueRef.current = [];
+        }
+        if (friendlyError.kind === "setup-required") {
+          foregroundPageTranslateQueueRef.current = [];
+          backgroundPageTranslateQueueRef.current = [];
+        }
+        didError = true;
+        const nextParagraphStatus =
+          friendlyError.kind === "setup-required"
+            ? ("idle" as const)
+            : ("error" as const);
         setPages((prev) =>
           prev.map((page) =>
             page.page === nextPage
@@ -3674,7 +3943,7 @@ function AppContent() {
                   ...page,
                   paragraphs: page.paragraphs.map((paragraph) =>
                     pendingParagraphIds.has(paragraph.pid)
-                      ? { ...paragraph, status: "idle" as const }
+                      ? { ...paragraph, status: nextParagraphStatus }
                       : paragraph,
                   ),
                 }
@@ -3688,90 +3957,22 @@ function AppContent() {
             displayText: payload.displayText,
             previousContext: payload.previousContext,
             nextContext: payload.nextContext,
-            translatedText: prev[nextPage]?.translatedText,
-            status: "queued",
+            status:
+              friendlyError.kind === "setup-required"
+                ? "setup-required"
+                : "error",
             activityMessage: undefined,
-            error: undefined,
-            errorChecks: undefined,
+            error: friendlyError.message,
+            errorChecks: friendlyError.checks,
             fallbackTrace: failureTrace,
           },
         }));
-        scheduledResume = true;
-        setTranslationStatusMessage(null);
-        scheduleTranslateAllResume(
-          retryDelayMs,
-          {
-            kind: "rate-limit",
-            page: nextPage,
-          },
-          () => {
-            void runPageTranslationQueue();
-          },
+        setTranslationStatusMessage(
+          friendlyError.kind === "setup-required"
+            ? TRANSLATION_SETUP_REQUIRED_MESSAGE
+            : getFallbackFailureStatusMessage(failureTrace, error),
         );
-        return;
       }
-
-      if (
-        isTranslateAllRunningRef.current &&
-        !translateAllErrorToastShownRef.current
-      ) {
-        showToast({
-          message: `Translate All hit an error on page ${nextPage}.`,
-          detail: getFallbackFailureStatusMessage(failureTrace, error),
-          tone: "error",
-          durationMs: 5200,
-        });
-        translateAllErrorToastShownRef.current = true;
-      }
-      if (isTranslateAllRunningRef.current) {
-        foregroundPageTranslateQueueRef.current = [];
-        backgroundPageTranslateQueueRef.current = [];
-      }
-      if (friendlyError.kind === "setup-required") {
-        foregroundPageTranslateQueueRef.current = [];
-        backgroundPageTranslateQueueRef.current = [];
-      }
-      didError = true;
-      const nextParagraphStatus =
-        friendlyError.kind === "setup-required"
-          ? ("idle" as const)
-          : ("error" as const);
-      setPages((prev) =>
-        prev.map((page) =>
-          page.page === nextPage
-            ? {
-                ...page,
-                paragraphs: page.paragraphs.map((paragraph) =>
-                  pendingParagraphIds.has(paragraph.pid)
-                    ? { ...paragraph, status: nextParagraphStatus }
-                    : paragraph,
-                ),
-              }
-            : page,
-        ),
-      );
-      setPageTranslations((prev) => ({
-        ...prev,
-        [nextPage]: {
-          page: nextPage,
-          displayText: payload.displayText,
-          previousContext: payload.previousContext,
-          nextContext: payload.nextContext,
-          status:
-            friendlyError.kind === "setup-required"
-              ? "setup-required"
-              : "error",
-          activityMessage: undefined,
-          error: friendlyError.message,
-          errorChecks: friendlyError.checks,
-          fallbackTrace: failureTrace,
-        },
-      }));
-      setTranslationStatusMessage(
-        friendlyError.kind === "setup-required"
-          ? TRANSLATION_SETUP_REQUIRED_MESSAGE
-          : getFallbackFailureStatusMessage(failureTrace, error),
-      );
     } finally {
       pageTranslatingRef.current = false;
       pageTranslationInFlightRef.current = null;
@@ -3789,19 +3990,25 @@ function AppContent() {
           setTranslationStatusMessage(null);
         }
       }
-      if (scheduledResume) {
-        return;
-      }
+      const shouldContinuePdfQueue = shouldContinueQueuedPageTranslations({
+        didError,
+        isTranslateAllRunning: isTranslateAllRunningRef.current,
+        foregroundQueue: foregroundPageTranslateQueueRef.current,
+        backgroundQueue: backgroundPageTranslateQueueRef.current,
+      });
       if (
-        shouldContinueQueuedPageTranslations({
-          didError,
-          isTranslateAllRunning: isTranslateAllRunningRef.current,
-          foregroundQueue: foregroundPageTranslateQueueRef.current,
-          backgroundQueue: backgroundPageTranslateQueueRef.current,
+        shouldAutoResumeTranslateAllQueue({
+          hasQueuedWork: shouldContinuePdfQueue,
+          scheduledResume,
+          usageLimitPaused: translateAllUsageLimitPausedRef.current,
         })
       ) {
         void runPageTranslationQueue();
-      } else if (!didError) {
+      } else if (
+        !didError &&
+        !scheduledResume &&
+        !translateAllUsageLimitPausedRef.current
+      ) {
         setTranslationStatusMessage(null);
       }
     }
@@ -4437,7 +4644,7 @@ function AppContent() {
     const isSlowModeBulkRun =
       isBulkRun && currentSettings.translateAllSlowMode;
     const activeQueue = isSlowModeBulkRun
-      ? selectSlowModeEpubBatch(uniqueQueue, pagesRef.current)
+      ? selectSlowModeEpubPageBatch(uniqueQueue, pagesRef.current)
       : uniqueQueue;
     translateQueueRef.current = uniqueQueue.slice(activeQueue.length);
     const activeQueueIds = new Set(activeQueue);
@@ -4552,11 +4759,17 @@ function AppContent() {
       );
       if (isBulkRun) {
         translateAllRateLimitStreakRef.current = 0;
+        const pendingPageNumbers = new Set(
+          pending.map((paragraph) => paragraph.page),
+        );
+        for (const pageNum of pendingPageNumbers) {
+          translateAllEpubRetryCountRef.current.delete(pageNum);
+        }
 
         if (isSlowModeBulkRun && translateQueueRef.current.length > 0) {
           const completedUnits = addCompletedTranslateAllUnits(
             translateAllCompletedUnitsRef.current,
-            new Set(pending.map((paragraph) => paragraph.page)).size,
+            1,
           );
           translateAllCompletedUnitsRef.current = completedUnits;
 
@@ -4590,99 +4803,219 @@ function AppContent() {
       delete fallbackFailureTracesRef.current[fallbackRequestId];
       const friendlyError = getFriendlyFallbackError(failureTrace, error);
       const requiresSetup = friendlyError.kind === "setup-required";
-      const shouldRetryAfterRateLimit =
-        isSlowModeBulkRun && friendlyError.kind === "rate-limit";
+      const activePageNumber = pending[0]?.page ?? 0;
 
-      if (shouldRetryAfterRateLimit) {
-        translateAllRateLimitStreakRef.current += 1;
-        const retryDelayMs = getTranslateAllRateLimitBackoffMs(
-          translateAllRateLimitStreakRef.current,
-        );
-        translateQueueRef.current = Array.from(
-          new Set([...activeQueue, ...translateQueueRef.current]),
-        );
+      if (isSlowModeBulkRun) {
+        const action = getTranslateAllSlowModeErrorAction(friendlyError.kind);
+
+        if (action === "retry") {
+          const currentRetryCount =
+            translateAllEpubRetryCountRef.current.get(activePageNumber) ?? 0;
+
+          if (currentRetryCount < TRANSLATE_ALL_MAX_RETRIES_PER_PAGE) {
+            translateAllEpubRetryCountRef.current.set(
+              activePageNumber,
+              currentRetryCount + 1,
+            );
+            translateAllRateLimitStreakRef.current += 1;
+            const retryDelayMs = getTranslateAllRateLimitBackoffMs(
+              translateAllRateLimitStreakRef.current,
+            );
+            translateQueueRef.current = Array.from(
+              new Set([...activeQueue, ...translateQueueRef.current]),
+            );
+            setPages((prev) =>
+              prev.map((page) => ({
+                ...page,
+                paragraphs: page.paragraphs.map((para) =>
+                  pending.some((item) => item.pid === para.pid)
+                    ? { ...para, status: "idle" as const }
+                    : para,
+                ),
+              })),
+            );
+            scheduledResume = true;
+            setTranslationStatusMessage(null);
+            scheduleTranslateAllResume(
+              retryDelayMs,
+              {
+                kind: "transient-retry",
+                page: activePageNumber,
+                errorKind: friendlyError.kind,
+              },
+              () => {
+                window.clearTimeout(debounceRef.current);
+                debounceRef.current = window.setTimeout(() => {
+                  void runTranslateQueue();
+                }, 0);
+              },
+            );
+            return;
+          } else {
+            translateAllEpubRetryCountRef.current.delete(activePageNumber);
+            setPages((prev) =>
+              prev.map((page) => ({
+                ...page,
+                paragraphs: page.paragraphs.map((para) =>
+                  pending.some((item) => item.pid === para.pid)
+                    ? { ...para, status: "error" as const }
+                    : para,
+                ),
+              })),
+            );
+            showToast({
+              message: `Skipped page ${activePageNumber} after repeated errors.`,
+              tone: "neutral",
+              durationMs: 4000,
+            });
+            didError = false;
+          }
+        } else if (action === "pause") {
+          translateQueueRef.current = Array.from(
+            new Set([...activeQueue, ...translateQueueRef.current]),
+          );
+          setPages((prev) =>
+            prev.map((page) => ({
+              ...page,
+              paragraphs: page.paragraphs.map((para) =>
+                pending.some((item) => item.pid === para.pid)
+                  ? { ...para, status: "idle" as const }
+                  : para,
+              ),
+            })),
+          );
+          setTranslateAllUsageLimitPaused(true);
+          translateAllUsageLimitPausedRef.current = true;
+          setTranslateAllWaitState({
+            kind: "usage-limit",
+            page: activePageNumber,
+            errorKind: friendlyError.kind,
+          });
+          setTranslationStatusMessage(null);
+          showToast({
+            message: "Translation paused — account may be out of credits.",
+            detail: friendlyError.message,
+            tone: "error",
+            durationMs: 6000,
+          });
+          return;
+        } else if (action === "skip") {
+          setPages((prev) =>
+            prev.map((page) => ({
+              ...page,
+              paragraphs: page.paragraphs.map((para) =>
+                pending.some((item) => item.pid === para.pid)
+                  ? { ...para, status: "error" as const }
+                  : para,
+              ),
+            })),
+          );
+          showToast({
+            message: `Skipped page ${activePageNumber} — too large for this model.`,
+            tone: "neutral",
+            durationMs: 4000,
+          });
+          didError = false;
+        } else {
+          // action === "stop"
+          if (!translateAllErrorToastShownRef.current) {
+            showToast({
+              message: "Translate All hit an error.",
+              detail: getFallbackFailureStatusMessage(failureTrace, error),
+              tone: "error",
+              durationMs: 5200,
+            });
+            translateAllErrorToastShownRef.current = true;
+          }
+          didError = true;
+          setPages((prev) =>
+            prev.map((page) => ({
+              ...page,
+              paragraphs: page.paragraphs.map((para) =>
+                pending.some((item) => item.pid === para.pid)
+                  ? {
+                      ...para,
+                      status: requiresSetup
+                        ? ("idle" as const)
+                        : ("error" as const),
+                    }
+                  : para,
+              ),
+            })),
+          );
+          if (requiresSetup) {
+            translateQueueRef.current = [];
+          }
+          setTranslationStatusMessage(
+            requiresSetup
+              ? TRANSLATION_SETUP_REQUIRED_MESSAGE
+              : getFallbackFailureStatusMessage(failureTrace, error),
+          );
+          if (requiresSetup) {
+            showTranslationSetupToast();
+          }
+        }
+      } else {
+        // Non-slow-mode or non-bulk: original behavior
+        if (isBulkRun && !translateAllErrorToastShownRef.current) {
+          showToast({
+            message: "Translate All hit an error.",
+            detail: getFallbackFailureStatusMessage(failureTrace, error),
+            tone: "error",
+            durationMs: 5200,
+          });
+          translateAllErrorToastShownRef.current = true;
+        }
+        didError = true;
         setPages((prev) =>
           prev.map((page) => ({
             ...page,
             paragraphs: page.paragraphs.map((para) =>
               pending.some((item) => item.pid === para.pid)
-                ? { ...para, status: "idle" as const }
+                ? {
+                    ...para,
+                    status: requiresSetup
+                      ? ("idle" as const)
+                      : ("error" as const),
+                  }
                 : para,
             ),
           })),
         );
-        scheduledResume = true;
-        setTranslationStatusMessage(null);
-        scheduleTranslateAllResume(
-          retryDelayMs,
-          {
-            kind: "rate-limit",
-            page: null,
-          },
-          () => {
-            window.clearTimeout(debounceRef.current);
-            debounceRef.current = window.setTimeout(() => {
-              void runTranslateQueue();
-            }, 0);
-          },
+        if (requiresSetup) {
+          translateQueueRef.current = [];
+        }
+        setTranslationStatusMessage(
+          requiresSetup
+            ? TRANSLATION_SETUP_REQUIRED_MESSAGE
+            : getFallbackFailureStatusMessage(failureTrace, error),
         );
-        return;
-      }
-
-      if (isBulkRun && !translateAllErrorToastShownRef.current) {
-        showToast({
-          message: "Translate All hit an error.",
-          detail: getFallbackFailureStatusMessage(failureTrace, error),
-          tone: "error",
-          durationMs: 5200,
-        });
-        translateAllErrorToastShownRef.current = true;
-      }
-      didError = true;
-      setPages((prev) =>
-        prev.map((page) => ({
-          ...page,
-          paragraphs: page.paragraphs.map((para) =>
-            pending.some((item) => item.pid === para.pid)
-              ? {
-                  ...para,
-                  status: requiresSetup
-                    ? ("idle" as const)
-                    : ("error" as const),
-                }
-              : para,
-          ),
-        })),
-      );
-      if (requiresSetup) {
-        translateQueueRef.current = [];
-      }
-      setTranslationStatusMessage(
-        requiresSetup
-          ? TRANSLATION_SETUP_REQUIRED_MESSAGE
-          : getFallbackFailureStatusMessage(failureTrace, error),
-      );
-      if (requiresSetup) {
-        showTranslationSetupToast();
-      } else if (!isBulkRun) {
-        showToast({
-          message: friendlyError.message,
-          detail: getProviderErrorDetail(failureTrace?.lastError ?? error),
-          tone: "error",
-          durationMs: 5200,
-        });
+        if (requiresSetup) {
+          showTranslationSetupToast();
+        } else if (!isBulkRun) {
+          showToast({
+            message: friendlyError.message,
+            detail: getProviderErrorDetail(failureTrace?.lastError ?? error),
+            tone: "error",
+            durationMs: 5200,
+          });
+        }
       }
     } finally {
       translatingRef.current = false;
-      if (scheduledResume) {
-        return;
-      }
-      if (translateQueueRef.current.length > 0) {
+      if (
+        shouldAutoResumeTranslateAllQueue({
+          hasQueuedWork: translateQueueRef.current.length > 0,
+          didErrorDuringBulkRun: didError && isBulkRun,
+          scheduledResume,
+          usageLimitPaused: translateAllUsageLimitPausedRef.current,
+        })
+      ) {
         window.clearTimeout(debounceRef.current);
         debounceRef.current = window.setTimeout(() => {
           void runTranslateQueue();
         }, 0);
-      } else {
+      } else if (!scheduledResume && !translateAllUsageLimitPausedRef.current) {
         if (isBulkRun) {
           isTranslateAllRunningRef.current = false;
           resetTranslateAllSlowModeRuntime();
@@ -4704,6 +5037,20 @@ function AppContent() {
     showTranslationSetupToast,
     showToast,
   ]);
+
+  const resumeTranslateAllAfterUsageLimit = useCallback(() => {
+    setTranslateAllUsageLimitPaused(false);
+    translateAllUsageLimitPausedRef.current = false;
+    setTranslateAllWaitState(null);
+    if (currentFileType === "pdf") {
+      void runPageTranslationQueue();
+    } else {
+      window.clearTimeout(debounceRef.current);
+      debounceRef.current = window.setTimeout(() => {
+        void runTranslateQueue();
+      }, 0);
+    }
+  }, [currentFileType, runPageTranslationQueue, runTranslateQueue]);
 
   const handleTranslatePid = useCallback(
     (pid: string, forceRetry = false) => {
@@ -5547,11 +5894,23 @@ function AppContent() {
                       progressDetailLabel={pdfProgressDetailLabel}
                       progressDetailState={pdfProgressDetailState}
                       bulkActionLabel={translateAllActionLabel}
-                      onBulkAction={handleTranslateAllAction}
                       bulkActionDisabled={
                         !canTranslateAll || isTranslateAllStopRequested
                       }
                       bulkActionRunning={isTranslateAllRunning}
+                      secondaryActionLabel={
+                        translateAllUsageLimitPaused ? "Stop" : null
+                      }
+                      onSecondaryAction={
+                        translateAllUsageLimitPaused
+                          ? stopTranslateAll
+                          : undefined
+                      }
+                      onBulkAction={
+                        translateAllUsageLimitPaused
+                          ? resumeTranslateAllAfterUsageLimit
+                          : handleTranslateAllAction
+                      }
                       onOpenSettings={handleOpenSettings}
                       onRetryPage={handleRedoPageTranslation}
                       canRetryPage={canRedoCurrentPage}
@@ -5576,11 +5935,23 @@ function AppContent() {
                       progressDetailLabel={translateAllProgressDetail.label}
                       progressDetailState={translateAllProgressDetail.state}
                       bulkActionLabel={translateAllActionLabel}
-                      onBulkAction={handleTranslateAllAction}
                       bulkActionDisabled={
                         !canTranslateAll || isTranslateAllStopRequested
                       }
                       bulkActionRunning={isTranslateAllRunning}
+                      secondaryActionLabel={
+                        translateAllUsageLimitPaused ? "Stop" : null
+                      }
+                      onSecondaryAction={
+                        translateAllUsageLimitPaused
+                          ? stopTranslateAll
+                          : undefined
+                      }
+                      onBulkAction={
+                        translateAllUsageLimitPaused
+                          ? resumeTranslateAllAfterUsageLimit
+                          : handleTranslateAllAction
+                      }
                       onOpenSettings={handleOpenSettings}
                       activePid={activePid}
                       hoverPid={hoverPid}
