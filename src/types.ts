@@ -69,6 +69,7 @@ export type TranslationCacheBookSummary = {
   docId: string;
   title: string;
   cachedPageCount: number;
+  isLegacyOnly?: boolean;
 };
 
 export type TranslationCacheSummary = {
