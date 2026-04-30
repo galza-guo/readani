@@ -1,4 +1,11 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { Virtuoso } from "react-virtuoso";
 import type { VirtuosoHandle } from "react-virtuoso";
 import * as Popover from "@radix-ui/react-popover";
@@ -7,6 +14,7 @@ import {
   getTranslatablePdfParagraphs,
 } from "../lib/pdfSegments";
 import { getFriendlyProviderError } from "../lib/providerErrors";
+import type { PageProgressStatus } from "../lib/pageTranslationScheduler";
 import { useToast } from "./toast/ToastProvider";
 import { ExpandableIconButton } from "./reader/ExpandableIconButton";
 import type {
@@ -25,6 +33,9 @@ type TranslationPaneChromeProps = {
   onBulkAction: () => void;
   bulkActionDisabled: boolean;
   bulkActionRunning: boolean;
+  statusMap?: PageProgressStatus[];
+  currentPage?: number;
+  onSeekPage?: (page: number) => void;
 };
 
 type PdfTranslationPaneProps = {
@@ -50,6 +61,8 @@ type PdfTranslationPaneProps = {
   onLocatePid: (pid: string, page: number) => void;
   selectionTranslation: SelectionTranslation | null;
   onClearSelectionTranslation: () => void;
+  statusMap?: PageProgressStatus[];
+  onSeekPage?: (page: number) => void;
 };
 
 type EpubTranslationPaneProps = {
@@ -74,6 +87,8 @@ type EpubTranslationPaneProps = {
   wordTranslation: WordTranslation | null;
   onClearWordTranslation: () => void;
   scrollToPage?: number | null;
+  statusMap?: PageProgressStatus[];
+  onSeekPage?: (page: number) => void;
 };
 
 type TranslationPaneProps = PdfTranslationPaneProps | EpubTranslationPaneProps;
@@ -527,6 +542,155 @@ const EpubPageTranslation = memo(function EpubPageTranslation({
   );
 });
 
+type TranslationProgressBarProps = {
+  statusMap: PageProgressStatus[];
+  currentPage: number;
+  progressLabel: string;
+  onSeekPage: (page: number) => void;
+};
+
+const TranslationProgressBar = memo(function TranslationProgressBar({
+  statusMap,
+  currentPage,
+  progressLabel,
+  onSeekPage,
+}: TranslationProgressBarProps) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPage, setDragPage] = useState<number | null>(null);
+  const [hoverPage, setHoverPage] = useState<number | null>(null);
+
+  const pageFromOffset = useCallback(
+    (clientX: number) => {
+      const barWidth = barRef.current?.clientWidth ?? 1;
+      const rect = barRef.current?.getBoundingClientRect();
+      const offsetX = rect ? clientX - rect.left : 0;
+      const raw = Math.round((offsetX / barWidth) * statusMap.length);
+      return Math.max(1, Math.min(raw, statusMap.length));
+    },
+    [statusMap.length],
+  );
+
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setIsDragging(true);
+      setDragPage(pageFromOffset(event.clientX));
+    },
+    [pageFromOffset],
+  );
+
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (isDragging) {
+        setDragPage(pageFromOffset(event.clientX));
+      } else {
+        setHoverPage(pageFromOffset(event.clientX));
+      }
+    },
+    [isDragging, pageFromOffset],
+  );
+
+  const handlePointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!isDragging) return;
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      const page = pageFromOffset(event.clientX);
+      setIsDragging(false);
+      setDragPage(null);
+      onSeekPage(page);
+    },
+    [isDragging, pageFromOffset, onSeekPage],
+  );
+
+  const handlePointerCancel = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      setIsDragging(false);
+      setDragPage(null);
+    },
+    [],
+  );
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      let nextPage: number | null = null;
+      switch (event.key) {
+        case "ArrowLeft":
+        case "ArrowDown":
+          nextPage = Math.max(1, currentPage - 1);
+          break;
+        case "ArrowRight":
+        case "ArrowUp":
+          nextPage = Math.min(statusMap.length, currentPage + 1);
+          break;
+        case "Home":
+          nextPage = 1;
+          break;
+        case "End":
+          nextPage = statusMap.length;
+          break;
+      }
+      if (nextPage !== null) {
+        event.preventDefault();
+        onSeekPage(nextPage);
+      }
+    },
+    [currentPage, statusMap.length, onSeekPage],
+  );
+
+  const tooltipContent = isDragging
+    ? `Page ${dragPage}`
+    : `${progressLabel} · Page ${hoverPage} of ${statusMap.length}`;
+
+  const markerLeft = ((currentPage - 1) / statusMap.length) * 100;
+
+  return (
+    <div
+      className="translation-progress-bar"
+      ref={barRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      onMouseEnter={(event) => {
+        setIsHovered(true);
+        setHoverPage(pageFromOffset(event.clientX));
+      }}
+      onMouseLeave={() => {
+        if (!isDragging) {
+          setIsHovered(false);
+          setHoverPage(null);
+        }
+      }}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      role="slider"
+      aria-valuemin={1}
+      aria-valuemax={statusMap.length}
+      aria-valuenow={currentPage}
+      aria-label={`Page navigation, page ${currentPage} of ${statusMap.length}`}
+    >
+      {statusMap.map((status, index) => (
+        <span
+          key={index}
+          data-status={status}
+          className="translation-progress-segment"
+          style={{ "--segment-index": index } as CSSProperties}
+        />
+      ))}
+      <span
+        className="translation-progress-marker"
+        style={{ left: `${markerLeft}%` }}
+      />
+      {(isHovered || isDragging) && (
+        <span className="translation-progress-tooltip">{tooltipContent}</span>
+      )}
+    </div>
+  );
+});
+
 function TranslationPaneFooter({
   progressLabel,
   progressDetailLabel,
@@ -534,34 +698,30 @@ function TranslationPaneFooter({
   bulkActionLabel,
   onBulkAction,
   bulkActionDisabled,
-  bulkActionRunning,
+  bulkActionRunning: _bulkActionRunning,
+  statusMap,
+  currentPage,
+  onSeekPage,
 }: TranslationPaneChromeProps) {
   return (
     <div className="translation-pane-footer">
-      <div className="translation-pane-footer-meta">
-        {progressLabel ? (
-          <span
-            className={`translation-pane-progress-text ${
-              bulkActionRunning ? "is-active" : ""
-            }`}
-          >
+      <div className="translation-pane-footer-progress">
+        {statusMap && statusMap.length > 0 && progressLabel && onSeekPage && currentPage ? (
+          <TranslationProgressBar
+            statusMap={statusMap}
+            currentPage={currentPage}
+            progressLabel={progressLabel}
+            onSeekPage={onSeekPage}
+          />
+        ) : progressLabel ? (
+          <span className="translation-pane-progress-text">
             {progressLabel}
-          </span>
-        ) : null}
-        {progressLabel && progressDetailLabel ? (
-          <span
-            className="translation-pane-progress-separator"
-            aria-hidden="true"
-          >
-            ·
           </span>
         ) : null}
         {progressDetailLabel ? (
           <span
             className={`translation-pane-progress-detail ${
-              progressDetailState
-                ? `is-${progressDetailState}`
-                : ""
+              progressDetailState ? `is-${progressDetailState}` : ""
             }`}
             aria-live="polite"
           >
@@ -609,6 +769,8 @@ function PdfTranslationPane({
   onLocatePid: _onLocatePid,
   selectionTranslation,
   onClearSelectionTranslation,
+  statusMap,
+  onSeekPage,
 }: Omit<PdfTranslationPaneProps, "mode">) {
   const { showToast } = useToast();
   const [selectedPids, setSelectedPids] = useState<string[]>([]);
@@ -932,6 +1094,9 @@ function PdfTranslationPane({
         onBulkAction={onBulkAction}
         bulkActionDisabled={bulkActionDisabled}
         bulkActionRunning={bulkActionRunning}
+        statusMap={statusMap}
+        currentPage={currentPage}
+        onSeekPage={onSeekPage}
       />
 
       {selectionTranslation ? (
@@ -979,7 +1144,7 @@ function PdfTranslationPane({
 
 function EpubTranslationPane({
   pages,
-  currentPage: _currentPage,
+  currentPage,
   setupRequired = false,
   progressLabel,
   progressDetailLabel,
@@ -998,6 +1163,8 @@ function EpubTranslationPane({
   wordTranslation,
   onClearWordTranslation,
   scrollToPage,
+  statusMap,
+  onSeekPage,
 }: Omit<EpubTranslationPaneProps, "mode">) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const lastHandledScrollPageRef = useRef<number | null>(null);
@@ -1056,6 +1223,9 @@ function EpubTranslationPane({
         onBulkAction={onBulkAction}
         bulkActionDisabled={bulkActionDisabled}
         bulkActionRunning={bulkActionRunning}
+        statusMap={statusMap}
+        currentPage={currentPage}
+        onSeekPage={onSeekPage}
       />
       {wordTranslation ? (
         <Popover.Root
@@ -1137,6 +1307,8 @@ export function TranslationPane(props: TranslationPaneProps) {
         onLocatePid={props.onLocatePid}
         selectionTranslation={props.selectionTranslation}
         onClearSelectionTranslation={props.onClearSelectionTranslation}
+        statusMap={props.statusMap}
+        onSeekPage={props.onSeekPage}
       />
     );
   }
@@ -1163,6 +1335,8 @@ export function TranslationPane(props: TranslationPaneProps) {
       wordTranslation={props.wordTranslation}
       onClearWordTranslation={props.onClearWordTranslation}
       scrollToPage={props.scrollToPage}
+      statusMap={props.statusMap}
+      onSeekPage={props.onSeekPage}
     />
   );
 }

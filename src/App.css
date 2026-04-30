@@ -1694,6 +1694,127 @@ body.is-resizing-split-y * {
   }
 }
 
+.translation-pane-footer-progress {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.translation-progress-bar {
+  position: relative;
+  display: flex;
+  height: 4px;
+  border-radius: 2px;
+  overflow: visible;
+  cursor: pointer;
+  transition: height 150ms ease;
+  outline: none;
+}
+
+.translation-progress-bar:hover,
+.translation-progress-bar.is-dragging {
+  height: 6px;
+}
+
+.translation-progress-bar:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.translation-progress-segment {
+  flex: 1 1 0%;
+  min-width: 1px;
+  transform-origin: center;
+  transition:
+    background 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.22s ease;
+}
+
+.translation-progress-segment[data-status="translated"] {
+  background: var(--accent);
+}
+
+.translation-progress-segment[data-status="untranslated"] {
+  background: var(--border);
+}
+
+.translation-progress-segment[data-status="not-translatable"] {
+  background: var(--border);
+  opacity: 0.3;
+}
+
+.translation-progress-segment[data-status="queued"] {
+  background: var(--accent);
+  opacity: 0.38;
+  will-change: opacity, transform;
+  animation: progress-queued-wave 1.35s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation-delay: calc(var(--segment-index, 0) * 48ms);
+}
+
+@keyframes progress-queued-wave {
+  0%,
+  100% {
+    opacity: 0.38;
+    transform: scaleY(0.72);
+  }
+  45% {
+    opacity: 0.58;
+    transform: scaleY(0.84);
+  }
+  60% {
+    opacity: 0.98;
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .translation-progress-segment[data-status="queued"] {
+    animation: none;
+    opacity: 0.62;
+    transform: none;
+  }
+}
+
+.translation-progress-marker {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--ink);
+  border-radius: 1px;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: left 100ms ease;
+}
+
+.translation-progress-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  background: var(--toolbar);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.translation-progress-bar.is-dragging .translation-progress-tooltip {
+  left: var(--tooltip-x, 50%);
+}
+
+.translation-pane-footer-progress .translation-pane-progress-detail {
+  display: flex;
+  padding-left: 0;
+}
+
 .paragraph-block {
   position: relative;
   padding: 6px 0;
