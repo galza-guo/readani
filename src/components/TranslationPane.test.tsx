@@ -502,6 +502,14 @@ describe("TranslationPane", () => {
     expect(html).toContain("This is an important passage.");
   });
 
+  test("styles notes as an inline bold row inside the sentence card", () => {
+    const noteRule = appCss.match(/\.pdf-segment-note\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(noteRule).toContain("font-weight: 700");
+    expect(noteRule).toContain("background: transparent");
+    expect(noteRule).toContain("border: none");
+  });
+
   test("renders needs-review warning banner", () => {
     const annotation: ResolvedSentenceAnnotation = {
       id: "ann-needs-review",

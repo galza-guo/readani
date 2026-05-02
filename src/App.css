@@ -5112,25 +5112,27 @@ body.is-resizing-split-y * {
 }
 
 .pdf-segment-note {
-  margin-top: 6px;
-  padding: 6px 10px;
-  background: var(--annotation-note-bg);
-  border: 1px solid var(--annotation-note-border);
-  border-radius: 6px;
-  font-size: 0.85em;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--annotation-note-text);
   line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .pdf-segment-note-editor {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 6px;
-  padding: 8px 10px;
-  background: var(--annotation-note-bg);
-  border: 1px solid var(--annotation-note-border);
-  border-radius: 6px;
+  margin-top: 2px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 }
 
 .pdf-segment-note-editor textarea {

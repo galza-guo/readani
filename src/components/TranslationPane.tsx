@@ -590,6 +590,19 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
             </div>
           </div>
         </div>
+        {annotation?.note && noteEditingAnnotationId !== annotation.id ? (
+          <div className="pdf-segment-note">{annotation.note}</div>
+        ) : null}
+        {noteEditingAnnotationId === annotation?.id && annotation ? (
+          <AnnotationNoteEditor
+            initialValue={annotation.note ?? ""}
+            onSave={(note) => {
+              onSaveNote?.(annotation.id, note);
+              onNoteEditingChange?.(null);
+            }}
+            onCancel={() => onNoteEditingChange?.(null)}
+          />
+        ) : null}
       </div>
       {isAnnotated && (isHovered || hasFocusWithin) && (
         <div className="pdf-segment-annotation-clip">
@@ -616,19 +629,6 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
             Delete
           </button>
         </div>
-      )}
-      {annotation?.note && noteEditingAnnotationId !== annotation.id && (
-        <div className="pdf-segment-note">{annotation.note}</div>
-      )}
-      {noteEditingAnnotationId === annotation?.id && annotation && (
-        <AnnotationNoteEditor
-          initialValue={annotation.note ?? ""}
-          onSave={(note) => {
-            onSaveNote?.(annotation.id, note);
-            onNoteEditingChange?.(null);
-          }}
-          onCancel={() => onNoteEditingChange?.(null)}
-        />
       )}
     </article>
   );
