@@ -27,6 +27,7 @@ function buildPdfPage(overrides: Partial<PageDoc> = {}): PageDoc {
 function renderPdfPane(
   options: {
     page?: PageDoc;
+    translationEnabled?: boolean;
     pageTranslation?: PageTranslationState;
     loadingMessage?: string | null;
     setupRequired?: boolean;
@@ -57,6 +58,9 @@ function renderPdfPane(
     <ToastProvider>
       <TranslationPane
         mode="pdf"
+        translationEnabled={options.translationEnabled ?? true}
+        targetLanguage={{ label: "Chinese", code: "zh" }}
+        onTranslationPreferenceChange={() => {}}
         currentPage={3}
         page={page}
         pageTranslation={
@@ -136,6 +140,7 @@ function renderEpubPane(
   options: {
     pages?: PageDoc[];
     currentPage?: number;
+    translationEnabled?: boolean;
     setupRequired?: boolean;
     annotations?: ResolvedSentenceAnnotation[];
     annotationModeEnabled?: boolean;
@@ -147,6 +152,9 @@ function renderEpubPane(
     <ToastProvider>
       <TranslationPane
         mode="epub"
+        translationEnabled={options.translationEnabled ?? true}
+        targetLanguage={{ label: "Chinese", code: "zh" }}
+        onTranslationPreferenceChange={() => {}}
         pages={options.pages ?? buildEpubPages()}
         currentPage={options.currentPage ?? 4}
         bulkActionLabel="Translate All"
@@ -529,6 +537,8 @@ describe("TranslationPane", () => {
 
   test("styles notes as an inline bold row inside the sentence card", () => {
     const noteRule = appCss.match(/\.pdf-segment-note\s*\{([^}]*)\}/)?.[1] ?? "";
+    const shellRule =
+      appCss.match(/\.pdf-segment-note-shell\s*\{([^}]*)\}/)?.[1] ?? "";
     const placeholderRule =
       appCss.match(/\.pdf-segment-note\.is-placeholder\s*\{([^}]*)\}/)?.[1] ??
       "";
@@ -537,12 +547,16 @@ describe("TranslationPane", () => {
     const saveRule =
       appCss.match(/\.pdf-segment-note-save\s*\{([^}]*)\}/)?.[1] ?? "";
 
+    expect(shellRule).toContain("grid-template-columns: minmax(0, 1fr) auto");
+    expect(noteRule).toContain("min-height: 20px");
     expect(noteRule).toContain("font-weight: 700");
     expect(noteRule).toContain("background: transparent");
     expect(noteRule).toContain("border: none");
     expect(placeholderRule).toContain("font-style: italic");
+    expect(placeholderRule).toContain("opacity: 0.24");
     expect(inputRule).toContain("background: transparent");
     expect(inputRule).toContain("border: none");
+    expect(inputRule).toContain("appearance: none");
     expect(saveRule).toContain("background: transparent");
     expect(saveRule).toContain("border: none");
   });
@@ -601,7 +615,9 @@ describe("TranslationPane", () => {
       noteEditingAnnotationId: "ann-editing",
     });
 
+    expect(html).toContain("pdf-segment-note-shell");
     expect(html).toContain("pdf-segment-note-editor");
+    expect(html).not.toContain("<textarea");
     expect(html).toContain('aria-label="Save comment"');
   });
 });

@@ -149,6 +149,7 @@ import {
 } from "./lib/translateAllSlowMode";
 import type {
   BatchTranslationResult,
+  BookTranslationPreference,
   FileType,
   PageDoc,
   PageTranslationState,
@@ -295,6 +296,44 @@ function isStructurallySimilarRecentCandidate(
 
   return true;
 }
+
+function loadBookTranslationPreferences() {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  try {
+    const raw = window.localStorage.getItem(BOOK_TRANSLATION_PREFS_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    const parsed = JSON.parse(raw) as Record<string, BookTranslationPreference>;
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        ([, preference]) =>
+          typeof preference?.enabled === "boolean" &&
+          typeof preference?.targetLanguage?.code === "string" &&
+          typeof preference?.targetLanguage?.label === "string",
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function saveBookTranslationPreferences(
+  preferences: Record<string, BookTranslationPreference>,
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(
+    BOOK_TRANSLATION_PREFS_STORAGE_KEY,
+    JSON.stringify(preferences),
+  );
+}
 const FRONTEND_TIMEOUT_MS = 95_000;
 
 type AppView = "home" | "reader";
@@ -313,6 +352,7 @@ type UpdateState =
 const PRESET_AUTOSAVE_DELAY_MS = 700;
 const FALLBACK_PROGRESS_EVENT = "translation-fallback-progress";
 const FALLBACK_FAILURE_EVENT = "translation-fallback-failure";
+const BOOK_TRANSLATION_PREFS_STORAGE_KEY = "readani.bookTranslationPrefs.v1";
 
 type TranslationFallbackProgressPayload = {
   requestId: string;
@@ -520,6 +560,10 @@ function AppContent() {
   const [resolvedPdfScale, setResolvedPdfScale] = useState<number>(1);
   const [settings, setSettings] =
     useState<TranslationSettings>(DEFAULT_SETTINGS);
+  const [bookTranslationPreferences, setBookTranslationPreferences] =
+    useState<Record<string, BookTranslationPreference>>(() =>
+      loadBookTranslationPreferences(),
+    );
   const [settingsDraft, setSettingsDraft] =
     useState<TranslationSettings | null>(null);
   const [sessionFallbackPresetId, setSessionFallbackPresetId] = useState<
@@ -638,6 +682,8 @@ function AppContent() {
   const pageTranslationsRef = useRef<Record<number, PageTranslationState>>({});
   const textTranslationCacheRef = useRef(new LRUCache<string, string>(100));
   const settingsRef = useRef(settings);
+  const currentTargetLanguageRef = useRef(DEFAULT_SETTINGS.defaultLanguage);
+  const translationEnabledRef = useRef(true);
   const settingsDraftRef = useRef<TranslationSettings | null>(settingsDraft);
   const sessionFallbackPresetIdRef = useRef<string | null>(
     sessionFallbackPresetId,
@@ -1185,6 +1231,27 @@ function AppContent() {
     [clearTranslateAllResumeTimer],
   );
 
+  const currentBookTranslationPreference = useMemo<BookTranslationPreference>(
+    () =>
+      docId && bookTranslationPreferences[docId]
+        ? bookTranslationPreferences[docId]
+        : {
+            enabled: true,
+            targetLanguage: settings.defaultLanguage,
+          },
+    [bookTranslationPreferences, docId, settings.defaultLanguage],
+  );
+  const translationEnabled = currentBookTranslationPreference.enabled;
+  const currentTargetLanguage = currentBookTranslationPreference.targetLanguage;
+
+  useEffect(() => {
+    currentTargetLanguageRef.current = currentTargetLanguage;
+  }, [currentTargetLanguage]);
+
+  useEffect(() => {
+    translationEnabledRef.current = translationEnabled;
+  }, [translationEnabled]);
+
   useEffect(() => {
     if (!translateAllWaitState) {
       return;
@@ -1246,6 +1313,10 @@ function AppContent() {
   );
 
   const translationProgressLabel = useMemo(() => {
+    if (!translationEnabled) {
+      return null;
+    }
+
     if (
       (currentFileType === "pdf" && !allPdfPagesExtracted) ||
       translationProgress.totalCount === 0
@@ -1258,9 +1329,13 @@ function AppContent() {
     }
 
     return `${translationProgress.translatedCount}/${translationProgress.totalCount} ${translationProgress.unitLabel} translated`;
-  }, [allPdfPagesExtracted, currentFileType, translationProgress]);
+  }, [allPdfPagesExtracted, currentFileType, translationEnabled, translationProgress]);
 
   const translateAllActionLabel = useMemo(() => {
+    if (!translationEnabled) {
+      return "Translation Off";
+    }
+
     if (translateAllUsageLimitPaused) {
       return "Continue";
     }
@@ -1278,6 +1353,7 @@ function AppContent() {
     isTranslateAllRunning,
     isTranslateAllStopRequested,
     translateAllUsageLimitPaused,
+    translationEnabled,
     translationProgress,
   ]);
 
@@ -1413,6 +1489,7 @@ function AppContent() {
   }, [currentFileType, currentPage, pages]);
 
   const canRedoCurrentPage =
+    translationEnabled &&
     currentFileType === "pdf" &&
     allPdfPagesExtracted &&
     Boolean(
@@ -1421,6 +1498,7 @@ function AppContent() {
     );
 
   const canTranslateAll =
+    translationEnabled &&
     ((currentFileType === "pdf" && allPdfPagesExtracted) ||
       currentFileType === "epub") &&
     translationProgress.totalCount > 0;
@@ -1865,6 +1943,7 @@ function AppContent() {
       : undefined;
   const showPdfSetupPrompt =
     settingsLoaded &&
+    translationEnabled &&
     currentFileType === "pdf" &&
     Boolean(
       currentPdfPagePayload &&
@@ -1929,6 +2008,7 @@ function AppContent() {
   }, [currentFileType, currentPage, pages]);
   const showEpubSetupPrompt =
     settingsLoaded &&
+    translationEnabled &&
     currentFileType === "epub" &&
     translationStatusMessage === TRANSLATION_SETUP_REQUIRED_MESSAGE &&
     !currentEpubPageHasTranslation;
@@ -2698,11 +2778,10 @@ function AppContent() {
     setTranslationCacheLoading(true);
 
     try {
-      const currentSettings = settingsRef.current;
       const summary = (await invoke(
         "get_translation_cache_summary",
         {
-          targetLanguage: currentSettings.defaultLanguage,
+          targetLanguage: currentTargetLanguageRef.current,
         },
       )) as TranslationCacheSummary;
       setTranslationCacheSummary(summary);
@@ -3681,7 +3760,8 @@ function AppContent() {
     currentFileType,
     docId,
     resetTranslateAllSlowModeRuntime,
-    settings.defaultLanguage.code,
+    currentTargetLanguage.code,
+    translationEnabled,
   ]);
 
   useEffect(() => {
@@ -3741,6 +3821,7 @@ function AppContent() {
   const runPageTranslationQueue = useCallback(async () => {
     if (
       currentFileType !== "pdf" ||
+      !translationEnabledRef.current ||
       pageTranslatingRef.current ||
       !docIdRef.current ||
       (isTranslateAllRunningRef.current &&
@@ -3883,7 +3964,7 @@ function AppContent() {
           presetId: currentPreset.id,
           model: currentPreset.model,
           temperature: 0,
-          targetLanguage: currentSettings.defaultLanguage,
+          targetLanguage: currentTargetLanguageRef.current,
           sentences: pendingParagraphs.map((paragraph) => ({
             sid: paragraph.pid,
             text: paragraph.source,
@@ -4586,6 +4667,7 @@ function AppContent() {
     if (
       currentFileType !== "pdf" ||
       !docId ||
+      !translationEnabled ||
       !settingsLoaded ||
       !allPdfPagesExtracted ||
       !effectivePreset ||
@@ -4614,7 +4696,7 @@ function AppContent() {
     void invoke("get_cached_pdf_page_translations", {
       presetId: effectivePreset.id,
       model: effectivePreset.model,
-      targetLanguage: settings.defaultLanguage,
+      targetLanguage: currentTargetLanguage,
       pages: lookupPages,
     })
       .then((cachedPages) => {
@@ -4653,13 +4735,15 @@ function AppContent() {
     currentFileType,
     docId,
     effectivePreset,
-    settings.defaultLanguage,
+    currentTargetLanguage,
+    translationEnabled,
     settingsLoaded,
   ]);
 
   useEffect(() => {
     if (
       currentFileType !== "pdf" ||
+      !translationEnabled ||
       !pdfDoc ||
       pages.length === 0 ||
       !settingsLoaded ||
@@ -4685,12 +4769,14 @@ function AppContent() {
     settings.autoTranslateNextPages,
     settingsLoaded,
     translateAllUsageLimitPaused,
+    translationEnabled,
   ]);
 
   useEffect(() => {
     if (
       currentFileType !== "pdf" ||
       !docId ||
+      !translationEnabled ||
       translateAllUsageLimitPaused
     )
       return;
@@ -4708,11 +4794,16 @@ function AppContent() {
     docId,
     runPageTranslationQueue,
     translateAllUsageLimitPaused,
+    translationEnabled,
   ]);
 
   const startTranslateAll = useCallback(
     async (mode: "skip-cached" | "replace-all") => {
-      if (currentFileType !== "pdf" || !docIdRef.current) {
+      if (
+        currentFileType !== "pdf" ||
+        !docIdRef.current ||
+        !translationEnabledRef.current
+      ) {
         return;
       }
 
@@ -4799,6 +4890,51 @@ function AppContent() {
     resetTranslateAllSlowModeRuntime,
   ]);
 
+  const handleTranslationPreferenceChange = useCallback(
+    (preference: BookTranslationPreference) => {
+      if (!docIdRef.current) {
+        return;
+      }
+
+      const id = docIdRef.current;
+      setBookTranslationPreferences((prev) => {
+        const next = {
+          ...prev,
+          [id]: preference,
+        };
+        saveBookTranslationPreferences(next);
+        return next;
+      });
+
+      textTranslationCacheRef.current.clear();
+      translateQueueRef.current = [];
+      foregroundPageTranslateQueueRef.current = [];
+      backgroundPageTranslateQueueRef.current = [];
+      forceFreshSentenceTranslationIdsRef.current.clear();
+      pageTranslationRequestVersionsRef.current = {};
+      pageTranslationInFlightRef.current = null;
+      pageTranslatingRef.current = false;
+      setPageTranslationInFlightPage(null);
+      setSelectionTranslation(null);
+      setWordTranslation(null);
+      setTranslationStatusMessage(null);
+      resetTranslateAllSlowModeRuntime();
+      isTranslateAllRunningRef.current = false;
+      setIsTranslateAllRunning(false);
+      setIsTranslateAllStopRequested(false);
+      translateAllErrorToastShownRef.current = false;
+      pdfTranslationSessionRef.current += 1;
+      translationRequestId.current += 1;
+      translatingRef.current = false;
+      if (debounceRef.current) {
+        window.clearTimeout(debounceRef.current);
+      }
+      setPageTranslations((prev) => sanitizePdfTranslationsForPresetChange(prev));
+      setPages((prev) => sanitizeEpubPagesForPresetChange(prev));
+    },
+    [resetTranslateAllSlowModeRuntime],
+  );
+
   const handleRedoPageTranslation = useCallback(
     async (pageNumber: number) => {
       if (currentFileType !== "pdf" || !docIdRef.current) {
@@ -4835,6 +4971,10 @@ function AppContent() {
   const handleTranslateAllAction = useCallback(async () => {
     if (isTranslateAllRunningRef.current) {
       stopTranslateAll();
+      return;
+    }
+
+    if (!translationEnabledRef.current) {
       return;
     }
 
@@ -4934,6 +5074,10 @@ function AppContent() {
 
   const handlePdfSelectionTranslate = useCallback(
     async (selection: { text: string; position: { x: number; y: number } }) => {
+      if (!translationEnabledRef.current) {
+        return;
+      }
+
       setSelectionTranslation({
         text: selection.text,
         position: selection.position,
@@ -4951,7 +5095,7 @@ function AppContent() {
         const result = (await invoke("translate_selection_text", {
           presetId: currentPreset.id,
           model: currentPreset.model,
-          targetLanguage: settingsRef.current.defaultLanguage,
+          targetLanguage: currentTargetLanguageRef.current,
           text: selection.text,
         })) as SelectionTranslationResult;
 
@@ -5014,6 +5158,7 @@ function AppContent() {
   const runTranslateQueue = useCallback(async () => {
     if (translatingRef.current) return;
     if (!docIdRef.current) return;
+    if (!translationEnabledRef.current) return;
     if (
       isTranslateAllRunningRef.current &&
       translateAllUsageLimitPausedRef.current
@@ -5096,7 +5241,7 @@ function AppContent() {
           presetId: currentPreset.id,
           model: currentPreset.model,
           temperature: 0,
-          targetLanguage: currentSettings.defaultLanguage,
+          targetLanguage: currentTargetLanguageRef.current,
           sentences: payload,
           forceFreshIds,
           requestId: fallbackRequestId,
@@ -5439,6 +5584,7 @@ function AppContent() {
   const handleTranslatePid = useCallback(
     (pid: string, forceRetry = false) => {
       if (!docIdRef.current) return;
+      if (!translationEnabledRef.current) return;
       if (!activePresetHasTranslationContext) {
         setTranslationStatusMessage(TRANSLATION_SETUP_REQUIRED_MESSAGE);
         showTranslationSetupToast();
@@ -5685,6 +5831,7 @@ function AppContent() {
 
   const handleTranslateText = useCallback(
     async (text: string, position: { x: number; y: number }) => {
+      if (!translationEnabledRef.current) return;
       const normalizedText = text.toLowerCase().trim();
       const isSingleWord = /^[a-zA-Z]+$/.test(text.trim());
 
@@ -5724,7 +5871,7 @@ function AppContent() {
           const result = (await invoke("openrouter_word_lookup", {
             presetId: currentPreset.id,
             model: currentPreset.model,
-            targetLanguage: currentSettings.defaultLanguage,
+            targetLanguage: currentTargetLanguageRef.current,
             word: text,
           })) as WordLookupResult;
 
@@ -5750,7 +5897,7 @@ function AppContent() {
             presetId: currentPreset.id,
             model: currentPreset.model,
             temperature: 0,
-            targetLanguage: currentSettings.defaultLanguage,
+            targetLanguage: currentTargetLanguageRef.current,
             sentences: [{ sid: "text", text }],
           })) as BatchTranslationResult;
 
@@ -6588,6 +6735,11 @@ function AppContent() {
                   currentFileType === "pdf" ? (
                     <TranslationPane
                       mode="pdf"
+                      translationEnabled={translationEnabled}
+                      targetLanguage={currentTargetLanguage}
+                      onTranslationPreferenceChange={
+                        handleTranslationPreferenceChange
+                      }
                       currentPage={currentPage}
                       page={currentPdfPageDoc}
                       pageTranslation={pageTranslations[currentPage]}
@@ -6661,6 +6813,11 @@ function AppContent() {
                   ) : (
                     <TranslationPane
                       mode="epub"
+                      translationEnabled={translationEnabled}
+                      targetLanguage={currentTargetLanguage}
+                      onTranslationPreferenceChange={
+                        handleTranslationPreferenceChange
+                      }
                       pages={pages}
                       currentPage={currentPage}
                       setupRequired={showEpubSetupPrompt}

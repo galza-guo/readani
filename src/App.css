@@ -1297,6 +1297,70 @@ body.is-resizing-split-y * {
   gap: 8px;
 }
 
+.translation-language-trigger {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--type-size-meta);
+  font-weight: var(--type-weight-medium);
+  line-height: var(--type-line-height-ui);
+  padding: 4px 2px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    color 0.16s ease,
+    text-shadow 0.16s ease;
+}
+
+.translation-language-trigger::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0;
+  transform: scaleX(0.35);
+  transform-origin: center;
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.translation-language-trigger:hover,
+.translation-language-trigger:focus-visible,
+.translation-language-trigger[data-state="open"] {
+  color: var(--ink);
+}
+
+.translation-language-trigger:hover::after,
+.translation-language-trigger:focus-visible::after,
+.translation-language-trigger[data-state="open"]::after {
+  opacity: 0.32;
+  transform: scaleX(1);
+}
+
+.translation-language-trigger:focus-visible {
+  outline: none;
+  text-shadow: 0 0 0 var(--ink);
+}
+
+.translation-language-content {
+  width: min(320px, calc(100vw - 32px));
+}
+
+.translation-language-divider {
+  height: 1px;
+  background: var(--border);
+  opacity: 0.7;
+}
+
 .translation-pane-header {
   flex-shrink: 0;
   position: relative;
@@ -5159,10 +5223,20 @@ body.is-resizing-split-y * {
   }
 }
 
+.pdf-segment-note-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 6px;
+  min-height: 20px;
+}
+
 .pdf-segment-note {
+  display: block;
   width: 100%;
   margin: 0;
   padding: 0;
+  min-height: 20px;
   background: transparent;
   border: none;
   border-radius: 0;
@@ -5173,19 +5247,30 @@ body.is-resizing-split-y * {
   line-height: 1.5;
   white-space: pre-wrap;
   cursor: text;
+  transition:
+    opacity 0.16s ease,
+    color 0.16s ease;
 }
 
 .pdf-segment-note.is-placeholder {
   color: var(--annotation-comment-placeholder);
   font-style: italic;
-  font-weight: 600;
+  font-weight: 500;
+  opacity: 0.24;
+}
+
+.pdf-segment-card:hover .pdf-segment-note.is-placeholder,
+.pdf-segment-card:focus-within .pdf-segment-note.is-placeholder,
+.paragraph-block:hover .pdf-segment-note.is-placeholder,
+.paragraph-block:focus-within .pdf-segment-note.is-placeholder,
+.pdf-segment-note-shell:hover .pdf-segment-note.is-placeholder,
+.pdf-segment-note-shell:focus-within .pdf-segment-note.is-placeholder,
+.pdf-segment-note.is-placeholder:hover,
+.pdf-segment-note.is-placeholder:focus-visible {
+  opacity: 0.72;
 }
 
 .pdf-segment-note-editor {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin-top: 2px;
   padding: 0;
   background: transparent;
   border: none;
@@ -5194,7 +5279,9 @@ body.is-resizing-split-y * {
 
 .pdf-segment-note-input {
   width: 100%;
-  min-height: 24px;
+  min-width: 0;
+  height: 20px;
+  margin: 0;
   padding: 0;
   border: none;
   border-radius: 0;
@@ -5204,20 +5291,35 @@ body.is-resizing-split-y * {
   color: var(--annotation-note-text);
   background: transparent;
   line-height: 1.5;
-  resize: vertical;
   outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  box-shadow: none;
 }
 
 .pdf-segment-note-input::placeholder {
   color: var(--annotation-comment-placeholder);
   font-style: italic;
-  font-weight: 600;
+  font-weight: 500;
+  opacity: 0.24;
+  transition: opacity 0.16s ease;
+}
+
+.pdf-segment-note-editor:hover .pdf-segment-note-input::placeholder,
+.pdf-segment-note-editor:focus-within .pdf-segment-note-input::placeholder {
+  opacity: 0.72;
+}
+
+.pdf-segment-note-spacer {
+  width: 20px;
+  height: 20px;
+  flex: none;
 }
 
 .pdf-segment-note-actions {
   flex: none;
   display: inline-flex;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .pdf-segment-note-save {

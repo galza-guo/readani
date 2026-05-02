@@ -30,6 +30,11 @@ export type TargetLanguage = {
   code: string;
 };
 
+export type BookTranslationPreference = {
+  enabled: boolean;
+  targetLanguage: TargetLanguage;
+};
+
 export type ThemeMode = "system" | "light" | "dark";
 
 export type TranslationProviderKind =

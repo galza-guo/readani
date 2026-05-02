@@ -11,6 +11,10 @@ import { Virtuoso } from "react-virtuoso";
 import type { VirtuosoHandle } from "react-virtuoso";
 import * as Popover from "@radix-ui/react-popover";
 import {
+  buildLanguagePickerSections,
+  getCustomLanguageOption,
+} from "../lib/languageOptions";
+import {
   getPdfAlignmentState,
   getTranslatablePdfParagraphs,
 } from "../lib/pdfSegments";
@@ -23,6 +27,7 @@ import type {
   PageTranslationState,
   Paragraph,
   SelectionTranslation,
+  TargetLanguage,
   WordTranslation,
 } from "../types";
 import type { ResolvedSentenceAnnotation } from "../lib/annotationMatching";
@@ -42,8 +47,20 @@ type TranslationPaneChromeProps = {
   onSeekPage?: (page: number) => void;
 };
 
+type TranslationLanguageControlProps = {
+  enabled: boolean;
+  targetLanguage: TargetLanguage;
+  onChange: (preference: {
+    enabled: boolean;
+    targetLanguage: TargetLanguage;
+  }) => void;
+};
+
 type PdfTranslationPaneProps = {
   mode: "pdf";
+  translationEnabled: boolean;
+  targetLanguage: TargetLanguage;
+  onTranslationPreferenceChange: TranslationLanguageControlProps["onChange"];
   currentPage: number;
   page?: PageDoc;
   pageTranslation?: PageTranslationState;
@@ -84,6 +101,9 @@ type PdfTranslationPaneProps = {
 
 type EpubTranslationPaneProps = {
   mode: "epub";
+  translationEnabled: boolean;
+  targetLanguage: TargetLanguage;
+  onTranslationPreferenceChange: TranslationLanguageControlProps["onChange"];
   pages: PageDoc[];
   currentPage: number;
   setupRequired?: boolean;
@@ -248,6 +268,203 @@ function CheckSmallIcon() {
   );
 }
 
+function TranslationLanguageControl({
+  enabled,
+  targetLanguage,
+  onChange,
+}: TranslationLanguageControlProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const sections = useMemo(() => buildLanguagePickerSections(query), [query]);
+  const customOption = useMemo(
+    () => getCustomLanguageOption(query, targetLanguage),
+    [query, targetLanguage],
+  );
+  const flattenedOptions = useMemo(() => {
+    const builtIn = sections.flatMap((section) =>
+      section.items.map((language) => ({
+        key: language.code,
+        language,
+      })),
+    );
+
+    return customOption
+      ? [...builtIn, { key: customOption.code, language: customOption }]
+      : builtIn;
+  }, [customOption, sections]);
+
+  useEffect(() => {
+    if (!open) {
+      optionRefs.current = [];
+      return;
+    }
+
+    setQuery("");
+    setHighlightedIndex(0);
+
+    const frame = window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
+
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [query]);
+
+  useEffect(() => {
+    optionRefs.current[highlightedIndex]?.scrollIntoView({ block: "nearest" });
+  }, [highlightedIndex]);
+
+  const selectLanguage = (language: TargetLanguage) => {
+    onChange({ enabled: true, targetLanguage: language });
+    setOpen(false);
+    setQuery("");
+  };
+
+  const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlightedIndex((current) =>
+        flattenedOptions.length === 0
+          ? 0
+          : Math.min(current + 1, flattenedOptions.length - 1),
+      );
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlightedIndex((current) =>
+        flattenedOptions.length === 0 ? 0 : Math.max(current - 1, 0),
+      );
+      return;
+    }
+
+    if (event.key === "Enter" && flattenedOptions[highlightedIndex]) {
+      event.preventDefault();
+      selectLanguage(flattenedOptions[highlightedIndex].language);
+    }
+  };
+
+  let optionIndex = -1;
+  const label = enabled ? targetLanguage.label : "Off";
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button
+          className="translation-language-trigger"
+          type="button"
+          aria-label="Change translation language"
+          aria-expanded={open}
+          title="Change translation language"
+        >
+          {label}
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          align="end"
+          className="language-combobox-content translation-language-content"
+          sideOffset={8}
+        >
+          <button
+            className={`language-combobox-option translation-language-off-option ${
+              !enabled ? "is-selected" : ""
+            }`}
+            onClick={() => {
+              onChange({ enabled: false, targetLanguage });
+              setOpen(false);
+              setQuery("");
+            }}
+            type="button"
+          >
+            <span>Off</span>
+            {!enabled ? <CheckSmallIcon /> : null}
+          </button>
+          <div className="translation-language-divider" />
+          <input
+            ref={inputRef}
+            aria-label="Search languages"
+            className="language-combobox-input"
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={handleInputKeyDown}
+            placeholder="Search languages"
+            type="text"
+            value={query}
+          />
+          <div className="language-combobox-list" role="listbox">
+            {sections.map((section) => (
+              <div key={section.id} className="language-combobox-section">
+                {section.title ? (
+                  <div className="language-combobox-section-title">
+                    {section.title}
+                  </div>
+                ) : null}
+                {section.items.map((language) => {
+                  optionIndex += 1;
+                  const currentIndex = optionIndex;
+                  const isSelected = enabled && language.code === targetLanguage.code;
+                  const isHighlighted = currentIndex === highlightedIndex;
+
+                  return (
+                    <button
+                      key={language.code}
+                      ref={(element) => {
+                        optionRefs.current[currentIndex] = element;
+                      }}
+                      className={`language-combobox-option ${
+                        isHighlighted ? "is-highlighted" : ""
+                      } ${isSelected ? "is-selected" : ""}`}
+                      onClick={() => selectLanguage(language)}
+                      onMouseEnter={() => setHighlightedIndex(currentIndex)}
+                      role="option"
+                      type="button"
+                    >
+                      <span>{language.label}</span>
+                      {isSelected ? <CheckSmallIcon /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {customOption ? (
+              <button
+                ref={(element) => {
+                  optionRefs.current[flattenedOptions.length - 1] = element;
+                }}
+                className={`language-combobox-option language-combobox-option-custom ${
+                  highlightedIndex === flattenedOptions.length - 1
+                    ? "is-highlighted"
+                    : ""
+                }`}
+                onClick={() => selectLanguage(customOption)}
+                onMouseEnter={() =>
+                  setHighlightedIndex(flattenedOptions.length - 1)
+                }
+                role="option"
+                type="button"
+              >
+                Use custom language: {customOption.label}
+              </button>
+            ) : null}
+            {flattenedOptions.length === 0 ? (
+              <div className="language-combobox-empty">No languages found.</div>
+            ) : null}
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
 function WarningIcon() {
   return (
     <svg
@@ -378,34 +595,37 @@ function AnnotationCommentRow({
 
   if (!isEditing) {
     return (
-      <button
-        className={`pdf-segment-note ${hasNote ? "" : "is-placeholder"}`}
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onEditingChange(annotation.id);
-        }}
-      >
-        {hasNote ? annotation.note : "Comment"}
-      </button>
+      <div className="pdf-segment-note-shell">
+        <button
+          className={`pdf-segment-note ${hasNote ? "" : "is-placeholder"}`}
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onEditingChange(annotation.id);
+          }}
+        >
+          {hasNote ? annotation.note : "Comment"}
+        </button>
+        <span className="pdf-segment-note-spacer" aria-hidden="true" />
+      </div>
     );
   }
 
   return (
     <div
-      className="pdf-segment-note-editor"
+      className="pdf-segment-note-shell pdf-segment-note-editor"
       onClick={(event) => event.stopPropagation()}
     >
-      <textarea
+      <input
         className="pdf-segment-note-input"
+        type="text"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         placeholder="Comment"
         autoFocus
-        rows={Math.max(1, draft.split("\n").length)}
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          if (event.key === "Enter") {
             event.preventDefault();
             handleSave();
           }
@@ -437,6 +657,7 @@ function AnnotationCommentRow({
 const PdfSegmentCard = memo(function PdfSegmentCard({
   para,
   sentenceIndex,
+  translationEnabled,
   isActive,
   isSelected,
   onHoverPid,
@@ -452,6 +673,7 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
 }: {
   para: Paragraph;
   sentenceIndex?: number;
+  translationEnabled: boolean;
   isActive: boolean;
   isSelected: boolean;
   onHoverPid: (pid: string | null) => void;
@@ -473,7 +695,7 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
   const isAnnotated = Boolean(annotation);
   const showInlineActions =
     isHovered || isActive || isSelected || hasFocusWithin;
-  const sourceVisible = showInlineActions;
+  const sourceVisible = !translationEnabled || showInlineActions;
   const showTranslationCopy = hoveredSection === "translation";
   const showSourceCopy = hoveredSection === "source";
   const canCopyTranslation =
@@ -482,13 +704,15 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
   const annotateLabel = isAnnotated ? "Remove highlight" : "Highlight sentence";
 
   let translationText = para.translation?.trim() ?? "";
-  if (para.status === "loading") {
-    translationText = "Translating this passage...";
-  } else if (para.status === "error") {
-    translationText = "Translation failed for this passage.";
-  } else if (!translationText) {
-    translationText =
-      "Translation will appear here when this passage is ready.";
+  if (translationEnabled) {
+    if (para.status === "loading") {
+      translationText = "Translating this passage...";
+    } else if (para.status === "error") {
+      translationText = "Translation failed for this passage.";
+    } else if (!translationText) {
+      translationText =
+        "Translation will appear here when this passage is ready.";
+    }
   }
 
   return (
@@ -534,48 +758,50 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
       }}
     >
       <div className="pdf-segment-surface">
-        <div
-          className={`pdf-segment-row pdf-segment-row--translation ${
-            showTranslationCopy ? "is-copy-hovered" : ""
-          }`}
-          onMouseEnter={() => setHoveredSection("translation")}
-          onMouseLeave={() =>
-            setHoveredSection((current) =>
-              current === "translation" ? null : current,
-            )
-          }
-        >
-          <div className="pdf-segment-translation">{translationText}</div>
-          <div className="pdf-segment-row-actions">
-            <button
-              className="pdf-segment-annotate-btn"
-              type="button"
-              tabIndex={showInlineActions ? 0 : -1}
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggleSentenceAnnotation?.(para, sentenceIndex ?? 0);
-              }}
-              title={annotateLabel}
-              aria-label={annotateLabel}
-            >
-              <AnnotateIcon />
-            </button>
-            <button
-              className="pdf-segment-copy-btn"
-              type="button"
-              disabled={!canCopyTranslation}
-              tabIndex={showTranslationCopy ? 0 : -1}
-              onClick={(event) => {
-                event.stopPropagation();
-                onCopyText(para.translation?.trim() ?? "", "Translation");
-              }}
-              title="Copy translation"
-              aria-label="Copy translation"
-            >
-              <CopyIcon />
-            </button>
+        {translationEnabled ? (
+          <div
+            className={`pdf-segment-row pdf-segment-row--translation ${
+              showTranslationCopy ? "is-copy-hovered" : ""
+            }`}
+            onMouseEnter={() => setHoveredSection("translation")}
+            onMouseLeave={() =>
+              setHoveredSection((current) =>
+                current === "translation" ? null : current,
+              )
+            }
+          >
+            <div className="pdf-segment-translation">{translationText}</div>
+            <div className="pdf-segment-row-actions">
+              <button
+                className="pdf-segment-annotate-btn"
+                type="button"
+                tabIndex={showInlineActions ? 0 : -1}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggleSentenceAnnotation?.(para, sentenceIndex ?? 0);
+                }}
+                title={annotateLabel}
+                aria-label={annotateLabel}
+              >
+                <AnnotateIcon />
+              </button>
+              <button
+                className="pdf-segment-copy-btn"
+                type="button"
+                disabled={!canCopyTranslation}
+                tabIndex={showTranslationCopy ? 0 : -1}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCopyText(para.translation?.trim() ?? "", "Translation");
+                }}
+                title="Copy translation"
+                aria-label="Copy translation"
+              >
+                <CopyIcon />
+              </button>
+            </div>
           </div>
-        </div>
+        ) : null}
         <div
           className={`pdf-segment-source-reveal ${
             sourceVisible ? "is-visible" : ""
@@ -631,6 +857,7 @@ const ParagraphBlock = memo(function ParagraphBlock({
   para,
   sentenceIndex,
   pageNum,
+  translationEnabled,
   isActive,
   onHoverPid,
   onTranslatePid,
@@ -648,6 +875,7 @@ const ParagraphBlock = memo(function ParagraphBlock({
   para: Paragraph;
   sentenceIndex: number;
   pageNum: number;
+  translationEnabled: boolean;
   isActive: boolean;
   onHoverPid: (pid: string | null) => void;
   onTranslatePid: (pid: string) => void;
@@ -793,22 +1021,24 @@ const ParagraphBlock = memo(function ParagraphBlock({
           >
             <LocateIcon />
           </button>
-          <button
-            className="action-btn translate-btn"
-            type="button"
-            tabIndex={showInlineActions ? 0 : -1}
-            onClick={(event) => {
-              event.stopPropagation();
-              onTranslatePid(para.pid);
-            }}
-            title="Translate paragraph"
-            aria-label="Translate paragraph"
-          >
-            <TranslateIcon />
-          </button>
+          {translationEnabled ? (
+            <button
+              className="action-btn translate-btn"
+              type="button"
+              tabIndex={showInlineActions ? 0 : -1}
+              onClick={(event) => {
+                event.stopPropagation();
+                onTranslatePid(para.pid);
+              }}
+              title="Translate paragraph"
+              aria-label="Translate paragraph"
+            >
+              <TranslateIcon />
+            </button>
+          ) : null}
         </div>
       </div>
-      {para.status === "error" ? (
+      {translationEnabled && para.status === "error" ? (
         <div
           className={`pdf-segment-row pdf-segment-row--translation ${
             showTranslationCopy ? "is-copy-hovered" : ""
@@ -850,7 +1080,7 @@ const ParagraphBlock = memo(function ParagraphBlock({
             </button>
           </div>
         </div>
-      ) : translationText ? (
+      ) : translationEnabled && translationText ? (
         <div
           className={`pdf-segment-row pdf-segment-row--translation ${
             showTranslationCopy ? "is-copy-hovered" : ""
@@ -910,6 +1140,7 @@ const ParagraphBlock = memo(function ParagraphBlock({
 
 const EpubPageTranslation = memo(function EpubPageTranslation({
   page,
+  translationEnabled,
   activePid,
   hoverPid,
   onHoverPid,
@@ -927,6 +1158,7 @@ const EpubPageTranslation = memo(function EpubPageTranslation({
   onNoteEditingChange,
 }: {
   page: PageDoc;
+  translationEnabled: boolean;
   activePid?: string | null;
   hoverPid?: string | null;
   onHoverPid: (pid: string | null) => void;
@@ -994,6 +1226,7 @@ const EpubPageTranslation = memo(function EpubPageTranslation({
           para={para}
           sentenceIndex={index}
           pageNum={page.page}
+          translationEnabled={translationEnabled}
           isActive={para.pid === activePid || para.pid === hoverPid}
           onHoverPid={onHoverPid}
           onTranslatePid={onTranslatePid}
@@ -1239,6 +1472,9 @@ function TranslationPaneFooter({
 }
 
 function PdfTranslationPane({
+  translationEnabled,
+  targetLanguage,
+  onTranslationPreferenceChange,
   currentPage,
   page,
   pageTranslation,
@@ -1522,6 +1758,11 @@ function PdfTranslationPane({
           </div>
         ) : null}
         <div className="page-translation-actions rail-pane-header-actions">
+          <TranslationLanguageControl
+            enabled={translationEnabled}
+            targetLanguage={targetLanguage}
+            onChange={onTranslationPreferenceChange}
+          />
           <button
             className={`annotation-mode-btn ${annotationModeEnabled ? "is-active" : ""}`}
             type="button"
@@ -1561,6 +1802,37 @@ function PdfTranslationPane({
               first, then reopen it in{" "}
               <span className="page-translation-empty-brand">readani</span>.
             </div>
+          ) : !translationEnabled ? (
+            translatableParagraphs.length > 0 ? (
+              <div
+                className={`pdf-segment-list ${annotationModeEnabled ? "annotation-mode" : ""}`}
+              >
+                {translatableParagraphs.map((para, index) => (
+                  <PdfSegmentCard
+                    key={para.pid}
+                    para={para}
+                    sentenceIndex={index}
+                    translationEnabled={false}
+                    isActive={para.pid === activePid || para.pid === hoverPid}
+                    isSelected={selectedPidSet.has(para.pid)}
+                    onHoverPid={onHoverPid}
+                    onSelect={handleSelectPid}
+                    onCopyText={handleCopyText}
+                    annotation={annotationByPid.get(para.pid)}
+                    annotationModeEnabled={annotationModeEnabled}
+                    onAnnotateSentence={onAnnotateSentence}
+                    onToggleSentenceAnnotation={onToggleSentenceAnnotation}
+                    onSaveNote={onSaveNote}
+                    noteEditingAnnotationId={noteEditingAnnotationId}
+                    onNoteEditingChange={onNoteEditingChange}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="page-translation-empty">
+                This page does not contain any usable text yet.
+              </div>
+            )
           ) : pageTranslation?.status === "setup-required" || setupRequired ? (
             <TranslationSetupPrompt onOpenSettings={onOpenSettings} />
           ) : pageTranslation?.status === "error" ? (
@@ -1631,6 +1903,7 @@ function PdfTranslationPane({
                   key={para.pid}
                   para={para}
                   sentenceIndex={index}
+                  translationEnabled={translationEnabled}
                   isActive={para.pid === activePid || para.pid === hoverPid}
                   isSelected={selectedPidSet.has(para.pid)}
                   onHoverPid={onHoverPid}
@@ -1719,6 +1992,9 @@ function PdfTranslationPane({
 }
 
 function EpubTranslationPane({
+  translationEnabled,
+  targetLanguage,
+  onTranslationPreferenceChange,
   pages,
   currentPage,
   setupRequired = false,
@@ -1807,6 +2083,7 @@ function EpubTranslationPane({
     (page: PageDoc) => (
       <EpubPageTranslation
         page={page}
+        translationEnabled={translationEnabled}
         activePid={activePid}
         hoverPid={hoverPid}
         onHoverPid={onHoverPid}
@@ -1842,6 +2119,7 @@ function EpubTranslationPane({
       onSaveNote,
       onTranslatePid,
       onTranslateText,
+      translationEnabled,
     ],
   );
 
@@ -1854,6 +2132,11 @@ function EpubTranslationPane({
           </div>
         </div>
         <div className="page-translation-actions rail-pane-header-actions">
+          <TranslationLanguageControl
+            enabled={translationEnabled}
+            targetLanguage={targetLanguage}
+            onChange={onTranslationPreferenceChange}
+          />
           <button
             className={`annotation-mode-btn ${annotationModeEnabled ? "is-active" : ""}`}
             type="button"
@@ -1865,7 +2148,7 @@ function EpubTranslationPane({
           </button>
         </div>
       </div>
-      {setupRequired ? (
+      {setupRequired && translationEnabled ? (
         <TranslationSetupPrompt onOpenSettings={onOpenSettings} />
       ) : null}
       {isServerRender ? (
@@ -1955,6 +2238,9 @@ export function TranslationPane(props: TranslationPaneProps) {
   if (props.mode === "pdf") {
     return (
       <PdfTranslationPane
+        translationEnabled={props.translationEnabled}
+        targetLanguage={props.targetLanguage}
+        onTranslationPreferenceChange={props.onTranslationPreferenceChange}
         currentPage={props.currentPage}
         page={props.page}
         pageTranslation={props.pageTranslation}
@@ -1996,6 +2282,9 @@ export function TranslationPane(props: TranslationPaneProps) {
 
   return (
     <EpubTranslationPane
+      translationEnabled={props.translationEnabled}
+      targetLanguage={props.targetLanguage}
+      onTranslationPreferenceChange={props.onTranslationPreferenceChange}
       pages={props.pages}
       currentPage={props.currentPage}
       setupRequired={props.setupRequired}
