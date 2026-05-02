@@ -184,6 +184,10 @@ fn vocabulary_file_path(handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app_config_dir(handle)?.join("vocabulary.json"))
 }
 
+fn annotations_file_path(handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app_config_dir(handle)?.join("annotations.json"))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct VocabularyEntry {
     word: String,
@@ -195,6 +199,38 @@ struct VocabularyEntry {
 #[derive(Debug, Serialize, Deserialize)]
 struct VocabularyData {
     entries: Vec<VocabularyEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RectRecord {
+    page: u32,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SentenceAnnotationRecord {
+    id: String,
+    doc_id: String,
+    page: u32,
+    pid: String,
+    sentence_index: usize,
+    source_snapshot: String,
+    source_hash: String,
+    rects_snapshot: Vec<RectRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+    status: String,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct AnnotationsData {
+    annotations: Vec<SentenceAnnotationRecord>,
 }
 
 fn load_vocabulary(handle: &tauri::AppHandle) -> Result<VocabularyData, String> {
@@ -214,6 +250,27 @@ fn save_vocabulary(handle: &tauri::AppHandle, vocab: &VocabularyData) -> Result<
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let data = serde_json::to_string_pretty(vocab).map_err(|e| e.to_string())?;
+    fs::write(path, data).map_err(|e| e.to_string())
+}
+
+fn load_annotations(handle: &tauri::AppHandle) -> Result<AnnotationsData, String> {
+    let path = annotations_file_path(handle)?;
+    if !path.exists() {
+        return Ok(AnnotationsData::default());
+    }
+    let data = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&data).map_err(|e| e.to_string())
+}
+
+fn save_annotations(
+    handle: &tauri::AppHandle,
+    annotations: &AnnotationsData,
+) -> Result<(), String> {
+    let path = annotations_file_path(handle)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let data = serde_json::to_string_pretty(annotations).map_err(|e| e.to_string())?;
     fs::write(path, data).map_err(|e| e.to_string())
 }
 
@@ -1355,13 +1412,14 @@ fn get_translation_cache_summary(
 ) -> Result<TranslationCacheSummary, String> {
     let cache_path = cache_file_path(&handle)?;
     let page_cache_path = page_cache_file_path(&handle)?;
-    let total_cache_size_bytes = [cache_path, page_cache_path]
-        .into_iter()
-        .try_fold(0_u64, |total, path| match fs::metadata(path) {
+    let total_cache_size_bytes = [cache_path, page_cache_path].into_iter().try_fold(
+        0_u64,
+        |total, path| match fs::metadata(path) {
             Ok(metadata) => Ok(total + metadata.len()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(total),
             Err(error) => Err(error.to_string()),
-        })?;
+        },
+    )?;
 
     let cache = load_cache(&handle)?;
     let legacy_page_cache = load_page_cache(&handle)?;
@@ -2503,6 +2561,70 @@ async fn chat_with_context(
     Ok(content)
 }
 
+#[tauri::command]
+fn get_annotations(
+    handle: tauri::AppHandle,
+    doc_id: String,
+) -> Result<Vec<SentenceAnnotationRecord>, String> {
+    let data = load_annotations(&handle)?;
+    let filtered: Vec<_> = data
+        .annotations
+        .into_iter()
+        .filter(|a| a.doc_id == doc_id)
+        .collect();
+    Ok(filtered)
+}
+
+#[tauri::command]
+fn upsert_annotation(
+    handle: tauri::AppHandle,
+    annotation: SentenceAnnotationRecord,
+) -> Result<SentenceAnnotationRecord, String> {
+    let mut data = load_annotations(&handle)?;
+    let now = Utc::now();
+
+    if let Some(existing) = data.annotations.iter_mut().find(|a| a.id == annotation.id) {
+        existing.doc_id = annotation.doc_id;
+        existing.page = annotation.page;
+        existing.pid = annotation.pid;
+        existing.sentence_index = annotation.sentence_index;
+        existing.source_snapshot = annotation.source_snapshot;
+        existing.source_hash = annotation.source_hash;
+        existing.rects_snapshot = annotation.rects_snapshot;
+        existing.note = annotation.note;
+        existing.status = annotation.status;
+        existing.updated_at = now;
+        let updated = existing.clone();
+        save_annotations(&handle, &data)?;
+        Ok(updated)
+    } else {
+        let mut new_record = annotation;
+        new_record.created_at = now;
+        new_record.updated_at = now;
+        let saved = new_record.clone();
+        data.annotations.push(new_record);
+        save_annotations(&handle, &data)?;
+        Ok(saved)
+    }
+}
+
+#[tauri::command]
+fn delete_annotation(
+    handle: tauri::AppHandle,
+    doc_id: String,
+    annotation_id: String,
+) -> Result<(), String> {
+    let mut data = load_annotations(&handle)?;
+    let before = data.annotations.len();
+    data.annotations
+        .retain(|a| !(a.doc_id == doc_id && a.id == annotation_id));
+    if data.annotations.len() == before {
+        return Err("Annotation not found.".to_string());
+    }
+    save_annotations(&handle, &data)?;
+    Ok(())
+}
+
 fn extract_json_object(content: &str) -> String {
     let trimmed = content.trim();
 
@@ -2591,7 +2713,10 @@ pub fn run() {
             add_recent_book,
             update_book_progress,
             remove_recent_book,
-            chat_with_context
+            chat_with_context,
+            get_annotations,
+            upsert_annotation,
+            delete_annotation
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

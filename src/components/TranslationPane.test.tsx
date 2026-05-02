@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import appCss from "../App.css?raw";
 import type { PageDoc, PageTranslationState } from "../types";
+import type { ResolvedSentenceAnnotation } from "../lib/annotationMatching";
 import { ToastProvider } from "./toast/ToastProvider";
 import { TranslationPane } from "./TranslationPane";
 
@@ -23,22 +24,33 @@ function buildPdfPage(overrides: Partial<PageDoc> = {}): PageDoc {
   };
 }
 
-function renderPdfPane(options: {
-  page?: PageDoc;
-  pageTranslation?: PageTranslationState;
-  loadingMessage?: string | null;
-  setupRequired?: boolean;
-  progressLabel?: string | null;
-  progressDetailLabel?: string | null;
-  progressDetailState?: "running" | "stopping" | "waiting" | "paused" | null;
-  bulkActionLabel?: string;
-  bulkActionRunning?: boolean;
-  secondaryActionLabel?: string | null;
-  onSecondaryAction?: () => void;
-  canRetryPage?: boolean;
-  activePid?: string | null;
-  hoverPid?: string | null;
-} = {}) {
+function renderPdfPane(
+  options: {
+    page?: PageDoc;
+    pageTranslation?: PageTranslationState;
+    loadingMessage?: string | null;
+    setupRequired?: boolean;
+    progressLabel?: string | null;
+    progressDetailLabel?: string | null;
+    progressDetailState?: "running" | "stopping" | "waiting" | "paused" | null;
+    bulkActionLabel?: string;
+    bulkActionRunning?: boolean;
+    secondaryActionLabel?: string | null;
+    onSecondaryAction?: () => void;
+    canRetryPage?: boolean;
+    activePid?: string | null;
+    hoverPid?: string | null;
+    annotations?: ResolvedSentenceAnnotation[];
+    annotationModeEnabled?: boolean;
+    onToggleAnnotationMode?: () => void;
+    onAnnotateSentence?: (para: any, sentenceIndex: number) => void;
+    onDeleteAnnotation?: (annotationId: string) => void;
+    onSaveNote?: (annotationId: string, note: string) => void;
+    noteEditingAnnotationId?: string | null;
+    onNoteEditingChange?: (annotationId: string | null) => void;
+    onHighlightSelected?: (pids: string[]) => void;
+  } = {},
+) {
   const page = options.page ?? buildPdfPage();
 
   return renderToStaticMarkup(
@@ -77,6 +89,89 @@ function renderPdfPane(options: {
         onLocatePid={() => {}}
         selectionTranslation={null}
         onClearSelectionTranslation={() => {}}
+        annotations={options.annotations}
+        annotationModeEnabled={options.annotationModeEnabled}
+        onToggleAnnotationMode={options.onToggleAnnotationMode}
+        onAnnotateSentence={options.onAnnotateSentence}
+        onDeleteAnnotation={options.onDeleteAnnotation}
+        onSaveNote={options.onSaveNote}
+        noteEditingAnnotationId={options.noteEditingAnnotationId}
+        onNoteEditingChange={options.onNoteEditingChange}
+        onHighlightSelected={options.onHighlightSelected}
+      />
+    </ToastProvider>,
+  );
+}
+
+function buildEpubPages(overrides?: Partial<PageDoc>[]): PageDoc[] {
+  const basePages: PageDoc[] = [
+    {
+      page: 4,
+      title: "Chapter 1",
+      isExtracted: true,
+      paragraphs: [
+        {
+          pid: "epub-p-1",
+          page: 4,
+          source: "EPUB original sentence.",
+          translation: "EPUB translated sentence.",
+          status: "done",
+          rects: [],
+        },
+      ],
+    },
+  ];
+
+  if (!overrides?.length) {
+    return basePages;
+  }
+
+  return basePages.map((page, index) => ({
+    ...page,
+    ...(overrides[index] ?? {}),
+  }));
+}
+
+function renderEpubPane(
+  options: {
+    pages?: PageDoc[];
+    currentPage?: number;
+    setupRequired?: boolean;
+    annotations?: ResolvedSentenceAnnotation[];
+    annotationModeEnabled?: boolean;
+    onToggleAnnotationMode?: () => void;
+    noteEditingAnnotationId?: string | null;
+  } = {},
+) {
+  return renderToStaticMarkup(
+    <ToastProvider>
+      <TranslationPane
+        mode="epub"
+        pages={options.pages ?? buildEpubPages()}
+        currentPage={options.currentPage ?? 4}
+        bulkActionLabel="Translate All"
+        onBulkAction={() => {}}
+        bulkActionDisabled={false}
+        bulkActionRunning={false}
+        onOpenSettings={() => {}}
+        activePid={null}
+        hoverPid={null}
+        onHoverPid={() => {}}
+        onTranslatePid={() => {}}
+        onLocatePid={() => {}}
+        onTranslateText={() => {}}
+        wordTranslation={null}
+        onClearWordTranslation={() => {}}
+        scrollToPage={null}
+        setupRequired={options.setupRequired}
+        annotations={options.annotations}
+        annotationModeEnabled={options.annotationModeEnabled}
+        onToggleAnnotationMode={options.onToggleAnnotationMode}
+        onAnnotateSentence={() => {}}
+        onDeleteAnnotation={() => {}}
+        onSaveNote={() => {}}
+        noteEditingAnnotationId={options.noteEditingAnnotationId}
+        onNoteEditingChange={() => {}}
       />
     </ToastProvider>,
   );
@@ -190,7 +285,9 @@ describe("TranslationPane", () => {
     });
 
     expect(html).toContain("Tried 3 presets.");
-    expect(html).toContain("The translation service is temporarily unavailable. Please try again shortly.");
+    expect(html).toContain(
+      "The translation service is temporarily unavailable. Please try again shortly.",
+    );
   });
 
   test("renders loading state without the old page blob container", () => {
@@ -271,31 +368,173 @@ describe("TranslationPane", () => {
   });
 
   test("keeps the shared translation header in EPUB mode", () => {
-    const html = renderToStaticMarkup(
-      <ToastProvider>
-        <TranslationPane
-          mode="epub"
-          pages={[]}
-          currentPage={4}
-          bulkActionLabel="Translate All"
-          onBulkAction={() => {}}
-          bulkActionDisabled={false}
-          bulkActionRunning={false}
-          onOpenSettings={() => {}}
-          activePid={null}
-          hoverPid={null}
-          onHoverPid={() => {}}
-          onTranslatePid={() => {}}
-          onLocatePid={() => {}}
-          onTranslateText={() => {}}
-          wordTranslation={null}
-          onClearWordTranslation={() => {}}
-          scrollToPage={null}
-        />
-      </ToastProvider>,
-    );
+    const html = renderEpubPane({ pages: [] });
 
     expect(html).toContain(">Translation<");
     expect(html).toContain("rail-pane-title");
+  });
+
+  test("renders EPUB annotation mode button in header", () => {
+    const html = renderEpubPane({ annotationModeEnabled: true });
+
+    expect(html).toContain("annotation-mode-btn is-active");
+    expect(html).toContain('aria-label="Annotation mode"');
+  });
+
+  test("renders EPUB notes inline for annotated paragraphs", () => {
+    const html = renderEpubPane({
+      annotations: [
+        {
+          id: "ann-epub-1",
+          docId: "doc-1",
+          page: 4,
+          pid: "stored-pid",
+          sentenceIndex: 0,
+          sourceSnapshot: "EPUB original sentence.",
+          sourceHash: "hash-1",
+          rectsSnapshot: [],
+          status: "attached",
+          createdAt: "2024-01-01T00:00:00Z",
+          updatedAt: "2024-01-01T00:00:00Z",
+          livePid: "epub-p-1",
+          liveSentenceIndex: 0,
+          livePage: 4,
+          resolvedStatus: "attached",
+          note: "EPUB note text.",
+        },
+      ],
+    });
+
+    expect(html).toContain("paragraph-block");
+    expect(html).toContain("is-annotated");
+    expect(html).toContain('aria-label="Remove highlight"');
+    expect(html).toContain("pdf-segment-note");
+    expect(html).toContain("EPUB note text.");
+  });
+
+  test("renders EPUB needs-review warning banner", () => {
+    const html = renderEpubPane({
+      annotations: [
+        {
+          id: "ann-epub-review",
+          docId: "doc-1",
+          page: 4,
+          pid: "stale-pid",
+          sentenceIndex: 0,
+          sourceSnapshot: "Old EPUB sentence.",
+          sourceHash: "hash-2",
+          rectsSnapshot: [],
+          status: "attached",
+          createdAt: "2024-01-01T00:00:00Z",
+          updatedAt: "2024-01-01T00:00:00Z",
+          resolvedStatus: "needs-review",
+        },
+      ],
+    });
+
+    expect(html).toContain("annotation-review-banner");
+    expect(html).toContain("1 annotation need review on this page.");
+    expect(html).toContain("annotation-review-action");
+  });
+
+  test("renders annotate button in segment cards", () => {
+    const html = renderPdfPane();
+
+    expect(html).toContain('aria-label="Highlight sentence"');
+    expect(html).toContain("pdf-segment-annotate-btn");
+  });
+
+  test("applies annotation-mode class when annotation mode is enabled", () => {
+    const html = renderPdfPane({ annotationModeEnabled: true });
+
+    expect(html).toContain("pdf-segment-list annotation-mode");
+    expect(html).toContain("annotation-mode-btn is-active");
+  });
+
+  test("annotated card has is-annotated class", () => {
+    const annotation: ResolvedSentenceAnnotation = {
+      id: "ann-1",
+      docId: "doc-1",
+      page: 3,
+      pid: "p-1",
+      sentenceIndex: 0,
+      sourceSnapshot: "Original paragraph text.",
+      sourceHash: "abc123",
+      rectsSnapshot: [{ page: 3, x: 12, y: 24, w: 90, h: 18 }],
+      status: "attached",
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-01T00:00:00Z",
+      livePid: "p-1",
+      liveSentenceIndex: 0,
+      livePage: 3,
+      resolvedStatus: "attached",
+    };
+
+    const html = renderPdfPane({ annotations: [annotation] });
+
+    expect(html).toContain("is-annotated");
+    expect(html).toContain('aria-label="Remove highlight"');
+  });
+
+  test("renders note text when annotation has a note", () => {
+    const annotation: ResolvedSentenceAnnotation = {
+      id: "ann-1",
+      docId: "doc-1",
+      page: 3,
+      pid: "p-1",
+      sentenceIndex: 0,
+      sourceSnapshot: "Original paragraph text.",
+      sourceHash: "abc123",
+      rectsSnapshot: [{ page: 3, x: 12, y: 24, w: 90, h: 18 }],
+      status: "attached",
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-01T00:00:00Z",
+      livePid: "p-1",
+      liveSentenceIndex: 0,
+      livePage: 3,
+      resolvedStatus: "attached",
+      note: "This is an important passage.",
+    };
+
+    const html = renderPdfPane({ annotations: [annotation] });
+
+    expect(html).toContain("pdf-segment-note");
+    expect(html).toContain("This is an important passage.");
+  });
+
+  test("renders needs-review warning banner", () => {
+    const annotation: ResolvedSentenceAnnotation = {
+      id: "ann-needs-review",
+      docId: "doc-1",
+      page: 3,
+      pid: "p-1",
+      sentenceIndex: 0,
+      sourceSnapshot: "Original paragraph text.",
+      sourceHash: "abc123",
+      rectsSnapshot: [{ page: 3, x: 12, y: 24, w: 90, h: 18 }],
+      status: "needs-review",
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-01T00:00:00Z",
+      resolvedStatus: "needs-review",
+    };
+
+    const html = renderPdfPane({ annotations: [annotation] });
+
+    expect(html).toContain("annotation-review-banner");
+    expect(html).toContain("1 annotation need review on this page.");
+    expect(html).toContain("annotation-review-action");
+  });
+
+  test("renders annotation mode button in header", () => {
+    const html = renderPdfPane();
+
+    expect(html).toContain("annotation-mode-btn");
+    expect(html).toContain('aria-label="Annotation mode"');
+  });
+
+  test("positions the annotation clip relative to each PDF segment card", () => {
+    const cardRule = appCss.match(/\.pdf-segment-card\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(cardRule).toContain("position: relative");
   });
 });

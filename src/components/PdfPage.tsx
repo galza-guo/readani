@@ -22,7 +22,11 @@ type PdfPageProps = {
   baseHeight: number;
   paragraphs: Paragraph[];
   highlightPid?: string | null;
-  onSelectionText: (selection: { text: string; position: { x: number; y: number } }) => void;
+  savedHighlightPids?: string[];
+  onSelectionText: (selection: {
+    text: string;
+    position: { x: number; y: number };
+  }) => void;
   onClearSelection: () => void;
 };
 
@@ -34,6 +38,7 @@ export function PdfPage({
   baseHeight,
   paragraphs,
   highlightPid,
+  savedHighlightPids,
   onSelectionText,
   onClearSelection,
 }: PdfPageProps) {
@@ -42,7 +47,8 @@ export function PdfPage({
 
   useEffect(() => {
     let cancelled = false;
-    let renderTask: { cancel: () => void; promise: Promise<unknown> } | null = null;
+    let renderTask: { cancel: () => void; promise: Promise<unknown> } | null =
+      null;
 
     async function renderPage() {
       let page = null;
@@ -72,7 +78,8 @@ export function PdfPage({
         const scratchCanvas = await renderPdfPageToScratchCanvas({
           page,
           viewport,
-          renderPage: (currentPage, options) => currentPage.render(options as any),
+          renderPage: (currentPage, options) =>
+            currentPage.render(options as any),
           createCanvas: () => document.createElement("canvas"),
           isCancelled: () => cancelled,
           onRenderTaskCreated: (task) => {
@@ -100,7 +107,8 @@ export function PdfPage({
           return;
         }
 
-        const { TextLayerBuilder } = await import("pdfjs-dist/web/pdf_viewer.mjs");
+        const { TextLayerBuilder } =
+          await import("pdfjs-dist/web/pdf_viewer.mjs");
         const container = textLayerRef.current;
         container.replaceChildren();
         container.classList.add(TEXT_LAYER_CLASS);
@@ -173,6 +181,16 @@ export function PdfPage({
         .flatMap((paragraph) => paragraph.rects)
     : [];
 
+  const savedRects =
+    (savedHighlightPids?.length ?? 0) > 0
+      ? paragraphs
+          .filter(
+            (p) =>
+              savedHighlightPids!.includes(p.pid) && p.pid !== highlightPid,
+          )
+          .flatMap((p) => p.rects)
+      : [];
+
   return (
     <div
       className="pdf-page"
@@ -182,7 +200,7 @@ export function PdfPage({
       <canvas ref={canvasRef} className="pdf-canvas" />
       <div ref={textLayerRef} className="pdf-text-layer" />
       <div className="pdf-overlay">
-        {highlightRects.map((rect, index) => (
+        {highlightRects.map((rect, index) =>
           (() => {
             const markerSize = Math.max(
               10,
@@ -205,7 +223,19 @@ export function PdfPage({
                 }}
               />
             );
-          })()
+          })(),
+        )}
+        {savedRects.map((rect, index) => (
+          <div
+            key={`saved-${rect.page}-${rect.x}-${rect.y}-${index}`}
+            className="pdf-highlight-saved"
+            style={{
+              left: rect.x * scale,
+              top: rect.y * scale,
+              width: rect.w * scale,
+              height: rect.h * scale,
+            }}
+          />
         ))}
       </div>
     </div>

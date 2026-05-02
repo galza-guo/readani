@@ -24,7 +24,7 @@ describe("PdfViewer", () => {
         overlayProgress={81}
         onSelectionText={() => {}}
         onClearSelection={() => {}}
-      />
+      />,
     );
 
     expect(html).toContain('class="pdf-viewer-shell document-viewer-shell"');
@@ -35,14 +35,18 @@ describe("PdfViewer", () => {
     expect(html).toContain('class="pdf-page"');
     expect(html).not.toContain('class="pdf-page-stage"');
     expect(html).toContain(
-      '</div></div><div class="document-status-dock"><div class="document-status-surface document-status-surface-overlay"'
+      '</div></div><div class="document-status-dock"><div class="document-status-surface document-status-surface-overlay"',
     );
-    expect(html).toContain('</div><div class="pdf-zoom-dock document-zoom-dock"');
+    expect(html).toContain(
+      '</div><div class="pdf-zoom-dock document-zoom-dock"',
+    );
   });
 
   test("positions the viewer shell as the zoom dock anchor layer", () => {
     const shellRule =
-      appCss.match(/\.document-viewer-shell,\s*\.pdf-viewer-shell\s*\{([^}]*)\}/)?.[1] ?? "";
+      appCss.match(
+        /\.document-viewer-shell,\s*\.pdf-viewer-shell\s*\{([^}]*)\}/,
+      )?.[1] ?? "";
 
     expect(shellRule).toContain("position: relative");
     expect(shellRule).toContain("min-height: 0");
@@ -50,7 +54,9 @@ describe("PdfViewer", () => {
 
   test("lets the viewer shell and scroller shrink when the pane gets narrower", () => {
     const shellRule =
-      appCss.match(/\.document-viewer-shell,\s*\.pdf-viewer-shell\s*\{([^}]*)\}/)?.[1] ?? "";
+      appCss.match(
+        /\.document-viewer-shell,\s*\.pdf-viewer-shell\s*\{([^}]*)\}/,
+      )?.[1] ?? "";
     const viewerRule = appCss.match(/\.pdf-viewer\s*\{([^}]*)\}/)?.[1] ?? "";
 
     expect(shellRule).toContain("min-width: 0");
@@ -76,12 +82,14 @@ describe("PdfViewer", () => {
         defaultZoomPopoverOpen={true}
         onSelectionText={() => {}}
         onClearSelection={() => {}}
-      />
+      />,
     );
 
     expect(html).toContain('class="pdf-zoom-expanded pdf-zoom-panel"');
     expect(html).not.toContain('class="btn pdf-zoom-trigger"');
-    expect(html).not.toContain('class="btn btn-ghost pdf-zoom-expanded-toggle"');
+    expect(html).not.toContain(
+      'class="btn btn-ghost pdf-zoom-expanded-toggle"',
+    );
     expect(html.match(/120%/g)?.length).toBe(1);
   });
 
@@ -115,12 +123,123 @@ describe("PdfViewer", () => {
         onResolvedScaleChange={() => {}}
         onSelectionText={() => {}}
         onClearSelection={() => {}}
-      />
+      />,
     );
 
     expect(html).toContain('class="pdf-overlay"');
     expect(html.match(/class="pdf-highlight"/g)?.length).toBe(2);
     expect(html).toContain("width:12px");
     expect(html).toContain("height:12px");
+  });
+
+  test("renders saved highlights as filled rectangles", () => {
+    const html = renderToStaticMarkup(
+      <PdfViewer
+        pdfDoc={{} as any}
+        pageSizes={[{ width: 100, height: 200 }]}
+        currentPage={1}
+        zoomMode="custom"
+        manualScale={1}
+        scrollAnchor="top"
+        paragraphs={[
+          {
+            pid: "p-1",
+            page: 1,
+            source: "Hello",
+            status: "done",
+            rects: [{ page: 1, x: 10, y: 20, w: 80, h: 14 }],
+          },
+        ]}
+        highlightPid={null}
+        savedHighlightPids={["p-1"]}
+        onNavigateToPage={() => {}}
+        onRequestPageChange={() => {}}
+        onZoomModeChange={() => {}}
+        onManualScaleChange={() => {}}
+        onResolvedScaleChange={() => {}}
+        onSelectionText={() => {}}
+        onClearSelection={() => {}}
+      />,
+    );
+
+    expect(html).toContain('class="pdf-highlight-saved"');
+    expect(html.match(/class="pdf-highlight-saved"/g)?.length).toBe(1);
+  });
+
+  test("renders multiple saved highlights on the same page", () => {
+    const html = renderToStaticMarkup(
+      <PdfViewer
+        pdfDoc={{} as any}
+        pageSizes={[{ width: 100, height: 200 }]}
+        currentPage={1}
+        zoomMode="custom"
+        manualScale={1}
+        scrollAnchor="top"
+        paragraphs={[
+          {
+            pid: "p-1",
+            page: 1,
+            source: "Hello",
+            status: "done",
+            rects: [{ page: 1, x: 10, y: 20, w: 80, h: 14 }],
+          },
+          {
+            pid: "p-2",
+            page: 1,
+            source: "World",
+            status: "done",
+            rects: [{ page: 1, x: 10, y: 40, w: 60, h: 14 }],
+          },
+        ]}
+        highlightPid={null}
+        savedHighlightPids={["p-1", "p-2"]}
+        onNavigateToPage={() => {}}
+        onRequestPageChange={() => {}}
+        onZoomModeChange={() => {}}
+        onManualScaleChange={() => {}}
+        onResolvedScaleChange={() => {}}
+        onSelectionText={() => {}}
+        onClearSelection={() => {}}
+      />,
+    );
+
+    expect(html).toContain('class="pdf-highlight-saved"');
+    expect(html.match(/class="pdf-highlight-saved"/g)?.length).toBe(2);
+  });
+
+  test("does not render saved highlight rect when the same pid is hovered", () => {
+    const html = renderToStaticMarkup(
+      <PdfViewer
+        pdfDoc={{} as any}
+        pageSizes={[{ width: 100, height: 200 }]}
+        currentPage={1}
+        zoomMode="custom"
+        manualScale={1}
+        scrollAnchor="top"
+        paragraphs={[
+          {
+            pid: "p-1",
+            page: 1,
+            source: "Hello",
+            status: "done",
+            rects: [{ page: 1, x: 10, y: 20, w: 80, h: 14 }],
+          },
+        ]}
+        highlightPid="p-1"
+        savedHighlightPids={["p-1"]}
+        onNavigateToPage={() => {}}
+        onRequestPageChange={() => {}}
+        onZoomModeChange={() => {}}
+        onManualScaleChange={() => {}}
+        onResolvedScaleChange={() => {}}
+        onSelectionText={() => {}}
+        onClearSelection={() => {}}
+      />,
+    );
+
+    // Dot marker should render for the hovered pid
+    expect(html).toContain('class="pdf-highlight"');
+    // Saved rectangle should NOT render to avoid visual duplication
+    expect(html).not.toContain('class="pdf-highlight-saved"');
   });
 });

@@ -39,6 +39,7 @@ import { PanelToggleGroup } from "./components/reader/PanelToggleGroup";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { ThemeToggleButton } from "./components/ThemeToggleButton";
 import { ToastProvider, useToast } from "./components/toast/ToastProvider";
+import { AnnotationsPanel } from "./components/AnnotationsPanel";
 import { HomeView } from "./views/HomeView";
 import {
   canPersistPresetDraft,
@@ -60,7 +61,9 @@ import {
   serializeSettingsForCommand,
 } from "./lib/appSettings";
 import { extractPageParagraphs } from "./lib/textExtraction";
-import { hashBuffer } from "./lib/hash";
+import { resolveAnnotations } from "./lib/annotationMatching";
+import type { ResolvedSentenceAnnotation } from "./lib/annotationMatching";
+import { hashBuffer, hashString } from "./lib/hash";
 import { LRUCache } from "./lib/lruCache";
 import {
   buildPdfPageTranslatedText,
@@ -152,12 +155,14 @@ import type {
   PresetSaveStatus,
   PresetTestResult,
   RecentBook,
+  Rect,
   SelectionTranslation,
   SelectionTranslationResult,
   TranslationFallbackTrace,
   TranslationCacheSummary,
   TranslationPreset,
   TranslationProviderKind,
+  SentenceAnnotation,
   TranslationSettings,
   WordLookupResult,
   WordTranslation,
@@ -214,7 +219,9 @@ type FallbackRequestContext =
       requestId: number;
     };
 
-function getFriendlyPresetTestResult(result: PresetTestResult): PresetTestResult {
+function getFriendlyPresetTestResult(
+  result: PresetTestResult,
+): PresetTestResult {
   if (result.ok) {
     return result;
   }
@@ -315,16 +322,15 @@ function sanitizeEpubPagesForPresetChange(pages: PageDoc[]) {
 
       return {
         ...paragraph,
-        status: paragraph.translation?.trim() ? ("done" as const) : ("idle" as const),
+        status: paragraph.translation?.trim()
+          ? ("done" as const)
+          : ("idle" as const),
       };
     }),
   }));
 }
 
-function getPresetById(
-  presets: TranslationPreset[],
-  presetId?: string | null,
-) {
+function getPresetById(presets: TranslationPreset[], presetId?: string | null) {
   if (!presetId) {
     return undefined;
   }
@@ -354,7 +360,9 @@ function getFallbackFailureStatusMessage(
   const summary = getFallbackAttemptSummary(trace);
   const friendlyError = getFriendlyFallbackError(trace, error);
 
-  return summary ? `${summary} ${friendlyError.message}` : friendlyError.message;
+  return summary
+    ? `${summary} ${friendlyError.message}`
+    : friendlyError.message;
 }
 
 export default function App() {
@@ -494,6 +502,16 @@ function AppContent() {
     phase: "idle",
   });
 
+  // Annotation state
+  const [annotations, setAnnotations] = useState<SentenceAnnotation[]>([]);
+  const [annotationModeEnabled, setAnnotationModeEnabled] = useState(false);
+  const [noteEditingAnnotationId, setNoteEditingAnnotationId] = useState<
+    string | null
+  >(null);
+  const [pendingAnnotationDeletion, setPendingAnnotationDeletion] =
+    useState<SentenceAnnotation | null>(null);
+  const [annotationsPanelOpen, setAnnotationsPanelOpen] = useState(false);
+
   const pagesRef = useRef<PageDoc[]>([]);
   const pageTranslationsRef = useRef<Record<number, PageTranslationState>>({});
   const textTranslationCacheRef = useRef(new LRUCache<string, string>(100));
@@ -580,17 +598,43 @@ function AppContent() {
   } | null>(null);
   const didMountPdfNavPrefsRef = useRef(false);
   const previousReaderPanelsRef = useRef(readerPanels);
+  const resolvedAnnotationsRef = useRef<ResolvedSentenceAnnotation[]>([]);
+
+  const resolvedAnnotations = useMemo(
+    () => resolveAnnotations(annotations, pages),
+    [annotations, pages],
+  );
+
+  // Keep ref in sync
+  resolvedAnnotationsRef.current = resolvedAnnotations;
+
+  // Compute saved annotation pids for the current page (for PDF overlay)
+  const savedHighlightPids = useMemo(() => {
+    return resolvedAnnotations
+      .filter(
+        (a) =>
+          a.page === currentPage &&
+          a.resolvedStatus === "attached" &&
+          a.livePid,
+      )
+      .map((a) => a.livePid!);
+  }, [resolvedAnnotations, currentPage]);
 
   const getEffectivePreset = useCallback(
     (sourceSettings: TranslationSettings = settingsRef.current) =>
-      getPresetById(sourceSettings.presets, sessionFallbackPresetIdRef.current) ??
-      getActivePreset(sourceSettings),
+      getPresetById(
+        sourceSettings.presets,
+        sessionFallbackPresetIdRef.current,
+      ) ?? getActivePreset(sourceSettings),
     [],
   );
 
   const showFallbackSuccessToast = useCallback(
     (trace: TranslationFallbackTrace) => {
-      if (!trace.usedFallback || trace.finalPresetId === trace.requestedPresetId) {
+      if (
+        !trace.usedFallback ||
+        trace.finalPresetId === trace.requestedPresetId
+      ) {
         return;
       }
 
@@ -599,9 +643,11 @@ function AppContent() {
         trace.finalPresetId,
       );
       const currentEffectivePresetId =
-        sessionFallbackPresetIdRef.current ?? settingsRef.current.activePresetId;
+        sessionFallbackPresetIdRef.current ??
+        settingsRef.current.activePresetId;
       const canUseForSession =
-        Boolean(finalPreset) && currentEffectivePresetId !== trace.finalPresetId;
+        Boolean(finalPreset) &&
+        currentEffectivePresetId !== trace.finalPresetId;
 
       showToast({
         message: `Retried with ${finalPreset?.label ?? trace.finalPresetId}.`,
@@ -951,6 +997,21 @@ function AppContent() {
     docIdRef.current = docId;
   }, [docId]);
 
+  // Load annotations when docId changes
+  useEffect(() => {
+    if (!docId) {
+      setAnnotations([]);
+      return;
+    }
+    invoke("get_annotations", { docId })
+      .then((result) => {
+        setAnnotations(result as SentenceAnnotation[]);
+      })
+      .catch(() => {
+        setAnnotations([]);
+      });
+  }, [docId]);
+
   useEffect(() => {
     isTranslateAllRunningRef.current = isTranslateAllRunning;
   }, [isTranslateAllRunning]);
@@ -1075,11 +1136,7 @@ function AppContent() {
     }
 
     return `${translationProgress.translatedCount}/${translationProgress.totalCount} ${translationProgress.unitLabel} translated`;
-  }, [
-    allPdfPagesExtracted,
-    currentFileType,
-    translationProgress,
-  ]);
+  }, [allPdfPagesExtracted, currentFileType, translationProgress]);
 
   const translateAllActionLabel = useMemo(() => {
     if (translateAllUsageLimitPaused) {
@@ -1095,7 +1152,12 @@ function AppContent() {
     }
 
     return getFullBookActionLabel(translationProgress);
-  }, [isTranslateAllRunning, isTranslateAllStopRequested, translateAllUsageLimitPaused, translationProgress]);
+  }, [
+    isTranslateAllRunning,
+    isTranslateAllStopRequested,
+    translateAllUsageLimitPaused,
+    translationProgress,
+  ]);
 
   const translateAllProgressDetail = useMemo(() => {
     if (!isTranslateAllRunning) {
@@ -1116,7 +1178,9 @@ function AppContent() {
       const remainingSeconds = translateAllWaitState.resumeAt
         ? Math.max(
             1,
-            Math.ceil((translateAllWaitState.resumeAt - translateAllWaitTick) / 1_000),
+            Math.ceil(
+              (translateAllWaitState.resumeAt - translateAllWaitTick) / 1_000,
+            ),
           )
         : 0;
 
@@ -1653,7 +1717,10 @@ function AppContent() {
     }
   }, [sessionFallbackPresetId, settings.presets]);
 
-  const savedActivePreset = useMemo(() => getActivePreset(settings), [settings]);
+  const savedActivePreset = useMemo(
+    () => getActivePreset(settings),
+    [settings],
+  );
   const effectivePreset = useMemo(
     () =>
       getPresetById(settings.presets, sessionFallbackPresetId) ??
@@ -2277,7 +2344,18 @@ function AppContent() {
     pageTranslationInFlightRef.current = null;
     pageTranslatingRef.current = false;
     setPageTranslationInFlightPage(null);
-  }, [currentPage, docId, epubTotalPages, pdfDoc, resetTranslateAllSlowModeRuntime]);
+    // Clear annotation UI when switching documents
+    setNoteEditingAnnotationId(null);
+    setPendingAnnotationDeletion(null);
+    setAnnotationModeEnabled(false);
+    setAnnotationsPanelOpen(false);
+  }, [
+    currentPage,
+    docId,
+    epubTotalPages,
+    pdfDoc,
+    resetTranslateAllSlowModeRuntime,
+  ]);
 
   // Helper functions for chat context
   const getCurrentPageText = useCallback(() => {
@@ -3079,12 +3157,14 @@ function AppContent() {
       updateSettingsDraftState(nextSettings);
       const previousSettings = settingsRef.current;
       const changedFallback =
-        previousSettings.autoFallbackEnabled !== nextSettings.autoFallbackEnabled;
+        previousSettings.autoFallbackEnabled !==
+        nextSettings.autoFallbackEnabled;
       const changedAutoTranslateNextPages =
         previousSettings.autoTranslateNextPages !==
         nextSettings.autoTranslateNextPages;
       const changedSlowMode =
-        previousSettings.translateAllSlowMode !== nextSettings.translateAllSlowMode;
+        previousSettings.translateAllSlowMode !==
+        nextSettings.translateAllSlowMode;
 
       try {
         const savedSettings = await persistSettings({
@@ -3114,8 +3194,8 @@ function AppContent() {
             : changedAutoTranslateNextPages
               ? "Could not save auto-translate ahead."
               : changedSlowMode
-              ? "Could not save Translate All slow mode."
-              : "Could not save the default language.",
+                ? "Could not save Translate All slow mode."
+                : "Could not save the default language.",
           tone: "error",
           durationMs: 4200,
         });
@@ -3348,7 +3428,12 @@ function AppContent() {
     pageTranslatingRef.current = false;
     setPageTranslationInFlightPage(null);
     pdfTranslationSessionRef.current += 1;
-  }, [currentFileType, docId, resetTranslateAllSlowModeRuntime, settings.defaultLanguage.code]);
+  }, [
+    currentFileType,
+    docId,
+    resetTranslateAllSlowModeRuntime,
+    settings.defaultLanguage.code,
+  ]);
 
   useEffect(() => {
     if (currentFileType !== "pdf") return;
@@ -3370,7 +3455,12 @@ function AppContent() {
     pdfTranslationSessionRef.current += 1;
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
     setPageTranslations((prev) => sanitizePdfTranslationsForPresetChange(prev));
-  }, [currentFileType, effectivePreset?.id, effectivePreset?.model, resetTranslateAllSlowModeRuntime]);
+  }, [
+    currentFileType,
+    effectivePreset?.id,
+    effectivePreset?.model,
+    resetTranslateAllSlowModeRuntime,
+  ]);
 
   useEffect(() => {
     if (currentFileType !== "epub") return;
@@ -3387,7 +3477,12 @@ function AppContent() {
     translateAllErrorToastShownRef.current = false;
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
     setPages((prev) => sanitizeEpubPagesForPresetChange(prev));
-  }, [currentFileType, effectivePreset?.id, effectivePreset?.model, resetTranslateAllSlowModeRuntime]);
+  }, [
+    currentFileType,
+    effectivePreset?.id,
+    effectivePreset?.model,
+    resetTranslateAllSlowModeRuntime,
+  ]);
 
   useEffect(() => {
     if (currentFileType !== "pdf" || pages.length === 0) return;
@@ -3426,7 +3521,10 @@ function AppContent() {
 
     const payload = buildPageTranslationPayload(pagesRef.current, nextPage);
     const translatableParagraphs = getTranslatablePdfParagraphs(pageDoc);
-    if (translatableParagraphs.length === 0 || !hasUsablePageText(payload.displayText)) {
+    if (
+      translatableParagraphs.length === 0 ||
+      !hasUsablePageText(payload.displayText)
+    ) {
       setPageTranslations((prev) => ({
         ...prev,
         [nextPage]: {
@@ -4069,23 +4167,23 @@ function AppContent() {
           }
 
           updates[pageNumber] = hasUsablePageText(payload.displayText)
-              ? {
-                  page: pageNumber,
-                  displayText: payload.displayText,
-                  previousContext: payload.previousContext,
-                  nextContext: payload.nextContext,
-                  status: "setup-required",
-                  error: TRANSLATION_SETUP_REQUIRED_MESSAGE,
-                  errorChecks: undefined,
-                }
-              : {
-                  page: pageNumber,
-                  displayText: payload.displayText,
-                  previousContext: payload.previousContext,
-                  nextContext: payload.nextContext,
-                  status: "unavailable",
-                  errorChecks: undefined,
-                };
+            ? {
+                page: pageNumber,
+                displayText: payload.displayText,
+                previousContext: payload.previousContext,
+                nextContext: payload.nextContext,
+                status: "setup-required",
+                error: TRANSLATION_SETUP_REQUIRED_MESSAGE,
+                errorChecks: undefined,
+              }
+            : {
+                page: pageNumber,
+                displayText: payload.displayText,
+                previousContext: payload.previousContext,
+                nextContext: payload.nextContext,
+                status: "unavailable",
+                errorChecks: undefined,
+              };
         }
 
         if (Object.keys(updates).length > 0) {
@@ -4112,7 +4210,10 @@ function AppContent() {
         const shouldForceFresh = Boolean(options.forceFresh || inputChanged);
         const translatableParagraphs = getTranslatablePdfParagraphs(pageDoc);
 
-        if (translatableParagraphs.length === 0 || !hasUsablePageText(payload.displayText)) {
+        if (
+          translatableParagraphs.length === 0 ||
+          !hasUsablePageText(payload.displayText)
+        ) {
           updates[pageNumber] = {
             page: pageNumber,
             displayText: payload.displayText,
@@ -4218,7 +4319,12 @@ function AppContent() {
         void runPageTranslationQueue();
       }
     },
-    [currentFileType, getEffectivePreset, runPageTranslationQueue, settingsLoaded],
+    [
+      currentFileType,
+      getEffectivePreset,
+      runPageTranslationQueue,
+      settingsLoaded,
+    ],
   );
 
   useEffect(() => {
@@ -4368,9 +4474,12 @@ function AppContent() {
         });
         setTranslationStatusMessage("Translating all pages...");
       }
-
     },
-    [currentFileType, queuePagesForTranslation, resetTranslateAllSlowModeRuntime],
+    [
+      currentFileType,
+      queuePagesForTranslation,
+      resetTranslateAllSlowModeRuntime,
+    ],
   );
 
   const stopTranslateAll = useCallback(() => {
@@ -4417,7 +4526,11 @@ function AppContent() {
       setIsTranslateAllStopRequested(true);
       setTranslationStatusMessage("Stopping after current batch...");
     }
-  }, [clearTranslateAllResumeTimer, currentFileType, resetTranslateAllSlowModeRuntime]);
+  }, [
+    clearTranslateAllResumeTimer,
+    currentFileType,
+    resetTranslateAllSlowModeRuntime,
+  ]);
 
   const handleRedoPageTranslation = useCallback(
     async (pageNumber: number) => {
@@ -4641,8 +4754,7 @@ function AppContent() {
     const currentSettings = settingsRef.current;
     const isBulkRun =
       currentFileType === "epub" && isTranslateAllRunningRef.current;
-    const isSlowModeBulkRun =
-      isBulkRun && currentSettings.translateAllSlowMode;
+    const isSlowModeBulkRun = isBulkRun && currentSettings.translateAllSlowMode;
     const activeQueue = isSlowModeBulkRun
       ? selectSlowModeEpubPageBatch(uniqueQueue, pagesRef.current)
       : uniqueQueue;
@@ -5113,6 +5225,192 @@ function AppContent() {
     [currentFileType, readerPanels.original, requestTranslationScroll],
   );
 
+  const deleteSentenceAnnotation = useCallback(
+    async (annotationId: string) => {
+      if (!docId) return;
+      try {
+        await invoke("delete_annotation", { docId, annotationId });
+        setAnnotations((prev) => prev.filter((a) => a.id !== annotationId));
+        if (noteEditingAnnotationId === annotationId) {
+          setNoteEditingAnnotationId(null);
+        }
+        setPendingAnnotationDeletion((current) =>
+          current?.id === annotationId ? null : current,
+        );
+      } catch {
+        // Silently ignore
+      }
+    },
+    [docId, noteEditingAnnotationId],
+  );
+
+  const requestDeleteSentenceAnnotation = useCallback(
+    (annotationId: string) => {
+      const existing = annotations.find((annotation) => annotation.id === annotationId);
+      if (!existing) {
+        return;
+      }
+
+      if (existing.note?.trim()) {
+        setPendingAnnotationDeletion(existing);
+        return;
+      }
+
+      void deleteSentenceAnnotation(annotationId);
+    },
+    [annotations, deleteSentenceAnnotation],
+  );
+
+  const ensureSentenceHighlight = useCallback(
+    async (para: {
+      pid: string;
+      page: number;
+      source: string;
+      sentenceIndex: number;
+      rects: Rect[];
+    }) => {
+      if (!docId) return;
+
+      const existing = resolvedAnnotationsRef.current.find(
+        (a) =>
+          a.docId === docId &&
+          a.page === para.page &&
+          a.resolvedStatus === "attached" &&
+          (a.livePid ?? a.pid) === para.pid,
+      );
+
+      if (existing) {
+        return existing;
+      }
+
+      const id = `${docId}-${para.page}-${para.pid}`;
+      const now = new Date().toISOString();
+      const newAnnotation: SentenceAnnotation = {
+        id,
+        docId,
+        page: para.page,
+        pid: para.pid,
+        sentenceIndex: para.sentenceIndex,
+        sourceSnapshot: para.source,
+        sourceHash: hashString(para.source),
+        rectsSnapshot: para.rects,
+        status: "attached",
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      try {
+        const saved = await invoke("upsert_annotation", {
+          annotation: newAnnotation,
+        });
+        setAnnotations((prev) => [
+          ...prev.filter((a) => a.id !== id),
+          saved as SentenceAnnotation,
+        ]);
+      } catch {
+        // Still add locally on error
+        setAnnotations((prev) => [
+          ...prev.filter((a) => a.id !== id),
+          newAnnotation,
+        ]);
+      }
+    },
+    [docId],
+  );
+
+  const toggleSentenceHighlight = useCallback(
+    async (para: {
+      pid: string;
+      page: number;
+      source: string;
+      sentenceIndex: number;
+      rects: Rect[];
+    }) => {
+      if (!docId) return;
+
+      const existing = resolvedAnnotationsRef.current.find(
+        (a) =>
+          a.docId === docId &&
+          a.page === para.page &&
+          a.resolvedStatus === "attached" &&
+          (a.livePid ?? a.pid) === para.pid,
+      );
+
+      if (existing) {
+        requestDeleteSentenceAnnotation(existing.id);
+        return existing;
+      }
+
+      return ensureSentenceHighlight(para);
+    },
+    [docId, ensureSentenceHighlight, requestDeleteSentenceAnnotation],
+  );
+
+  const highlightSelectedSentences = useCallback(
+    async (pids: string[]) => {
+      if (!docId || !pages) return;
+
+      for (const pid of pids) {
+        let para:
+          | {
+              pid: string;
+              page: number;
+              source: string;
+              sentenceIndex: number;
+              rects: Rect[];
+            }
+          | undefined;
+        for (const pageDoc of pages) {
+          const idx = pageDoc.paragraphs.findIndex((p) => p.pid === pid);
+          if (idx >= 0) {
+            const p = pageDoc.paragraphs[idx];
+            para = {
+              pid: p.pid,
+              page: p.page,
+              source: p.source,
+              sentenceIndex: idx,
+              rects: p.rects,
+            };
+            break;
+          }
+        }
+        if (para) {
+          await ensureSentenceHighlight(para);
+        }
+      }
+    },
+    [docId, ensureSentenceHighlight, pages],
+  );
+
+  const saveSentenceNote = useCallback(
+    async (annotationId: string, note: string) => {
+      const existing = annotations.find((a) => a.id === annotationId);
+      if (!existing) return;
+
+      const updated = {
+        ...existing,
+        note: note || undefined,
+        updatedAt: new Date().toISOString(),
+      };
+
+      try {
+        const saved = await invoke("upsert_annotation", {
+          annotation: updated,
+        });
+        setAnnotations((prev) =>
+          prev.map((a) =>
+            a.id === annotationId ? (saved as SentenceAnnotation) : a,
+          ),
+        );
+      } catch {
+        setAnnotations((prev) =>
+          prev.map((a) => (a.id === annotationId ? updated : a)),
+        );
+      }
+    },
+    [annotations],
+  );
+
   const handleTranslateText = useCallback(
     async (text: string, position: { x: number; y: number }) => {
       const normalizedText = text.toLowerCase().trim();
@@ -5563,6 +5861,34 @@ function AppContent() {
       title="Discard unsaved changes?"
     />
   );
+  const annotationDeleteDialog = (
+    <ConfirmationDialog
+      actions={[
+        {
+          label: "Delete highlight",
+          variant: "danger",
+          onSelect: () => {
+            if (!pendingAnnotationDeletion) {
+              return;
+            }
+
+            const annotationId = pendingAnnotationDeletion.id;
+            setPendingAnnotationDeletion(null);
+            void deleteSentenceAnnotation(annotationId);
+          },
+        },
+      ]}
+      cancelLabel="Keep highlight"
+      description="This highlight has a note attached. Deleting the highlight will also delete that note."
+      onOpenChange={(open) => {
+        if (!open) {
+          setPendingAnnotationDeletion(null);
+        }
+      }}
+      open={pendingAnnotationDeletion !== null}
+      title="Delete highlight and note?"
+    />
+  );
   const sharedAboutDialog = (
     <AboutDialog
       onCheckForUpdates={() => {
@@ -5663,6 +5989,26 @@ function AppContent() {
                   }}
                 />
               ) : null}
+              <ExpandableIconButton
+                aria-label="Annotations"
+                label="Annotations"
+                labelDirection="left"
+                onClick={() => setAnnotationsPanelOpen((prev) => !prev)}
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+              </ExpandableIconButton>
               <ThemeToggleButton
                 className=""
                 theme={settings.theme}
@@ -5830,6 +6176,7 @@ function AppContent() {
                     scrollAnchor={pdfScrollAnchor}
                     paragraphs={currentPdfPageDoc?.paragraphs ?? []}
                     highlightPid={hoverPid ?? activePid}
+                    savedHighlightPids={savedHighlightPids}
                     onNavigateToPage={(page) => handlePdfPageChange(page)}
                     onRequestPageChange={handlePdfPageTurnRequest}
                     onZoomModeChange={handlePdfZoomModeChange}
@@ -5924,6 +6271,36 @@ function AppContent() {
                       }
                       statusMap={pageProgressMap}
                       onSeekPage={handleSeekPage}
+                      annotations={resolvedAnnotations.filter(
+                        (a) => a.page === currentPage,
+                      )}
+                      annotationModeEnabled={annotationModeEnabled}
+                      onToggleAnnotationMode={() =>
+                        setAnnotationModeEnabled((prev) => !prev)
+                      }
+                      onAnnotateSentence={(para, sentenceIndex) =>
+                        ensureSentenceHighlight({
+                          pid: para.pid,
+                          page: para.page,
+                          source: para.source,
+                          sentenceIndex,
+                          rects: para.rects,
+                        })
+                      }
+                      onToggleSentenceAnnotation={(para, sentenceIndex) =>
+                        toggleSentenceHighlight({
+                          pid: para.pid,
+                          page: para.page,
+                          source: para.source,
+                          sentenceIndex,
+                          rects: para.rects,
+                        })
+                      }
+                      onDeleteAnnotation={requestDeleteSentenceAnnotation}
+                      onSaveNote={saveSentenceNote}
+                      noteEditingAnnotationId={noteEditingAnnotationId}
+                      onNoteEditingChange={setNoteEditingAnnotationId}
+                      onHighlightSelected={highlightSelectedSentences}
                     />
                   ) : (
                     <TranslationPane
@@ -5963,6 +6340,34 @@ function AppContent() {
                       onClearWordTranslation={handleClearWordTranslation}
                       scrollToPage={scrollToTranslationPage}
                       statusMap={[]}
+                      annotations={resolvedAnnotations}
+                      annotationModeEnabled={annotationModeEnabled}
+                      onToggleAnnotationMode={() =>
+                        setAnnotationModeEnabled((prev) => !prev)
+                      }
+                      onAnnotateSentence={(para, sentenceIndex) =>
+                        ensureSentenceHighlight({
+                          pid: para.pid,
+                          page: para.page,
+                          source: para.source,
+                          sentenceIndex,
+                          rects: para.rects,
+                        })
+                      }
+                      onToggleSentenceAnnotation={(para, sentenceIndex) =>
+                        toggleSentenceHighlight({
+                          pid: para.pid,
+                          page: para.page,
+                          source: para.source,
+                          sentenceIndex,
+                          rects: para.rects,
+                        })
+                      }
+                      onDeleteAnnotation={requestDeleteSentenceAnnotation}
+                      onSaveNote={saveSentenceNote}
+                      noteEditingAnnotationId={noteEditingAnnotationId}
+                      onNoteEditingChange={setNoteEditingAnnotationId}
+                      onHighlightSelected={highlightSelectedSentences}
                     />
                   )
                 ) : (
@@ -6012,6 +6417,30 @@ function AppContent() {
       {sharedAboutDialog}
       {sharedSettingsDialog}
       {settingsDiscardDialog}
+      {annotationDeleteDialog}
+      {appView === "reader" && docId ? (
+        <AnnotationsPanel
+          annotations={resolvedAnnotations}
+          open={annotationsPanelOpen}
+          onClose={() => setAnnotationsPanelOpen(false)}
+          onNavigateToPage={(page, pids) => {
+            if (pids && pids.length > 0) {
+              handleLocatePid(pids[0], page);
+              return;
+            }
+
+            if (currentFileType === "pdf") {
+              handlePdfPageChange(page);
+              return;
+            }
+
+            setActivePid(null);
+            setCurrentPage(page);
+            requestTranslationScroll(page);
+          }}
+          onDeleteAnnotation={requestDeleteSentenceAnnotation}
+        />
+      ) : null}
     </>
   );
 }

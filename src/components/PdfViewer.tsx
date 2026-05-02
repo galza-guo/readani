@@ -9,7 +9,10 @@ import {
   type WheelEvent,
 } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { decideEdgePageTurn, type PdfPageTurnDirection } from "../lib/pdfNavigation";
+import {
+  decideEdgePageTurn,
+  type PdfPageTurnDirection,
+} from "../lib/pdfNavigation";
 import { clampPage } from "../lib/pageQueue";
 import {
   PDF_VIEWER_PADDING,
@@ -36,6 +39,7 @@ type PdfViewerProps = {
   scrollAnchor: "top" | "bottom";
   paragraphs: Paragraph[];
   highlightPid?: string | null;
+  savedHighlightPids?: string[];
   onNavigateToPage: (page: number) => void;
   onRequestPageChange: (direction: PdfPageTurnDirection) => void;
   onZoomModeChange: (mode: PdfZoomMode) => void;
@@ -44,13 +48,23 @@ type PdfViewerProps = {
   defaultZoomPopoverOpen?: boolean;
   overlayStatusMessage?: string | null;
   overlayProgress?: number | null;
-  onSelectionText: (selection: { text: string; position: { x: number; y: number } }) => void;
+  onSelectionText: (selection: {
+    text: string;
+    position: { x: number; y: number };
+  }) => void;
   onClearSelection: () => void;
 };
 
 function ZoomIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
       <circle cx="11" cy="11" r="7" />
       <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
       <path d="M11 8v6M8 11h6" strokeLinecap="round" />
@@ -67,6 +81,7 @@ export function PdfViewer({
   scrollAnchor,
   paragraphs,
   highlightPid,
+  savedHighlightPids,
   onNavigateToPage,
   onRequestPageChange,
   onZoomModeChange,
@@ -84,7 +99,9 @@ export function PdfViewer({
   const zoomPopoverCloseTimeoutRef = useRef<number | null>(null);
   const [viewerSize, setViewerSize] = useState({ width: 0, height: 0 });
   const [pageInputValue, setPageInputValue] = useState(String(currentPage));
-  const [isZoomPopoverOpen, setIsZoomPopoverOpen] = useState(defaultZoomPopoverOpen);
+  const [isZoomPopoverOpen, setIsZoomPopoverOpen] = useState(
+    defaultZoomPopoverOpen,
+  );
   const pageSize = pageSizes[currentPage - 1];
 
   const effectiveScale = useMemo(() => {
@@ -105,11 +122,13 @@ export function PdfViewer({
 
   const selectedZoomOption = useMemo(
     () => getPdfZoomPresetValue(zoomMode, manualScale),
-    [manualScale, zoomMode]
+    [manualScale, zoomMode],
   );
 
   const displayedZoomPercent = Math.round(effectiveScale * 100);
-  const sliderValue = clampPdfManualScale(zoomMode === "custom" ? manualScale : effectiveScale);
+  const sliderValue = clampPdfManualScale(
+    zoomMode === "custom" ? manualScale : effectiveScale,
+  );
 
   useEffect(() => {
     setPageInputValue(String(currentPage));
@@ -128,7 +147,9 @@ export function PdfViewer({
       };
 
       setViewerSize((prev) =>
-        prev.width === nextSize.width && prev.height === nextSize.height ? prev : nextSize
+        prev.width === nextSize.width && prev.height === nextSize.height
+          ? prev
+          : nextSize,
       );
     };
 
@@ -217,10 +238,13 @@ export function PdfViewer({
     }
   }, [currentPage, onNavigateToPage, pageInputValue, pageSizes.length]);
 
-  const handlePageInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const digitsOnlyValue = event.target.value.replace(/\D+/g, "");
-    setPageInputValue(digitsOnlyValue);
-  }, []);
+  const handlePageInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const digitsOnlyValue = event.target.value.replace(/\D+/g, "");
+      setPageInputValue(digitsOnlyValue);
+    },
+    [],
+  );
 
   const handlePageInputKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -235,7 +259,7 @@ export function PdfViewer({
         event.currentTarget.blur();
       }
     },
-    [commitPageInput, currentPage]
+    [commitPageInput, currentPage],
   );
 
   const clearZoomPopoverCloseTimer = useCallback(() => {
@@ -293,14 +317,14 @@ export function PdfViewer({
         onManualScaleChange(1.5);
       }
     },
-    [onManualScaleChange, onZoomModeChange]
+    [onManualScaleChange, onZoomModeChange],
   );
 
   const handleZoomSliderChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       onManualScaleChange(Number(event.target.value));
     },
-    [onManualScaleChange]
+    [onManualScaleChange],
   );
 
   if (!pageSize) {
@@ -345,6 +369,7 @@ export function PdfViewer({
               baseHeight={pageSize.height}
               paragraphs={paragraphs}
               highlightPid={highlightPid}
+              savedHighlightPids={savedHighlightPids}
               onSelectionText={onSelectionText}
               onClearSelection={onClearSelection}
             />

@@ -2,6 +2,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -24,6 +25,7 @@ import type {
   SelectionTranslation,
   WordTranslation,
 } from "../types";
+import type { ResolvedSentenceAnnotation } from "../lib/annotationMatching";
 
 type TranslationPaneChromeProps = {
   progressLabel?: string | null;
@@ -67,6 +69,17 @@ type PdfTranslationPaneProps = {
   onClearSelectionTranslation: () => void;
   statusMap?: PageProgressStatus[];
   onSeekPage?: (page: number) => void;
+  // Annotation props
+  annotations?: ResolvedSentenceAnnotation[];
+  annotationModeEnabled?: boolean;
+  onToggleAnnotationMode?: () => void;
+  onAnnotateSentence?: (para: Paragraph, sentenceIndex: number) => void;
+  onToggleSentenceAnnotation?: (para: Paragraph, sentenceIndex: number) => void;
+  onDeleteAnnotation?: (annotationId: string) => void;
+  onSaveNote?: (annotationId: string, note: string) => void;
+  noteEditingAnnotationId?: string | null;
+  onNoteEditingChange?: (annotationId: string | null) => void;
+  onHighlightSelected?: (pids: string[]) => void;
 };
 
 type EpubTranslationPaneProps = {
@@ -95,13 +108,21 @@ type EpubTranslationPaneProps = {
   scrollToPage?: number | null;
   statusMap?: PageProgressStatus[];
   onSeekPage?: (page: number) => void;
+  annotations?: ResolvedSentenceAnnotation[];
+  annotationModeEnabled?: boolean;
+  onToggleAnnotationMode?: () => void;
+  onAnnotateSentence?: (para: Paragraph, sentenceIndex: number) => void;
+  onToggleSentenceAnnotation?: (para: Paragraph, sentenceIndex: number) => void;
+  onDeleteAnnotation?: (annotationId: string) => void;
+  onSaveNote?: (annotationId: string, note: string) => void;
+  noteEditingAnnotationId?: string | null;
+  onNoteEditingChange?: (annotationId: string | null) => void;
+  onHighlightSelected?: (pids: string[]) => void;
 };
 
 type TranslationPaneProps = PdfTranslationPaneProps | EpubTranslationPaneProps;
 
-function getFallbackAttemptSummary(
-  pageTranslation?: PageTranslationState,
-) {
+function getFallbackAttemptSummary(pageTranslation?: PageTranslationState) {
   const attemptCount = pageTranslation?.fallbackTrace?.attemptCount ?? 0;
 
   if (attemptCount <= 1) {
@@ -192,6 +213,78 @@ function CopyIcon() {
   );
 }
 
+function AnnotateIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+    </svg>
+  );
+}
+
+function CommentIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+function DeleteSmallIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </svg>
+  );
+}
+
+function WarningIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
 async function copyTextToClipboard(text: string) {
   if (
     typeof navigator !== "undefined" &&
@@ -278,26 +371,84 @@ function TranslationSetupPrompt({
   );
 }
 
+function AnnotationNoteEditor({
+  initialValue,
+  onSave,
+  onCancel,
+}: {
+  initialValue: string;
+  onSave: (note: string) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(initialValue);
+
+  return (
+    <div className="pdf-segment-note-editor">
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder="Add a note..."
+        autoFocus
+      />
+      <div className="pdf-segment-note-actions">
+        <button
+          className="btn btn-quiet-action btn-small"
+          type="button"
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+        <button
+          className="btn btn-quiet-action btn-small"
+          type="button"
+          onClick={() => onSave(draft)}
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const PdfSegmentCard = memo(function PdfSegmentCard({
   para,
+  sentenceIndex,
   isActive,
   isSelected,
   onHoverPid,
   onSelect,
   onCopyText,
+  annotation,
+  annotationModeEnabled,
+  onAnnotateSentence,
+  onToggleSentenceAnnotation,
+  onDeleteAnnotation,
+  onSaveNote,
+  noteEditingAnnotationId,
+  onNoteEditingChange,
 }: {
   para: Paragraph;
+  sentenceIndex?: number;
   isActive: boolean;
   isSelected: boolean;
   onHoverPid: (pid: string | null) => void;
   onSelect: (pid: string, event: React.MouseEvent<HTMLElement>) => void;
   onCopyText: (text: string, label: string) => void;
+  annotation?: ResolvedSentenceAnnotation;
+  annotationModeEnabled?: boolean;
+  onAnnotateSentence?: (para: Paragraph, sentenceIndex: number) => void;
+  onToggleSentenceAnnotation?: (para: Paragraph, sentenceIndex: number) => void;
+  onDeleteAnnotation?: (annotationId: string) => void;
+  onSaveNote?: (annotationId: string, note: string) => void;
+  noteEditingAnnotationId?: string | null;
+  onNoteEditingChange?: (annotationId: string | null) => void;
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const [hasFocusWithin, setHasFocusWithin] = useState(false);
   const [hoveredSection, setHoveredSection] = useState<
     "translation" | "source" | null
   >(null);
+  const isAnnotated = Boolean(annotation);
   const showInlineActions =
     isHovered || isActive || isSelected || hasFocusWithin;
   const sourceVisible = showInlineActions;
@@ -306,6 +457,7 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
   const canCopyTranslation =
     para.status === "done" && Boolean(para.translation?.trim());
   const canCopySource = Boolean(para.source.trim());
+  const annotateLabel = isAnnotated ? "Remove highlight" : "Highlight sentence";
 
   let translationText = para.translation?.trim() ?? "";
   if (para.status === "loading") {
@@ -313,15 +465,16 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
   } else if (para.status === "error") {
     translationText = "Translation failed for this passage.";
   } else if (!translationText) {
-    translationText = "Translation will appear here when this passage is ready.";
+    translationText =
+      "Translation will appear here when this passage is ready.";
   }
 
   return (
     <article
       className={`pdf-segment-card ${
         isActive && !isHovered ? "is-linked-active" : ""
-      } ${
-        isSelected ? "is-selected" : ""
+      } ${isSelected ? "is-selected" : ""} ${
+        isAnnotated ? "is-annotated" : ""
       }`}
       onMouseEnter={() => {
         setIsHovered(true);
@@ -339,13 +492,24 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
       onBlurCapture={(event) => {
         const nextTarget = event.relatedTarget;
 
-        if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+        if (
+          !(nextTarget instanceof Node) ||
+          !event.currentTarget.contains(nextTarget)
+        ) {
           setHasFocusWithin(false);
           setHoveredSection(null);
           onHoverPid(null);
         }
       }}
-      onClick={(event) => onSelect(para.pid, event)}
+      onClick={(event) => {
+        if (annotationModeEnabled) {
+          event.preventDefault();
+          onAnnotateSentence?.(para, sentenceIndex ?? 0);
+          return;
+        }
+
+        onSelect(para.pid, event);
+      }}
     >
       <div className="pdf-segment-surface">
         <div
@@ -360,20 +524,35 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
           }
         >
           <div className="pdf-segment-translation">{translationText}</div>
-          <button
-            className="pdf-segment-copy-btn"
-            type="button"
-            disabled={!canCopyTranslation}
-            tabIndex={showTranslationCopy ? 0 : -1}
-            onClick={(event) => {
-              event.stopPropagation();
-              onCopyText(para.translation?.trim() ?? "", "Translation");
-            }}
-            title="Copy translation"
-            aria-label="Copy translation"
-          >
-            <CopyIcon />
-          </button>
+          <div className="pdf-segment-row-actions">
+            <button
+              className="pdf-segment-annotate-btn"
+              type="button"
+              tabIndex={showInlineActions ? 0 : -1}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleSentenceAnnotation?.(para, sentenceIndex ?? 0);
+              }}
+              title={annotateLabel}
+              aria-label={annotateLabel}
+            >
+              <AnnotateIcon />
+            </button>
+            <button
+              className="pdf-segment-copy-btn"
+              type="button"
+              disabled={!canCopyTranslation}
+              tabIndex={showTranslationCopy ? 0 : -1}
+              onClick={(event) => {
+                event.stopPropagation();
+                onCopyText(para.translation?.trim() ?? "", "Translation");
+              }}
+              title="Copy translation"
+              aria-label="Copy translation"
+            >
+              <CopyIcon />
+            </button>
+          </div>
         </div>
         <div
           className={`pdf-segment-source-reveal ${
@@ -412,29 +591,97 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
           </div>
         </div>
       </div>
+      {isAnnotated && (isHovered || hasFocusWithin) && (
+        <div className="pdf-segment-annotation-clip">
+          <button
+            className="pdf-segment-annotation-clip-btn"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onNoteEditingChange?.(annotation!.id);
+            }}
+          >
+            <CommentIcon />
+            Comment
+          </button>
+          <button
+            className="pdf-segment-annotation-clip-btn is-danger"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDeleteAnnotation?.(annotation!.id);
+            }}
+          >
+            <DeleteSmallIcon />
+            Delete
+          </button>
+        </div>
+      )}
+      {annotation?.note && noteEditingAnnotationId !== annotation.id && (
+        <div className="pdf-segment-note">{annotation.note}</div>
+      )}
+      {noteEditingAnnotationId === annotation?.id && annotation && (
+        <AnnotationNoteEditor
+          initialValue={annotation.note ?? ""}
+          onSave={(note) => {
+            onSaveNote?.(annotation.id, note);
+            onNoteEditingChange?.(null);
+          }}
+          onCancel={() => onNoteEditingChange?.(null)}
+        />
+      )}
     </article>
   );
 });
 
 const ParagraphBlock = memo(function ParagraphBlock({
   para,
+  sentenceIndex,
   pageNum,
   isActive,
   onHoverPid,
   onTranslatePid,
   onLocatePid,
   onTranslateText,
+  onCopyText,
+  annotation,
+  annotationModeEnabled,
+  onAnnotateSentence,
+  onToggleSentenceAnnotation,
+  onDeleteAnnotation,
+  onSaveNote,
+  noteEditingAnnotationId,
+  onNoteEditingChange,
 }: {
   para: Paragraph;
+  sentenceIndex: number;
   pageNum: number;
   isActive: boolean;
   onHoverPid: (pid: string | null) => void;
   onTranslatePid: (pid: string) => void;
   onLocatePid: (pid: string, page: number) => void;
   onTranslateText: (text: string, position: { x: number; y: number }) => void;
+  onCopyText: (text: string, label: string) => void;
+  annotation?: ResolvedSentenceAnnotation;
+  annotationModeEnabled?: boolean;
+  onAnnotateSentence?: (para: Paragraph, sentenceIndex: number) => void;
+  onToggleSentenceAnnotation?: (para: Paragraph, sentenceIndex: number) => void;
+  onDeleteAnnotation?: (annotationId: string) => void;
+  onSaveNote?: (annotationId: string, note: string) => void;
+  noteEditingAnnotationId?: string | null;
+  onNoteEditingChange?: (annotationId: string | null) => void;
 }) {
+  const [isHovered, setIsHovered] = useState(false);
+  const [hasFocusWithin, setHasFocusWithin] = useState(false);
+  const [hoveredSection, setHoveredSection] = useState<
+    "translation" | "source" | null
+  >(null);
   const handleMouseUp = useCallback(
     (event: React.MouseEvent) => {
+      if (annotationModeEnabled) {
+        return;
+      }
+
       const selection = window.getSelection();
       const selectedText = selection?.toString().trim();
 
@@ -447,9 +694,18 @@ const ParagraphBlock = memo(function ParagraphBlock({
         onTranslateText(selectedText, { x: event.clientX, y: event.clientY });
       }
     },
-    [onTranslateText],
+    [annotationModeEnabled, onTranslateText],
   );
 
+  const isAnnotated = Boolean(annotation);
+  const showInlineActions =
+    isHovered || isActive || hasFocusWithin || annotationModeEnabled;
+  const showTranslationCopy = hoveredSection === "translation";
+  const showSourceCopy = hoveredSection === "source";
+  const canCopyTranslation =
+    para.status === "done" && Boolean(para.translation?.trim());
+  const canCopySource = Boolean(para.source.trim());
+  const annotateLabel = isAnnotated ? "Remove highlight" : "Highlight sentence";
   const translationText =
     para.status === "loading"
       ? "Translating..."
@@ -459,52 +715,232 @@ const ParagraphBlock = memo(function ParagraphBlock({
 
   return (
     <div
-      className={`paragraph-block ${isActive ? "is-active" : ""}`}
-      onMouseEnter={() => onHoverPid(para.pid)}
-      onMouseLeave={() => onHoverPid(null)}
+      className={`paragraph-block ${isActive ? "is-active" : ""} ${
+        isAnnotated ? "is-annotated" : ""
+      } ${annotationModeEnabled ? "annotation-mode" : ""}`}
+      onMouseEnter={() => {
+        setIsHovered(true);
+        onHoverPid(para.pid);
+      }}
+      onMouseLeave={() => {
+        setIsHovered(false);
+        setHoveredSection(null);
+        onHoverPid(null);
+      }}
+      onFocusCapture={() => {
+        setHasFocusWithin(true);
+        onHoverPid(para.pid);
+      }}
+      onBlurCapture={(event) => {
+        const nextTarget = event.relatedTarget;
+
+        if (
+          !(nextTarget instanceof Node) ||
+          !event.currentTarget.contains(nextTarget)
+        ) {
+          setHasFocusWithin(false);
+          setHoveredSection(null);
+          onHoverPid(null);
+        }
+      }}
+      onClick={() => {
+        if (annotationModeEnabled) {
+          onAnnotateSentence?.(para, sentenceIndex);
+        }
+      }}
     >
-      <div className="paragraph-actions">
-        <button
-          className="action-btn locate-btn"
-          onClick={(event) => {
-            event.stopPropagation();
-            onLocatePid(para.pid, pageNum);
-          }}
-          title="Locate in document"
-        >
-          <LocateIcon />
-        </button>
-        <button
-          className="action-btn translate-btn"
-          onClick={(event) => {
-            event.stopPropagation();
-            onTranslatePid(para.pid);
-          }}
-          title="Translate paragraph"
-        >
-          <TranslateIcon />
-        </button>
-      </div>
-      <div className="paragraph-source" onMouseUp={handleMouseUp}>
-        {para.source}
-      </div>
-      {para.status === "error" ? (
-        <div className="paragraph-translation paragraph-error">
-          <span>Translation failed.</span>
+      <div
+        className={`pdf-segment-row pdf-segment-row--source ${
+          showSourceCopy ? "is-copy-hovered" : ""
+        }`}
+        onMouseEnter={() => setHoveredSection("source")}
+        onMouseLeave={() =>
+          setHoveredSection((current) => (current === "source" ? null : current))
+        }
+      >
+        <div className="paragraph-source" onMouseUp={handleMouseUp}>
+          {para.source}
+        </div>
+        <div className="pdf-segment-row-actions">
           <button
-            className="retry-btn"
+            className="pdf-segment-annotate-btn"
+            type="button"
+            tabIndex={showInlineActions ? 0 : -1}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleSentenceAnnotation?.(para, sentenceIndex);
+            }}
+            title={annotateLabel}
+            aria-label={annotateLabel}
+          >
+            <AnnotateIcon />
+          </button>
+          <button
+            className="pdf-segment-copy-btn"
+            type="button"
+            disabled={!canCopySource}
+            tabIndex={showSourceCopy ? 0 : -1}
+            onClick={(event) => {
+              event.stopPropagation();
+              onCopyText(para.source, "Original text");
+            }}
+            title="Copy original text"
+            aria-label="Copy original text"
+          >
+            <CopyIcon />
+          </button>
+          <button
+            className="action-btn locate-btn"
+            type="button"
+            tabIndex={showInlineActions ? 0 : -1}
+            onClick={(event) => {
+              event.stopPropagation();
+              onLocatePid(para.pid, pageNum);
+            }}
+            title="Locate in document"
+            aria-label="Locate in document"
+          >
+            <LocateIcon />
+          </button>
+          <button
+            className="action-btn translate-btn"
+            type="button"
+            tabIndex={showInlineActions ? 0 : -1}
             onClick={(event) => {
               event.stopPropagation();
               onTranslatePid(para.pid);
             }}
-            title="Retry translation"
+            title="Translate paragraph"
+            aria-label="Translate paragraph"
           >
-            <RetryIcon />
-            <span>Retry</span>
+            <TranslateIcon />
           </button>
         </div>
+      </div>
+      {para.status === "error" ? (
+        <div
+          className={`pdf-segment-row pdf-segment-row--translation ${
+            showTranslationCopy ? "is-copy-hovered" : ""
+          }`}
+          onMouseEnter={() => setHoveredSection("translation")}
+          onMouseLeave={() =>
+            setHoveredSection((current) =>
+              current === "translation" ? null : current,
+            )
+          }
+        >
+          <div className="paragraph-translation paragraph-error">
+            <span>Translation failed.</span>
+            <button
+              className="retry-btn"
+              onClick={(event) => {
+                event.stopPropagation();
+                onTranslatePid(para.pid);
+              }}
+              title="Retry translation"
+            >
+              <RetryIcon />
+              <span>Retry</span>
+            </button>
+          </div>
+          <div className="pdf-segment-row-actions">
+            <button
+              className="pdf-segment-annotate-btn"
+              type="button"
+              tabIndex={showInlineActions ? 0 : -1}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleSentenceAnnotation?.(para, sentenceIndex);
+              }}
+              title={annotateLabel}
+              aria-label={annotateLabel}
+            >
+              <AnnotateIcon />
+            </button>
+          </div>
+        </div>
       ) : translationText ? (
-        <div className="paragraph-translation">{translationText}</div>
+        <div
+          className={`pdf-segment-row pdf-segment-row--translation ${
+            showTranslationCopy ? "is-copy-hovered" : ""
+          }`}
+          onMouseEnter={() => setHoveredSection("translation")}
+          onMouseLeave={() =>
+            setHoveredSection((current) =>
+              current === "translation" ? null : current,
+            )
+          }
+        >
+          <div className="paragraph-translation">{translationText}</div>
+          <div className="pdf-segment-row-actions">
+            <button
+              className="pdf-segment-annotate-btn"
+              type="button"
+              tabIndex={showInlineActions ? 0 : -1}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleSentenceAnnotation?.(para, sentenceIndex);
+              }}
+              title={annotateLabel}
+              aria-label={annotateLabel}
+            >
+              <AnnotateIcon />
+            </button>
+            <button
+              className="pdf-segment-copy-btn"
+              type="button"
+              disabled={!canCopyTranslation}
+              tabIndex={showTranslationCopy ? 0 : -1}
+              onClick={(event) => {
+                event.stopPropagation();
+                onCopyText(para.translation?.trim() ?? "", "Translation");
+              }}
+              title="Copy translation"
+              aria-label="Copy translation"
+            >
+              <CopyIcon />
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {isAnnotated && (isHovered || hasFocusWithin) ? (
+        <div className="pdf-segment-annotation-clip">
+          <button
+            className="pdf-segment-annotation-clip-btn"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onNoteEditingChange?.(annotation!.id);
+            }}
+          >
+            <CommentIcon />
+            Comment
+          </button>
+          <button
+            className="pdf-segment-annotation-clip-btn is-danger"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDeleteAnnotation?.(annotation!.id);
+            }}
+          >
+            <DeleteSmallIcon />
+            Delete
+          </button>
+        </div>
+      ) : null}
+      {annotation?.note && noteEditingAnnotationId !== annotation.id ? (
+        <div className="pdf-segment-note">{annotation.note}</div>
+      ) : null}
+      {noteEditingAnnotationId === annotation?.id && annotation ? (
+        <AnnotationNoteEditor
+          initialValue={annotation.note ?? ""}
+          onSave={(note) => {
+            onSaveNote?.(annotation.id, note);
+            onNoteEditingChange?.(null);
+          }}
+          onCancel={() => onNoteEditingChange?.(null)}
+        />
       ) : null}
     </div>
   );
@@ -518,6 +954,15 @@ const EpubPageTranslation = memo(function EpubPageTranslation({
   onTranslatePid,
   onLocatePid,
   onTranslateText,
+  onCopyText,
+  annotations,
+  annotationModeEnabled,
+  onAnnotateSentence,
+  onToggleSentenceAnnotation,
+  onDeleteAnnotation,
+  onSaveNote,
+  noteEditingAnnotationId,
+  onNoteEditingChange,
 }: {
   page: PageDoc;
   activePid?: string | null;
@@ -526,22 +971,81 @@ const EpubPageTranslation = memo(function EpubPageTranslation({
   onTranslatePid: (pid: string) => void;
   onLocatePid: (pid: string, page: number) => void;
   onTranslateText: (text: string, position: { x: number; y: number }) => void;
+  onCopyText: (text: string, label: string) => void;
+  annotations?: ResolvedSentenceAnnotation[];
+  annotationModeEnabled?: boolean;
+  onAnnotateSentence?: (para: Paragraph, sentenceIndex: number) => void;
+  onToggleSentenceAnnotation?: (para: Paragraph, sentenceIndex: number) => void;
+  onDeleteAnnotation?: (annotationId: string) => void;
+  onSaveNote?: (annotationId: string, note: string) => void;
+  noteEditingAnnotationId?: string | null;
+  onNoteEditingChange?: (annotationId: string | null) => void;
 }) {
   const pageTitle = page.title || `Page ${page.page}`;
+  const annotationByPid = useMemo(() => {
+    const map = new Map<string, ResolvedSentenceAnnotation>();
+    if (annotations) {
+      for (const ann of annotations) {
+        if (ann.resolvedStatus === "attached" && ann.livePid) {
+          map.set(ann.livePid, ann);
+        }
+      }
+    }
+    return map;
+  }, [annotations]);
+  const needsReviewAnnotations = useMemo(
+    () =>
+      (annotations ?? []).filter(
+        (ann) => ann.page === page.page && ann.resolvedStatus === "needs-review",
+      ),
+    [annotations, page.page],
+  );
 
   return (
     <div className="translation-page">
       <div className="translation-page-title">{pageTitle}</div>
-      {page.paragraphs.map((para) => (
+      {needsReviewAnnotations.length > 0 ? (
+        <div className="annotation-review-banner">
+          <WarningIcon />
+          <span>
+            {needsReviewAnnotations.length} annotation
+            {needsReviewAnnotations.length > 1 ? "s" : ""} need review on this
+            page.
+          </span>
+          <div className="annotation-review-banner-actions">
+            {needsReviewAnnotations.map((ann) => (
+              <button
+                key={ann.id}
+                className="annotation-review-action"
+                type="button"
+                onClick={() => onDeleteAnnotation?.(ann.id)}
+              >
+                Delete
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {page.paragraphs.map((para, index) => (
         <ParagraphBlock
           key={para.pid}
           para={para}
+          sentenceIndex={index}
           pageNum={page.page}
           isActive={para.pid === activePid || para.pid === hoverPid}
           onHoverPid={onHoverPid}
           onTranslatePid={onTranslatePid}
           onLocatePid={onLocatePid}
           onTranslateText={onTranslateText}
+          onCopyText={onCopyText}
+          annotation={annotationByPid.get(para.pid)}
+          annotationModeEnabled={annotationModeEnabled}
+          onAnnotateSentence={onAnnotateSentence}
+          onToggleSentenceAnnotation={onToggleSentenceAnnotation}
+          onDeleteAnnotation={onDeleteAnnotation}
+          onSaveNote={onSaveNote}
+          noteEditingAnnotationId={noteEditingAnnotationId}
+          onNoteEditingChange={onNoteEditingChange}
         />
       ))}
     </div>
@@ -717,7 +1221,11 @@ function TranslationPaneFooter({
   return (
     <div className="translation-pane-footer">
       <div className="translation-pane-footer-progress">
-        {statusMap && statusMap.length > 0 && progressLabel && onSeekPage && currentPage ? (
+        {statusMap &&
+        statusMap.length > 0 &&
+        progressLabel &&
+        onSeekPage &&
+        currentPage ? (
           <TranslationProgressBar
             statusMap={statusMap}
             currentPage={currentPage}
@@ -795,10 +1303,31 @@ function PdfTranslationPane({
   onClearSelectionTranslation,
   statusMap,
   onSeekPage,
+  annotations,
+  annotationModeEnabled,
+  onToggleAnnotationMode,
+  onAnnotateSentence,
+  onToggleSentenceAnnotation,
+  onDeleteAnnotation,
+  onSaveNote,
+  noteEditingAnnotationId,
+  onNoteEditingChange,
+  onHighlightSelected,
 }: Omit<PdfTranslationPaneProps, "mode">) {
   const { showToast } = useToast();
   const [selectedPids, setSelectedPids] = useState<string[]>([]);
   const selectionAnchorIndexRef = useRef<number | null>(null);
+  const annotationByPid = useMemo(() => {
+    const map = new Map<string, ResolvedSentenceAnnotation>();
+    if (annotations) {
+      for (const ann of annotations) {
+        if (ann.livePid) {
+          map.set(ann.livePid, ann);
+        }
+      }
+    }
+    return map;
+  }, [annotations]);
   const resolvedLoadingMessage =
     loadingMessage ??
     pageTranslation?.activityMessage ??
@@ -1032,6 +1561,25 @@ function PdfTranslationPane({
           </div>
         ) : null}
         <div className="page-translation-actions rail-pane-header-actions">
+          <button
+            className={`annotation-mode-btn ${annotationModeEnabled ? "is-active" : ""}`}
+            type="button"
+            onClick={() => {
+              if (selectedPids.length > 0) {
+                onHighlightSelected?.(selectedPids);
+              } else {
+                onToggleAnnotationMode?.();
+              }
+            }}
+            title={
+              selectedPids.length > 0 ? "Highlight selected" : "Annotation mode"
+            }
+            aria-label={
+              selectedPids.length > 0 ? "Highlight selected" : "Annotation mode"
+            }
+          >
+            <AnnotateIcon />
+          </button>
           <ExpandableIconButton
             type="button"
             onClick={() => onRetryPage(currentPage)}
@@ -1057,7 +1605,9 @@ function PdfTranslationPane({
           ) : pageTranslation?.status === "error" ? (
             <div className="page-translation-error">
               {fallbackAttemptSummary ? <p>{fallbackAttemptSummary}</p> : null}
-              <p>{resolvedErrorMessage || "Translation failed for this page."}</p>
+              <p>
+                {resolvedErrorMessage || "Translation failed for this page."}
+              </p>
               {pageTranslation.errorChecks?.length ? (
                 <div className="page-translation-error-checks-wrap">
                   <div className="page-translation-error-checks-label">
@@ -1078,21 +1628,61 @@ function PdfTranslationPane({
               </button>
             </div>
           ) : showSegmentCards ? (
-            <div className="pdf-segment-list">
+            <div
+              className={`pdf-segment-list ${annotationModeEnabled ? "annotation-mode" : ""}`}
+            >
+              {(() => {
+                const needsReviewAnnotations = (annotations ?? []).filter(
+                  (a) =>
+                    a.page === currentPage &&
+                    a.resolvedStatus === "needs-review",
+                );
+                return needsReviewAnnotations.length > 0 ? (
+                  <div className="annotation-review-banner">
+                    <WarningIcon />
+                    <span>
+                      {needsReviewAnnotations.length} annotation
+                      {needsReviewAnnotations.length > 1 ? "s" : ""} need review
+                      on this page.
+                    </span>
+                    <div className="annotation-review-banner-actions">
+                      {needsReviewAnnotations.map((ann) => (
+                        <button
+                          key={ann.id}
+                          className="annotation-review-action"
+                          type="button"
+                          onClick={() => onDeleteAnnotation?.(ann.id)}
+                        >
+                          Delete
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
               {alignmentState === "coarse" ? (
                 <div className="pdf-segment-alignment-note">
                   Highlights may be approximate on this page.
                 </div>
               ) : null}
-              {translatableParagraphs.map((para) => (
+              {translatableParagraphs.map((para, index) => (
                 <PdfSegmentCard
                   key={para.pid}
                   para={para}
+                  sentenceIndex={index}
                   isActive={para.pid === activePid || para.pid === hoverPid}
                   isSelected={selectedPidSet.has(para.pid)}
                   onHoverPid={onHoverPid}
                   onSelect={handleSelectPid}
                   onCopyText={handleCopyText}
+                  annotation={annotationByPid.get(para.pid)}
+                  annotationModeEnabled={annotationModeEnabled}
+                  onAnnotateSentence={onAnnotateSentence}
+                  onToggleSentenceAnnotation={onToggleSentenceAnnotation}
+                  onDeleteAnnotation={onDeleteAnnotation}
+                  onSaveNote={onSaveNote}
+                  noteEditingAnnotationId={noteEditingAnnotationId}
+                  onNoteEditingChange={onNoteEditingChange}
                 />
               ))}
             </div>
@@ -1193,9 +1783,47 @@ function EpubTranslationPane({
   scrollToPage,
   statusMap,
   onSeekPage,
+  annotations,
+  annotationModeEnabled,
+  onToggleAnnotationMode,
+  onAnnotateSentence,
+  onToggleSentenceAnnotation,
+  onDeleteAnnotation,
+  onSaveNote,
+  noteEditingAnnotationId,
+  onNoteEditingChange,
 }: Omit<EpubTranslationPaneProps, "mode">) {
+  const { showToast } = useToast();
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const lastHandledScrollPageRef = useRef<number | null>(null);
+  const isServerRender = typeof window === "undefined";
+
+  const handleCopyText = useCallback(
+    (text: string, label: string) => {
+      const trimmedText = text.trim();
+
+      if (!trimmedText) {
+        return;
+      }
+
+      void copyTextToClipboard(trimmedText)
+        .then(() => {
+          showToast({
+            message: `${label} copied.`,
+            tone: "success",
+            durationMs: 1800,
+          });
+        })
+        .catch(() => {
+          showToast({
+            message: `Couldn't copy ${label.toLowerCase()}.`,
+            detail: "Clipboard access is unavailable right now.",
+            tone: "error",
+          });
+        });
+    },
+    [showToast],
+  );
 
   useEffect(() => {
     if (!scrollToPage) {
@@ -1215,6 +1843,48 @@ function EpubTranslationPane({
     }
   }, [pages, scrollToPage]);
 
+  const renderPage = useCallback(
+    (page: PageDoc) => (
+      <EpubPageTranslation
+        page={page}
+        activePid={activePid}
+        hoverPid={hoverPid}
+        onHoverPid={onHoverPid}
+        onTranslatePid={onTranslatePid}
+        onLocatePid={onLocatePid}
+        onTranslateText={onTranslateText}
+        onCopyText={handleCopyText}
+        annotations={annotations?.filter(
+          (annotation) => annotation.page === page.page,
+        )}
+        annotationModeEnabled={annotationModeEnabled}
+        onAnnotateSentence={onAnnotateSentence}
+        onToggleSentenceAnnotation={onToggleSentenceAnnotation}
+        onDeleteAnnotation={onDeleteAnnotation}
+        onSaveNote={onSaveNote}
+        noteEditingAnnotationId={noteEditingAnnotationId}
+        onNoteEditingChange={onNoteEditingChange}
+      />
+    ),
+    [
+      activePid,
+      annotationModeEnabled,
+      annotations,
+      handleCopyText,
+      hoverPid,
+      noteEditingAnnotationId,
+      onAnnotateSentence,
+      onToggleSentenceAnnotation,
+      onDeleteAnnotation,
+      onHoverPid,
+      onLocatePid,
+      onNoteEditingChange,
+      onSaveNote,
+      onTranslatePid,
+      onTranslateText,
+    ],
+  );
+
   return (
     <div className="translation-pane">
       <div className="translation-pane-header rail-pane-header">
@@ -1223,26 +1893,35 @@ function EpubTranslationPane({
             <span className="rail-pane-title">Translation</span>
           </div>
         </div>
+        <div className="page-translation-actions rail-pane-header-actions">
+          <button
+            className={`annotation-mode-btn ${annotationModeEnabled ? "is-active" : ""}`}
+            type="button"
+            onClick={() => onToggleAnnotationMode?.()}
+            title="Annotation mode"
+            aria-label="Annotation mode"
+          >
+            <AnnotateIcon />
+          </button>
+        </div>
       </div>
       {setupRequired ? (
         <TranslationSetupPrompt onOpenSettings={onOpenSettings} />
       ) : null}
-      <Virtuoso
-        ref={virtuosoRef}
-        style={{ flex: 1, minHeight: 0 }}
-        totalCount={pages.length}
-        itemContent={(index) => (
-          <EpubPageTranslation
-            page={pages[index]}
-            activePid={activePid}
-            hoverPid={hoverPid}
-            onHoverPid={onHoverPid}
-            onTranslatePid={onTranslatePid}
-            onLocatePid={onLocatePid}
-            onTranslateText={onTranslateText}
-          />
-        )}
-      />
+      {isServerRender ? (
+        <div className="translation-pane-epub-list">
+          {pages.map((page) => (
+            <div key={page.page}>{renderPage(page)}</div>
+          ))}
+        </div>
+      ) : (
+        <Virtuoso
+          ref={virtuosoRef}
+          style={{ flex: 1, minHeight: 0 }}
+          totalCount={pages.length}
+          itemContent={(index) => renderPage(pages[index])}
+        />
+      )}
       <TranslationPaneFooter
         progressLabel={progressLabel}
         progressDetailLabel={progressDetailLabel}
@@ -1341,6 +2020,16 @@ export function TranslationPane(props: TranslationPaneProps) {
         onClearSelectionTranslation={props.onClearSelectionTranslation}
         statusMap={props.statusMap}
         onSeekPage={props.onSeekPage}
+        annotations={props.annotations}
+        annotationModeEnabled={props.annotationModeEnabled}
+        onToggleAnnotationMode={props.onToggleAnnotationMode}
+        onAnnotateSentence={props.onAnnotateSentence}
+        onToggleSentenceAnnotation={props.onToggleSentenceAnnotation}
+        onDeleteAnnotation={props.onDeleteAnnotation}
+        onSaveNote={props.onSaveNote}
+        noteEditingAnnotationId={props.noteEditingAnnotationId}
+        onNoteEditingChange={props.onNoteEditingChange}
+        onHighlightSelected={props.onHighlightSelected}
       />
     );
   }
@@ -1371,6 +2060,15 @@ export function TranslationPane(props: TranslationPaneProps) {
       scrollToPage={props.scrollToPage}
       statusMap={props.statusMap}
       onSeekPage={props.onSeekPage}
+      annotations={props.annotations}
+      annotationModeEnabled={props.annotationModeEnabled}
+      onToggleAnnotationMode={props.onToggleAnnotationMode}
+      onAnnotateSentence={props.onAnnotateSentence}
+      onToggleSentenceAnnotation={props.onToggleSentenceAnnotation}
+      onDeleteAnnotation={props.onDeleteAnnotation}
+      onSaveNote={props.onSaveNote}
+      noteEditingAnnotationId={props.noteEditingAnnotationId}
+      onNoteEditingChange={props.onNoteEditingChange}
     />
   );
 }

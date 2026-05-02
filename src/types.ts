@@ -207,3 +207,31 @@ export type ChatMessage = {
   content: string;
   timestamp: string;
 };
+
+export type SentenceAnnotationStatus = "attached" | "needs-review";
+
+export type SentenceAnnotation = {
+  id: string;
+  docId: string;
+  page: number;
+  pid: string;
+  sentenceIndex: number;
+  sourceSnapshot: string;
+  sourceHash: string;
+  rectsSnapshot: Rect[];
+  note?: string;
+  status: SentenceAnnotationStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AnnotationDisplayGroup = {
+  docId: string;
+  page: number;
+  annotationIds: string[];
+  startSentenceIndex: number;
+  endSentenceIndex: number;
+  excerpt: string;
+  noteCount: number;
+  hasNeedsReview: boolean;
+};
