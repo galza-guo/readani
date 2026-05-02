@@ -178,6 +178,123 @@ const DEFAULT_SETTINGS: TranslationSettings = {
 
 const ZOOM_LEVELS = [0.75, 1, 1.25, 1.5, 2];
 const PDF_KEYBOARD_ZOOM_STEP = 0.05;
+
+type DocumentInspection = {
+  docId: string;
+  filePath: string;
+  fileName: string;
+  fileType: FileType;
+  title: string;
+  totalPages: number;
+  chapterCount?: number;
+};
+
+type LoadDocumentIdentity = {
+  docId: string;
+  title?: string;
+};
+
+type PendingReconnectResolution = {
+  mode: "similar" | "different";
+  book: RecentBook;
+  candidate: DocumentInspection;
+};
+
+function getDocumentFileName(filePath: string) {
+  return filePath.split(/[/\\]/).pop() || "Untitled";
+}
+
+function getDocumentTitleFromPath(filePath: string) {
+  return getDocumentFileName(filePath).replace(/\.[^.]+$/, "");
+}
+
+function getDocumentFileType(filePath: string): FileType {
+  return filePath.split(".").pop()?.toLowerCase() === "epub" ? "epub" : "pdf";
+}
+
+async function readDocumentBytes(filePath: string) {
+  const rawBytes = (await invoke("read_pdf_file", { path: filePath })) as number[];
+  return new Uint8Array(rawBytes);
+}
+
+async function inspectPdfDocument(
+  filePath: string,
+  bytes: Uint8Array,
+  docId: string,
+): Promise<DocumentInspection> {
+  const loadingTask = pdfjsLib.getDocument({ data: bytes.slice().buffer });
+  const doc = await loadingTask.promise;
+  try {
+    return {
+      docId,
+      filePath,
+      fileName: getDocumentFileName(filePath),
+      fileType: "pdf",
+      title: getDocumentTitleFromPath(filePath),
+      totalPages: doc.numPages,
+    };
+  } finally {
+    await doc.destroy();
+  }
+}
+
+async function inspectEpubDocument(
+  filePath: string,
+  bytes: Uint8Array,
+  docId: string,
+): Promise<DocumentInspection> {
+  const { default: ePub } = await import("epubjs");
+  const bookData = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(bookData).set(bytes);
+  const book = ePub(bookData);
+
+  try {
+    await book.ready;
+    const metadata = await book.loaded.metadata;
+    const navigation = await book.loaded.navigation;
+    const spineItems = ((book.spine as any)?.items ?? []) as unknown[];
+    return {
+      docId,
+      filePath,
+      fileName: getDocumentFileName(filePath),
+      fileType: "epub",
+      title: metadata.title || getDocumentTitleFromPath(filePath),
+      totalPages: 1,
+      chapterCount: spineItems.length || navigation.toc.length || undefined,
+    };
+  } finally {
+    book.destroy();
+  }
+}
+
+async function inspectDocument(filePath: string): Promise<DocumentInspection> {
+  const bytes = await readDocumentBytes(filePath);
+  const buffer = bytes.buffer.slice(0);
+  const hash = await hashBuffer(buffer);
+  const docId = hash.slice(0, 12);
+  const fileType = getDocumentFileType(filePath);
+
+  if (fileType === "epub") {
+    return inspectEpubDocument(filePath, bytes, docId);
+  }
+
+  return inspectPdfDocument(filePath, bytes, docId);
+}
+
+function isStructurallySimilarRecentCandidate(
+  book: RecentBook,
+  candidate: DocumentInspection,
+) {
+  if (book.fileType !== candidate.fileType) {
+    return false;
+  }
+
+  if (candidate.fileType === "pdf") {
+    return book.totalPages === candidate.totalPages;
+  }
+
+  return true;
+}
 const FRONTEND_TIMEOUT_MS = 95_000;
 
 type AppView = "home" | "reader";
@@ -424,6 +541,11 @@ function AppContent() {
     useState<ReaderRailSectionWeightsByLayout>({});
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [missingRecentBook, setMissingRecentBook] = useState<RecentBook | null>(
+    null,
+  );
+  const [pendingReconnectResolution, setPendingReconnectResolution] =
+    useState<PendingReconnectResolution | null>(null);
   const [settingsCloseConfirmOpen, setSettingsCloseConfirmOpen] =
     useState(false);
   const [settingsClosePending, setSettingsClosePending] = useState(false);
@@ -1870,7 +1992,11 @@ function AppContent() {
   }, [persistSettings, settings]);
 
   const loadPdfFromPath = useCallback(
-    async (filePath: string, startPage?: number) => {
+    async (
+      filePath: string,
+      startPage?: number,
+      identity?: LoadDocumentIdentity,
+    ) => {
       const outlineRequestId = ++pdfOutlineRequestIdRef.current;
       const loadRequestId = ++pdfLoadRequestIdRef.current;
       let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
@@ -1921,13 +2047,10 @@ function AppContent() {
 
       try {
         setLoadingProgress(5);
-        const rawBytes = (await invoke("read_pdf_file", {
-          path: filePath,
-        })) as number[];
-        const bytes = new Uint8Array(rawBytes);
+        const bytes = await readDocumentBytes(filePath);
         const buffer = bytes.buffer.slice(0);
         const hash = await hashBuffer(buffer);
-        const nextDocId = hash.slice(0, 12);
+        const nextDocId = identity?.docId ?? hash.slice(0, 12);
 
         if (isStaleLoad()) {
           return;
@@ -1966,8 +2089,8 @@ function AppContent() {
         }));
 
         // Extract filename and title from path
-        const fileName = filePath.split(/[/\\]/).pop() || "Untitled";
-        const title = fileName.replace(/\.[^.]+$/, "");
+        const fileName = getDocumentFileName(filePath);
+        const title = identity?.title ?? getDocumentTitleFromPath(filePath);
         setCurrentBookTitle(title);
 
         // Add to recent books
@@ -2079,7 +2202,11 @@ function AppContent() {
   );
 
   const loadEpubFromPath = useCallback(
-    async (filePath: string, startPage?: number) => {
+    async (
+      filePath: string,
+      startPage?: number,
+      identity?: LoadDocumentIdentity,
+    ) => {
       pdfOutlineRequestIdRef.current += 1;
       pdfLoadRequestIdRef.current += 1;
       setAppView("reader");
@@ -2117,17 +2244,14 @@ function AppContent() {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
 
       try {
-        const rawBytes = (await invoke("read_pdf_file", {
-          path: filePath,
-        })) as number[];
-        const bytes = new Uint8Array(rawBytes);
+        const bytes = await readDocumentBytes(filePath);
         const buffer = bytes.buffer.slice(0);
         const hash = await hashBuffer(buffer);
-        const nextDocId = hash.slice(0, 12);
+        const nextDocId = identity?.docId ?? hash.slice(0, 12);
 
         // Extract filename and title from path
-        const fileName = filePath.split(/[/\\]/).pop() || "Untitled";
-        const title = fileName.replace(/\.[^.]+$/, "");
+        const fileName = getDocumentFileName(filePath);
+        const title = identity?.title ?? getDocumentTitleFromPath(filePath);
         setCurrentBookTitle(title);
 
         setEpubData(bytes);
@@ -2273,13 +2397,132 @@ function AppContent() {
     setPendingEpubScroll({ href, requestId });
   }, []);
 
-  const handleOpenFile = useCallback(async () => {
+  const updateRecentBookLocation = useCallback(
+    async (book: RecentBook, candidate: DocumentInspection) => {
+      await invoke("update_recent_book_location", {
+        id: book.id,
+        filePath: candidate.filePath,
+        fileName: candidate.fileName,
+        title: candidate.title,
+        totalPages: candidate.totalPages,
+      });
+    },
+    [],
+  );
+
+  const loadInspectedDocument = useCallback(
+    async (
+      candidate: DocumentInspection,
+      startPage?: number,
+      identity?: LoadDocumentIdentity,
+    ) => {
+      if (candidate.fileType === "epub") {
+        await loadEpubFromPath(candidate.filePath, startPage, identity);
+      } else {
+        await loadPdfFromPath(candidate.filePath, startPage, identity);
+      }
+    },
+    [loadEpubFromPath, loadPdfFromPath],
+  );
+
+  const chooseDocumentPath = useCallback(async () => {
     const selection = await open({
       multiple: false,
       filters: [{ name: "Documents", extensions: ["pdf", "epub"] }],
     });
 
-    if (!selection || Array.isArray(selection)) return;
+    return typeof selection === "string" ? selection : null;
+  }, []);
+
+  const resolveRecentBookCandidate = useCallback(
+    async (book: RecentBook, candidate: DocumentInspection) => {
+      if (candidate.fileType !== book.fileType) {
+        setPendingReconnectResolution({ mode: "different", book, candidate });
+        return;
+      }
+
+      if (candidate.docId === book.id) {
+        await updateRecentBookLocation(book, candidate);
+        await loadInspectedDocument(candidate, book.lastPage);
+        return;
+      }
+
+      setPendingReconnectResolution({
+        mode: isStructurallySimilarRecentCandidate(book, candidate)
+          ? "similar"
+          : "different",
+        book,
+        candidate,
+      });
+    },
+    [loadInspectedDocument, updateRecentBookLocation],
+  );
+
+  const locateRecentBook = useCallback(
+    async (book: RecentBook) => {
+      setMissingRecentBook(null);
+      const selection = await chooseDocumentPath();
+      if (!selection) {
+        return;
+      }
+
+      try {
+        const candidate = await inspectDocument(selection);
+        await resolveRecentBookCandidate(book, candidate);
+      } catch (error) {
+        console.error("Failed to inspect located document:", error);
+        showToast({
+          message: "Could not open that document.",
+          tone: "error",
+          durationMs: 4200,
+        });
+      }
+    },
+    [chooseDocumentPath, resolveRecentBookCandidate, showToast],
+  );
+
+  const reconnectAsSameBook = useCallback(async () => {
+    if (!pendingReconnectResolution) {
+      return;
+    }
+
+    const { book, candidate } = pendingReconnectResolution;
+    setPendingReconnectResolution(null);
+
+    try {
+      await updateRecentBookLocation(book, candidate);
+      await loadInspectedDocument(candidate, book.lastPage, {
+        docId: book.id,
+        title: candidate.title,
+      });
+    } catch (error) {
+      console.error("Failed to reconnect recent book:", error);
+      showToast({
+        message: "Could not reconnect that book.",
+        tone: "error",
+        durationMs: 4200,
+      });
+    }
+  }, [
+    loadInspectedDocument,
+    pendingReconnectResolution,
+    showToast,
+    updateRecentBookLocation,
+  ]);
+
+  const openReconnectCandidateAsNewBook = useCallback(async () => {
+    if (!pendingReconnectResolution) {
+      return;
+    }
+
+    const { candidate } = pendingReconnectResolution;
+    setPendingReconnectResolution(null);
+    await loadInspectedDocument(candidate);
+  }, [loadInspectedDocument, pendingReconnectResolution]);
+
+  const handleOpenFile = useCallback(async () => {
+    const selection = await chooseDocumentPath();
+    if (!selection) return;
 
     const ext = selection.split(".").pop()?.toLowerCase();
     if (ext === "epub") {
@@ -2287,17 +2530,19 @@ function AppContent() {
     } else {
       await loadPdfFromPath(selection);
     }
-  }, [loadPdfFromPath, loadEpubFromPath]);
+  }, [chooseDocumentPath, loadPdfFromPath, loadEpubFromPath]);
 
   const handleOpenBook = useCallback(
     async (book: RecentBook) => {
-      if (book.fileType === "epub") {
-        await loadEpubFromPath(book.filePath, book.lastPage);
-      } else {
-        await loadPdfFromPath(book.filePath, book.lastPage);
+      try {
+        const candidate = await inspectDocument(book.filePath);
+        await resolveRecentBookCandidate(book, candidate);
+      } catch (error) {
+        console.warn("Recent book path could not be opened:", error);
+        setMissingRecentBook(book);
       }
     },
-    [loadPdfFromPath, loadEpubFromPath],
+    [resolveRecentBookCandidate],
   );
 
   const handleBackToHome = useCallback(() => {
@@ -2453,8 +2698,12 @@ function AppContent() {
     setTranslationCacheLoading(true);
 
     try {
+      const currentSettings = settingsRef.current;
       const summary = (await invoke(
         "get_translation_cache_summary",
+        {
+          targetLanguage: currentSettings.defaultLanguage,
+        },
       )) as TranslationCacheSummary;
       setTranslationCacheSummary(summary);
     } catch (error) {
@@ -5884,6 +6133,90 @@ function AppContent() {
       title="Discard unsaved changes?"
     />
   );
+  const missingRecentBookDialog = (
+    <ConfirmationDialog
+      actions={[
+        {
+          label: "Locate Document",
+          variant: "primary",
+          onSelect: () => {
+            if (!missingRecentBook) {
+              return;
+            }
+
+            void locateRecentBook(missingRecentBook);
+          },
+        },
+      ]}
+      description={
+        missingRecentBook
+          ? "We couldn't find this recent book. Locate it to reconnect your progress and cached translations."
+          : ""
+      }
+      onOpenChange={(open) => {
+        if (!open) {
+          setMissingRecentBook(null);
+        }
+      }}
+      open={Boolean(missingRecentBook)}
+      title="Book not found"
+    />
+  );
+  const reconnectResolutionDialog = (
+    <ConfirmationDialog
+      actions={
+        pendingReconnectResolution?.mode === "similar"
+          ? [
+              {
+                label:
+                  "Yes, it's the Same Book. Keep progress, annotations, and cached translations.",
+                variant: "primary",
+                onSelect: reconnectAsSameBook,
+              },
+              {
+                label: "This is a different book, open as a New Book.",
+                onSelect: openReconnectCandidateAsNewBook,
+              },
+            ]
+          : [
+              {
+                label: "Open as New Book",
+                variant: "primary",
+                onSelect: openReconnectCandidateAsNewBook,
+              },
+              {
+                label: "Choose Another File",
+                onSelect: () => {
+                  if (!pendingReconnectResolution) {
+                    return;
+                  }
+
+                  const book = pendingReconnectResolution.book;
+                  setPendingReconnectResolution(null);
+                  void locateRecentBook(book);
+                },
+              },
+            ]
+      }
+      cancelLabel="Cancel"
+      description={
+        pendingReconnectResolution?.mode === "similar"
+          ? "This file is not an exact match, but it looks similar to the existing one. Are you sure it's the same book?"
+          : "This file doesn't look like the same book."
+      }
+      onOpenChange={(open) => {
+        if (!open) {
+          setPendingReconnectResolution(null);
+        }
+      }}
+      open={Boolean(pendingReconnectResolution)}
+      title={
+        pendingReconnectResolution?.mode === "similar"
+          ? "Reconnect book?"
+          : "Different document"
+      }
+    />
+  );
   const annotationDeleteDialog = (
     <ConfirmationDialog
       actions={[
@@ -6440,6 +6773,8 @@ function AppContent() {
       {sharedAboutDialog}
       {sharedSettingsDialog}
       {settingsDiscardDialog}
+      {missingRecentBookDialog}
+      {reconnectResolutionDialog}
       {annotationDeleteDialog}
       {appView === "reader" && docId ? (
         <AnnotationsPanel

@@ -1168,6 +1168,9 @@ export function SettingsDialogContent({
                     ? "Loading..."
                     : formatCacheSize(translationCacheSummary?.totalCacheSizeBytes ?? 0)}
                 </span>
+                <span className="settings-cache-summary-label type-meta">
+                  Books below share cache across models for the current language.
+                </span>
               </div>
               <button
                 className="btn btn-quiet-action btn-danger-quiet settings-cache-delete-all"

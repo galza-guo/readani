@@ -233,15 +233,29 @@ export function HomeView({
                     {books.map((book) => (
                       <ContextMenu.Root key={book.id}>
                         <ContextMenu.Trigger asChild>
-                          <button className="home-file" onClick={() => onOpenBook(book)}>
-                            <span className="home-file-icon">
-                              {book.fileType === 'epub' ? <EpubIcon /> : <PdfIcon />}
-                            </span>
-                            <span className="home-file-info">
-                              <span className="home-file-name">{book.title}</span>
-                              <span className="home-file-meta">{Math.round(book.progress)}% · {formatRelativeTime(book.lastOpenedAt)}</span>
-                            </span>
-                          </button>
+                          <div className="home-file-row">
+                            <button className="home-file" onClick={() => onOpenBook(book)} type="button">
+                              <span className="home-file-icon">
+                                {book.fileType === 'epub' ? <EpubIcon /> : <PdfIcon />}
+                              </span>
+                              <span className="home-file-info">
+                                <span className="home-file-name">{book.title}</span>
+                                <span className="home-file-meta">{Math.round(book.progress)}% · {formatRelativeTime(book.lastOpenedAt)}</span>
+                              </span>
+                            </button>
+                            <button
+                              aria-label={`Remove ${book.title} from Recent`}
+                              className="home-file-delete"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleRemove(book);
+                              }}
+                              title="Remove from Recent"
+                              type="button"
+                            >
+                              <TrashIcon />
+                            </button>
+                          </div>
                         </ContextMenu.Trigger>
                         <ContextMenu.Portal>
                           <ContextMenu.Content className="context-menu">

@@ -4663,12 +4663,19 @@ body.is-resizing-split-y * {
   gap: 2px;
 }
 
+.home-file-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+}
+
 .home-file {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 10px 44px 10px 12px;
   border: none;
   border-radius: 8px;
   background: transparent;
@@ -4679,6 +4686,45 @@ body.is-resizing-split-y * {
 
 .home-file:hover {
   background: var(--panel);
+}
+
+.home-file-row:focus-within .home-file,
+.home-file-row:hover .home-file {
+  background: var(--panel);
+}
+
+.home-file-delete {
+  position: absolute;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateX(4px);
+  transition:
+    background 0.1s ease,
+    color 0.1s ease,
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+
+.home-file-delete:hover {
+  background: rgba(255, 59, 48, 0.08);
+  color: var(--error);
+}
+
+.home-file-delete:focus-visible,
+.home-file-row:focus-within .home-file-delete,
+.home-file-row:hover .home-file-delete {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .home-file-icon {
