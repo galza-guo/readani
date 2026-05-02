@@ -113,6 +113,7 @@ body,
   --annotation-note-bg: rgba(255, 235, 59, 0.08);
   --annotation-note-border: rgba(255, 214, 10, 0.3);
   --annotation-note-text: var(--color-text-secondary, #555);
+  --annotation-comment-placeholder: #8a6b00;
   --annotation-badge-bg: rgba(255, 152, 0, 0.15);
   --annotation-badge-text: #e65100;
 }
@@ -156,6 +157,7 @@ body,
   --annotation-note-bg: rgba(255, 235, 59, 0.06);
   --annotation-note-border: rgba(255, 214, 10, 0.25);
   --annotation-note-text: var(--color-text-secondary, #aaa);
+  --annotation-comment-placeholder: #d7b53b;
   --annotation-badge-bg: rgba(255, 152, 0, 0.2);
   --annotation-badge-text: #ffb74d;
 }
@@ -5112,21 +5114,30 @@ body.is-resizing-split-y * {
 }
 
 .pdf-segment-note {
+  width: 100%;
   margin: 0;
   padding: 0;
   background: transparent;
   border: none;
   border-radius: 0;
+  text-align: left;
   font-size: 13px;
   font-weight: 700;
   color: var(--annotation-note-text);
   line-height: 1.5;
   white-space: pre-wrap;
+  cursor: text;
+}
+
+.pdf-segment-note.is-placeholder {
+  color: var(--annotation-comment-placeholder);
+  font-style: italic;
+  font-weight: 600;
 }
 
 .pdf-segment-note-editor {
   display: flex;
-  flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
   margin-top: 2px;
   padding: 0;
@@ -5135,61 +5146,56 @@ body.is-resizing-split-y * {
   border-radius: 0;
 }
 
-.pdf-segment-note-editor textarea {
+.pdf-segment-note-input {
   width: 100%;
-  min-height: 48px;
-  padding: 6px 8px;
-  border: 1px solid var(--color-border, #ddd);
-  border-radius: 4px;
+  min-height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
   font-family: inherit;
-  font-size: 0.85em;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--annotation-note-text);
-  background: var(--color-surface, #fff);
+  background: transparent;
+  line-height: 1.5;
   resize: vertical;
+  outline: none;
+}
+
+.pdf-segment-note-input::placeholder {
+  color: var(--annotation-comment-placeholder);
+  font-style: italic;
+  font-weight: 600;
 }
 
 .pdf-segment-note-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
+  flex: none;
+  display: inline-flex;
+  align-items: flex-start;
 }
 
-.pdf-segment-annotation-clip {
-  display: flex;
-  gap: 2px;
-  padding: 2px 4px;
-  background: var(--color-surface, #fff);
-  border: 1px solid var(--color-border, #eee);
-  border-radius: 6px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-  position: absolute;
-  right: 8px;
-  top: -28px;
-  z-index: 2;
-}
-
-.pdf-segment-annotation-clip-btn {
+.pdf-segment-note-save {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 4px 8px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: 999px;
   background: transparent;
-  color: var(--color-text-secondary, #555);
-  font-size: 0.78em;
+  color: var(--annotation-comment-placeholder);
   cursor: pointer;
-  white-space: nowrap;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
 }
 
-.pdf-segment-annotation-clip-btn:hover {
-  background: var(--color-surface-hover, rgba(0, 0, 0, 0.06));
-}
-
-.pdf-segment-annotation-clip-btn.is-danger:hover {
-  background: rgba(220, 38, 38, 0.08);
-  color: #dc2626;
+.pdf-segment-note-save:hover,
+.pdf-segment-note-save:focus-visible {
+  color: var(--accent);
+  background: var(--surface-hover-subtle);
+  outline: none;
 }
 
 .annotations-panel {

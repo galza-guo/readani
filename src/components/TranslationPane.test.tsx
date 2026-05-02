@@ -412,6 +412,31 @@ describe("TranslationPane", () => {
     expect(html).toContain("EPUB note text.");
   });
 
+  test("shows a comment placeholder row for highlighted sentences without notes", () => {
+    const annotation: ResolvedSentenceAnnotation = {
+      id: "ann-placeholder",
+      docId: "doc-1",
+      page: 3,
+      pid: "p-1",
+      sentenceIndex: 0,
+      sourceSnapshot: "Original paragraph text.",
+      sourceHash: "abc123",
+      rectsSnapshot: [{ page: 3, x: 12, y: 24, w: 90, h: 18 }],
+      status: "attached",
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-01T00:00:00Z",
+      livePid: "p-1",
+      liveSentenceIndex: 0,
+      livePage: 3,
+      resolvedStatus: "attached",
+    };
+
+    const html = renderPdfPane({ annotations: [annotation] });
+
+    expect(html).toContain("pdf-segment-note is-placeholder");
+    expect(html).toContain(">Comment<");
+  });
+
   test("renders EPUB needs-review warning banner", () => {
     const html = renderEpubPane({
       annotations: [
@@ -504,10 +529,22 @@ describe("TranslationPane", () => {
 
   test("styles notes as an inline bold row inside the sentence card", () => {
     const noteRule = appCss.match(/\.pdf-segment-note\s*\{([^}]*)\}/)?.[1] ?? "";
+    const placeholderRule =
+      appCss.match(/\.pdf-segment-note\.is-placeholder\s*\{([^}]*)\}/)?.[1] ??
+      "";
+    const inputRule =
+      appCss.match(/\.pdf-segment-note-input\s*\{([^}]*)\}/)?.[1] ?? "";
+    const saveRule =
+      appCss.match(/\.pdf-segment-note-save\s*\{([^}]*)\}/)?.[1] ?? "";
 
     expect(noteRule).toContain("font-weight: 700");
     expect(noteRule).toContain("background: transparent");
     expect(noteRule).toContain("border: none");
+    expect(placeholderRule).toContain("font-style: italic");
+    expect(inputRule).toContain("background: transparent");
+    expect(inputRule).toContain("border: none");
+    expect(saveRule).toContain("background: transparent");
+    expect(saveRule).toContain("border: none");
   });
 
   test("renders needs-review warning banner", () => {
@@ -540,9 +577,31 @@ describe("TranslationPane", () => {
     expect(html).toContain('aria-label="Annotation mode"');
   });
 
-  test("positions the annotation clip relative to each PDF segment card", () => {
-    const cardRule = appCss.match(/\.pdf-segment-card\s*\{([^}]*)\}/)?.[1] ?? "";
+  test("renders inline save control while editing a comment", () => {
+    const annotation: ResolvedSentenceAnnotation = {
+      id: "ann-editing",
+      docId: "doc-1",
+      page: 3,
+      pid: "p-1",
+      sentenceIndex: 0,
+      sourceSnapshot: "Original paragraph text.",
+      sourceHash: "abc123",
+      rectsSnapshot: [{ page: 3, x: 12, y: 24, w: 90, h: 18 }],
+      status: "attached",
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-01T00:00:00Z",
+      livePid: "p-1",
+      liveSentenceIndex: 0,
+      livePage: 3,
+      resolvedStatus: "attached",
+    };
 
-    expect(cardRule).toContain("position: relative");
+    const html = renderPdfPane({
+      annotations: [annotation],
+      noteEditingAnnotationId: "ann-editing",
+    });
+
+    expect(html).toContain("pdf-segment-note-editor");
+    expect(html).toContain('aria-label="Save comment"');
   });
 });

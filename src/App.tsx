@@ -3493,7 +3493,9 @@ function AppContent() {
     if (
       currentFileType !== "pdf" ||
       pageTranslatingRef.current ||
-      !docIdRef.current
+      !docIdRef.current ||
+      (isTranslateAllRunningRef.current &&
+        translateAllUsageLimitPausedRef.current)
     ) {
       return;
     }
@@ -4313,8 +4315,12 @@ function AppContent() {
       backgroundPageTranslateQueueRef.current = nextBackgroundQueue;
 
       if (
-        !pageTranslatingRef.current &&
-        (nextForegroundQueue.length > 0 || nextBackgroundQueue.length > 0)
+        shouldAutoResumeTranslateAllQueue({
+          hasQueuedWork:
+            nextForegroundQueue.length > 0 || nextBackgroundQueue.length > 0,
+          scheduledResume: false,
+          usageLimitPaused: translateAllUsageLimitPausedRef.current,
+        })
       ) {
         void runPageTranslationQueue();
       }
@@ -4407,7 +4413,8 @@ function AppContent() {
       currentFileType !== "pdf" ||
       !pdfDoc ||
       pages.length === 0 ||
-      !settingsLoaded
+      !settingsLoaded ||
+      translateAllUsageLimitPaused
     )
       return;
     queuePagesForTranslation(
@@ -4428,10 +4435,16 @@ function AppContent() {
     queuePagesForTranslation,
     settings.autoTranslateNextPages,
     settingsLoaded,
+    translateAllUsageLimitPaused,
   ]);
 
   useEffect(() => {
-    if (currentFileType !== "pdf" || !docId) return;
+    if (
+      currentFileType !== "pdf" ||
+      !docId ||
+      translateAllUsageLimitPaused
+    )
+      return;
     if (
       (foregroundPageTranslateQueueRef.current.length === 0 &&
         backgroundPageTranslateQueueRef.current.length === 0) ||
@@ -4441,7 +4454,12 @@ function AppContent() {
     }
 
     void runPageTranslationQueue();
-  }, [currentFileType, docId, runPageTranslationQueue]);
+  }, [
+    currentFileType,
+    docId,
+    runPageTranslationQueue,
+    translateAllUsageLimitPaused,
+  ]);
 
   const startTranslateAll = useCallback(
     async (mode: "skip-cached" | "replace-all") => {
@@ -4747,6 +4765,11 @@ function AppContent() {
   const runTranslateQueue = useCallback(async () => {
     if (translatingRef.current) return;
     if (!docIdRef.current) return;
+    if (
+      isTranslateAllRunningRef.current &&
+      translateAllUsageLimitPausedRef.current
+    )
+      return;
 
     const uniqueQueue = Array.from(new Set(translateQueueRef.current));
     if (uniqueQueue.length === 0) return;

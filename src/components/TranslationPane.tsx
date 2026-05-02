@@ -231,7 +231,7 @@ function AnnotateIcon() {
   );
 }
 
-function CommentIcon() {
+function CheckSmallIcon() {
   return (
     <svg
       width="12"
@@ -243,25 +243,7 @@ function CommentIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-function DeleteSmallIcon() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M20 6L9 17l-5-5" />
     </svg>
   );
 }
@@ -371,39 +353,81 @@ function TranslationSetupPrompt({
   );
 }
 
-function AnnotationNoteEditor({
-  initialValue,
+function AnnotationCommentRow({
+  annotation,
+  isEditing,
   onSave,
-  onCancel,
+  onEditingChange,
 }: {
-  initialValue: string;
+  annotation: ResolvedSentenceAnnotation;
+  isEditing: boolean;
   onSave: (note: string) => void;
-  onCancel: () => void;
+  onEditingChange: (annotationId: string | null) => void;
 }) {
-  const [draft, setDraft] = useState(initialValue);
+  const [draft, setDraft] = useState(annotation.note ?? "");
+  const hasNote = Boolean(annotation.note?.trim());
+
+  useEffect(() => {
+    setDraft(annotation.note ?? "");
+  }, [annotation.id, annotation.note, isEditing]);
+
+  const handleSave = useCallback(() => {
+    onSave(draft);
+    onEditingChange(null);
+  }, [draft, onEditingChange, onSave]);
+
+  if (!isEditing) {
+    return (
+      <button
+        className={`pdf-segment-note ${hasNote ? "" : "is-placeholder"}`}
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onEditingChange(annotation.id);
+        }}
+      >
+        {hasNote ? annotation.note : "Comment"}
+      </button>
+    );
+  }
 
   return (
-    <div className="pdf-segment-note-editor">
+    <div
+      className="pdf-segment-note-editor"
+      onClick={(event) => event.stopPropagation()}
+    >
       <textarea
+        className="pdf-segment-note-input"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        placeholder="Add a note..."
+        placeholder="Comment"
         autoFocus
+        rows={Math.max(1, draft.split("\n").length)}
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            handleSave();
+          }
+
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onEditingChange(null);
+          }
+        }}
       />
       <div className="pdf-segment-note-actions">
         <button
-          className="btn btn-quiet-action btn-small"
+          className="pdf-segment-note-save"
           type="button"
-          onClick={onCancel}
+          onClick={(event) => {
+            event.stopPropagation();
+            handleSave();
+          }}
+          title="Save comment"
+          aria-label="Save comment"
         >
-          Cancel
-        </button>
-        <button
-          className="btn btn-quiet-action btn-small"
-          type="button"
-          onClick={() => onSave(draft)}
-        >
-          Save
+          <CheckSmallIcon />
         </button>
       </div>
     </div>
@@ -422,7 +446,6 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
   annotationModeEnabled,
   onAnnotateSentence,
   onToggleSentenceAnnotation,
-  onDeleteAnnotation,
   onSaveNote,
   noteEditingAnnotationId,
   onNoteEditingChange,
@@ -438,7 +461,6 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
   annotationModeEnabled?: boolean;
   onAnnotateSentence?: (para: Paragraph, sentenceIndex: number) => void;
   onToggleSentenceAnnotation?: (para: Paragraph, sentenceIndex: number) => void;
-  onDeleteAnnotation?: (annotationId: string) => void;
   onSaveNote?: (annotationId: string, note: string) => void;
   noteEditingAnnotationId?: string | null;
   onNoteEditingChange?: (annotationId: string | null) => void;
@@ -590,46 +612,17 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
             </div>
           </div>
         </div>
-        {annotation?.note && noteEditingAnnotationId !== annotation.id ? (
-          <div className="pdf-segment-note">{annotation.note}</div>
-        ) : null}
-        {noteEditingAnnotationId === annotation?.id && annotation ? (
-          <AnnotationNoteEditor
-            initialValue={annotation.note ?? ""}
-            onSave={(note) => {
-              onSaveNote?.(annotation.id, note);
-              onNoteEditingChange?.(null);
+        {annotation ? (
+          <AnnotationCommentRow
+            annotation={annotation}
+            isEditing={noteEditingAnnotationId === annotation.id}
+            onSave={(note) => onSaveNote?.(annotation.id, note)}
+            onEditingChange={(annotationId) => {
+              onNoteEditingChange?.(annotationId);
             }}
-            onCancel={() => onNoteEditingChange?.(null)}
           />
         ) : null}
       </div>
-      {isAnnotated && (isHovered || hasFocusWithin) && (
-        <div className="pdf-segment-annotation-clip">
-          <button
-            className="pdf-segment-annotation-clip-btn"
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onNoteEditingChange?.(annotation!.id);
-            }}
-          >
-            <CommentIcon />
-            Comment
-          </button>
-          <button
-            className="pdf-segment-annotation-clip-btn is-danger"
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onDeleteAnnotation?.(annotation!.id);
-            }}
-          >
-            <DeleteSmallIcon />
-            Delete
-          </button>
-        </div>
-      )}
     </article>
   );
 });
@@ -648,7 +641,6 @@ const ParagraphBlock = memo(function ParagraphBlock({
   annotationModeEnabled,
   onAnnotateSentence,
   onToggleSentenceAnnotation,
-  onDeleteAnnotation,
   onSaveNote,
   noteEditingAnnotationId,
   onNoteEditingChange,
@@ -666,7 +658,6 @@ const ParagraphBlock = memo(function ParagraphBlock({
   annotationModeEnabled?: boolean;
   onAnnotateSentence?: (para: Paragraph, sentenceIndex: number) => void;
   onToggleSentenceAnnotation?: (para: Paragraph, sentenceIndex: number) => void;
-  onDeleteAnnotation?: (annotationId: string) => void;
   onSaveNote?: (annotationId: string, note: string) => void;
   noteEditingAnnotationId?: string | null;
   onNoteEditingChange?: (annotationId: string | null) => void;
@@ -903,43 +894,14 @@ const ParagraphBlock = memo(function ParagraphBlock({
           </div>
         </div>
       ) : null}
-      {isAnnotated && (isHovered || hasFocusWithin) ? (
-        <div className="pdf-segment-annotation-clip">
-          <button
-            className="pdf-segment-annotation-clip-btn"
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onNoteEditingChange?.(annotation!.id);
-            }}
-          >
-            <CommentIcon />
-            Comment
-          </button>
-          <button
-            className="pdf-segment-annotation-clip-btn is-danger"
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onDeleteAnnotation?.(annotation!.id);
-            }}
-          >
-            <DeleteSmallIcon />
-            Delete
-          </button>
-        </div>
-      ) : null}
-      {annotation?.note && noteEditingAnnotationId !== annotation.id ? (
-        <div className="pdf-segment-note">{annotation.note}</div>
-      ) : null}
-      {noteEditingAnnotationId === annotation?.id && annotation ? (
-        <AnnotationNoteEditor
-          initialValue={annotation.note ?? ""}
-          onSave={(note) => {
-            onSaveNote?.(annotation.id, note);
-            onNoteEditingChange?.(null);
+      {annotation ? (
+        <AnnotationCommentRow
+          annotation={annotation}
+          isEditing={noteEditingAnnotationId === annotation.id}
+          onSave={(note) => onSaveNote?.(annotation.id, note)}
+          onEditingChange={(annotationId) => {
+            onNoteEditingChange?.(annotationId);
           }}
-          onCancel={() => onNoteEditingChange?.(null)}
         />
       ) : null}
     </div>
@@ -1042,7 +1004,6 @@ const EpubPageTranslation = memo(function EpubPageTranslation({
           annotationModeEnabled={annotationModeEnabled}
           onAnnotateSentence={onAnnotateSentence}
           onToggleSentenceAnnotation={onToggleSentenceAnnotation}
-          onDeleteAnnotation={onDeleteAnnotation}
           onSaveNote={onSaveNote}
           noteEditingAnnotationId={noteEditingAnnotationId}
           onNoteEditingChange={onNoteEditingChange}
@@ -1679,7 +1640,6 @@ function PdfTranslationPane({
                   annotationModeEnabled={annotationModeEnabled}
                   onAnnotateSentence={onAnnotateSentence}
                   onToggleSentenceAnnotation={onToggleSentenceAnnotation}
-                  onDeleteAnnotation={onDeleteAnnotation}
                   onSaveNote={onSaveNote}
                   noteEditingAnnotationId={noteEditingAnnotationId}
                   onNoteEditingChange={onNoteEditingChange}
