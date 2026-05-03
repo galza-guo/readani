@@ -117,7 +117,11 @@ import {
   applyCachedPdfExtractionPages,
   type CachedPdfExtractionPage,
 } from "./lib/pdfExtractionHydration";
-import { buildPdfExtractionPlan } from "./lib/pdfExtractionQueue";
+import { mergePdfExtractionCachePages } from "./lib/pdfExtractionCacheQueue";
+import {
+  buildPdfExtractionPlan,
+  getPdfStartupHydrationPages,
+} from "./lib/pdfExtractionQueue";
 import {
   getPdfBackgroundTranslationMessage,
   getPdfPageLoadingMessage,
@@ -185,6 +189,8 @@ const DEFAULT_SETTINGS: TranslationSettings = {
 const ZOOM_LEVELS = [0.75, 1, 1.25, 1.5, 2];
 const PDF_KEYBOARD_ZOOM_STEP = 0.05;
 const PDF_EXTRACTION_CACHE_VERSION = "pdf-extraction-v1";
+const PDF_EXTRACTION_CACHE_BATCH_SIZE = 12;
+const PDF_EXTRACTION_CACHE_FLUSH_MS = 250;
 
 type DocumentInspection = {
   docId: string;
@@ -734,6 +740,10 @@ function AppContent() {
     Record<string, TranslationFallbackTrace>
   >({});
   const pdfLoadRequestIdRef = useRef(0);
+  const pendingPdfExtractionCacheRef = useRef<CachedPdfExtractionPage[]>([]);
+  const pendingPdfExtractionCacheDocIdRef = useRef<string | null>(null);
+  const pdfExtractionCacheFlushTimerRef = useRef<number | null>(null);
+  const pdfExtractionCacheFlushQueueRef = useRef<Promise<void>>(Promise.resolve());
   const epubScrollRequestIdRef = useRef(0);
   const autoUpdateCheckStartedRef = useRef(false);
   const pendingUpdateRef = useRef<Update | null>(null);
@@ -889,6 +899,66 @@ function AppContent() {
   useEffect(() => {
     settingsDraftRef.current = settingsDraft;
   }, [settingsDraft]);
+
+  const clearPdfExtractionCacheFlushTimer = useCallback(() => {
+    if (pdfExtractionCacheFlushTimerRef.current !== null) {
+      window.clearTimeout(pdfExtractionCacheFlushTimerRef.current);
+      pdfExtractionCacheFlushTimerRef.current = null;
+    }
+  }, []);
+
+  const flushPendingPdfExtractionCache = useCallback(() => {
+    clearPdfExtractionCacheFlushTimer();
+
+    const docId = pendingPdfExtractionCacheDocIdRef.current;
+    const pages = pendingPdfExtractionCacheRef.current;
+    if (!docId || pages.length === 0) {
+      return;
+    }
+
+    pendingPdfExtractionCacheRef.current = [];
+
+    pdfExtractionCacheFlushQueueRef.current = pdfExtractionCacheFlushQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        await invoke("cache_pdf_extraction_pages", {
+          docId,
+          extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
+          pages,
+        });
+      })
+      .catch((error) => {
+        console.error("Failed to cache extracted PDF pages:", error);
+      });
+  }, [clearPdfExtractionCacheFlushTimer]);
+
+  const queuePdfExtractionCachePage = useCallback(
+    (docId: string, page: CachedPdfExtractionPage) => {
+      if (pendingPdfExtractionCacheDocIdRef.current !== docId) {
+        pendingPdfExtractionCacheDocIdRef.current = docId;
+        pendingPdfExtractionCacheRef.current = [];
+      }
+
+      pendingPdfExtractionCacheRef.current = mergePdfExtractionCachePages(
+        pendingPdfExtractionCacheRef.current,
+        [page],
+      );
+
+      if (
+        pendingPdfExtractionCacheRef.current.length >=
+        PDF_EXTRACTION_CACHE_BATCH_SIZE
+      ) {
+        flushPendingPdfExtractionCache();
+        return;
+      }
+
+      clearPdfExtractionCacheFlushTimer();
+      pdfExtractionCacheFlushTimerRef.current = window.setTimeout(() => {
+        flushPendingPdfExtractionCache();
+      }, PDF_EXTRACTION_CACHE_FLUSH_MS);
+    },
+    [clearPdfExtractionCacheFlushTimer, flushPendingPdfExtractionCache],
+  );
 
   useEffect(() => {
     sessionFallbackPresetIdRef.current = sessionFallbackPresetId;
@@ -1277,6 +1347,12 @@ function AppContent() {
       clearTranslateAllResumeTimer();
     };
   }, [clearTranslateAllResumeTimer]);
+
+  useEffect(() => {
+    return () => {
+      clearPdfExtractionCacheFlushTimer();
+    };
+  }, [clearPdfExtractionCacheFlushTimer]);
 
   const allPdfPagesExtracted = useMemo(
     () =>
@@ -2090,6 +2166,7 @@ function AppContent() {
       let committedDoc = false;
       const isStaleLoad = () => pdfLoadRequestIdRef.current !== loadRequestId;
 
+      flushPendingPdfExtractionCache();
       setAppView("reader");
       setCurrentFilePath(filePath);
       setCurrentFileType("pdf");
@@ -2223,12 +2300,20 @@ function AppContent() {
         const initialCurrentPage = clampPage(startPage || 1, doc.numPages);
         setCurrentPage(initialCurrentPage);
         setDocumentStatusMessage(getReaderStatusLabel("extracting-text"));
+        setPages(initialPages);
+
+        const startupHydrationPages = getPdfStartupHydrationPages({
+          totalPages: doc.numPages,
+          currentPage: initialCurrentPage,
+          radius: 1,
+        });
 
         const cachedExtractionPages = (await invoke(
           "get_cached_pdf_extraction_pages",
           {
             docId: nextDocId,
             extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
+            pages: startupHydrationPages,
           },
         )) as CachedPdfExtractionPage[];
 
@@ -2277,13 +2362,7 @@ function AppContent() {
             setPages((prev) =>
               applyCachedPdfExtractionPages(prev, [extractedPage]),
             );
-            void invoke("cache_pdf_extraction_page", {
-              docId: nextDocId,
-              extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
-              page: extractedPage,
-            }).catch((error) => {
-              console.error("Failed to cache extracted PDF page:", error);
-            });
+            queuePdfExtractionCachePage(nextDocId, extractedPage);
 
             return true;
           } catch (error) {
@@ -2313,11 +2392,17 @@ function AppContent() {
         void (async () => {
           for (const pageNumber of remainingPages) {
             if (isStaleLoad()) {
+              flushPendingPdfExtractionCache();
               return;
             }
 
             await extractAndCachePage(pageNumber);
+            await new Promise<void>((resolve) => {
+              window.setTimeout(resolve, 0);
+            });
           }
+
+          flushPendingPdfExtractionCache();
         })();
       } catch (error) {
         if (isStaleLoad()) {
@@ -2343,7 +2428,12 @@ function AppContent() {
         }
       }
     },
-    [releasePdfDocument, resetTranslateAllSlowModeRuntime],
+    [
+      flushPendingPdfExtractionCache,
+      queuePdfExtractionCachePage,
+      releasePdfDocument,
+      resetTranslateAllSlowModeRuntime,
+    ],
   );
 
   const loadEpubFromPath = useCallback(
@@ -2354,6 +2444,7 @@ function AppContent() {
     ) => {
       pdfOutlineRequestIdRef.current += 1;
       pdfLoadRequestIdRef.current += 1;
+      flushPendingPdfExtractionCache();
       setAppView("reader");
       setCurrentFilePath(filePath);
       setCurrentFileType("epub");
@@ -2426,7 +2517,7 @@ function AppContent() {
         setLoadingProgress(null);
       }
     },
-    [resetTranslateAllSlowModeRuntime],
+    [flushPendingPdfExtractionCache, resetTranslateAllSlowModeRuntime],
   );
 
   const handleEpubMetadata = useCallback(
@@ -2691,6 +2782,7 @@ function AppContent() {
   );
 
   const handleBackToHome = useCallback(() => {
+    flushPendingPdfExtractionCache();
     pdfOutlineRequestIdRef.current += 1;
     pdfLoadRequestIdRef.current += 1;
     // Save progress before leaving (works for both PDF and EPUB)
@@ -2743,6 +2835,7 @@ function AppContent() {
     currentPage,
     docId,
     epubTotalPages,
+    flushPendingPdfExtractionCache,
     pdfDoc,
     resetTranslateAllSlowModeRuntime,
   ]);
@@ -4734,14 +4827,14 @@ function AppContent() {
       !docId ||
       !translationEnabled ||
       !settingsLoaded ||
+      !allPdfPagesExtracted ||
       !effectivePreset ||
       !hasPresetTranslationContext(effectivePreset)
     ) {
       return;
     }
 
-    const lookupPages = pages
-      .filter((page) => page.isExtracted && !isPdfPageFullyTranslated(page))
+    const lookupPages = pagesRef.current
       .map((page) => ({
         page: page.page,
         paragraphs: getTranslatablePdfParagraphs(page).map((paragraph) => ({
@@ -4796,11 +4889,11 @@ function AppContent() {
       cancelled = true;
     };
   }, [
+    allPdfPagesExtracted,
     currentFileType,
     docId,
     effectivePreset,
     currentTargetLanguage,
-    pages,
     translationEnabled,
     settingsLoaded,
   ]);

@@ -5,6 +5,43 @@ type BuildPdfExtractionPlanOptions = {
   radius?: number;
 };
 
+type GetPdfStartupHydrationPagesOptions = {
+  totalPages: number;
+  currentPage: number;
+  radius?: number;
+};
+
+export function getPdfStartupHydrationPages({
+  totalPages,
+  currentPage,
+  radius = 1,
+}: GetPdfStartupHydrationPagesOptions): number[] {
+  if (totalPages <= 0) {
+    return [];
+  }
+
+  const seen = new Set<number>();
+  const pages: number[] = [];
+
+  const pushPage = (page: number) => {
+    if (page < 1 || page > totalPages || seen.has(page)) {
+      return;
+    }
+
+    seen.add(page);
+    pages.push(page);
+  };
+
+  pushPage(currentPage);
+
+  for (let distance = 1; distance <= Math.max(0, radius); distance += 1) {
+    pushPage(currentPage - distance);
+    pushPage(currentPage + distance);
+  }
+
+  return pages;
+}
+
 export function buildPdfExtractionPlan({
   totalPages,
   currentPage,

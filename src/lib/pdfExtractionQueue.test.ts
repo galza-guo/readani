@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { buildPdfExtractionPlan } from "./pdfExtractionQueue";
+import {
+  buildPdfExtractionPlan,
+  getPdfStartupHydrationPages,
+} from "./pdfExtractionQueue";
 
 describe("pdfExtractionQueue", () => {
   test("prioritizes the current page, then nearby pages, then the rest", () => {
@@ -22,5 +25,25 @@ describe("pdfExtractionQueue", () => {
         radius: 1,
       }),
     ).toEqual([4, 1, 6]);
+  });
+
+  test("limits startup cache hydration to the current page neighborhood", () => {
+    expect(
+      getPdfStartupHydrationPages({
+        totalPages: 12,
+        currentPage: 7,
+        radius: 1,
+      }),
+    ).toEqual([7, 6, 8]);
+  });
+
+  test("clamps startup cache hydration pages near the document edges", () => {
+    expect(
+      getPdfStartupHydrationPages({
+        totalPages: 4,
+        currentPage: 1,
+        radius: 2,
+      }),
+    ).toEqual([1, 2, 3]);
   });
 });

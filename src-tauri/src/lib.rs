@@ -1445,13 +1445,21 @@ fn get_cached_pdf_extraction_pages(
     handle: tauri::AppHandle,
     doc_id: String,
     extraction_version: String,
+    pages: Option<Vec<u32>>,
 ) -> Result<Vec<CachedPdfExtractionPagePayload>, String> {
     let cache = load_pdf_extraction_cache(&handle)?;
     let prefix = format!("{}|{}|", doc_id, extraction_version);
+    let page_filter = pages.map(|items| items.into_iter().collect::<HashSet<_>>());
     let mut pages: Vec<CachedPdfExtractionPagePayload> = cache
         .entries
         .iter()
         .filter(|(key, _)| key.starts_with(&prefix))
+        .filter(|(_, entry)| {
+            page_filter
+                .as_ref()
+                .map(|items| items.contains(&entry.page))
+                .unwrap_or(true)
+        })
         .map(|(_, entry)| CachedPdfExtractionPagePayload {
             page: entry.page,
             paragraphs: entry.paragraphs.clone(),
@@ -1463,6 +1471,48 @@ fn get_cached_pdf_extraction_pages(
     Ok(pages)
 }
 
+fn upsert_cached_pdf_extraction_pages(
+    cache: &mut PdfExtractionCache,
+    doc_id: &str,
+    extraction_version: &str,
+    pages: Vec<CachedPdfExtractionPagePayload>,
+) {
+    let matching_doc_prefix = format!("{}|", doc_id);
+    let matching_version_prefix = format!("{}|{}|", doc_id, extraction_version);
+
+    cache.entries.retain(|key, _| {
+        !key.starts_with(&matching_doc_prefix) || key.starts_with(&matching_version_prefix)
+    });
+
+    for page in pages {
+        cache.entries.insert(
+            pdf_extraction_cache_key(doc_id, extraction_version, page.page),
+            CachedPdfExtractionPageRecord {
+                page: page.page,
+                paragraphs: page.paragraphs,
+                watermarks: page.watermarks,
+                cached_at: Utc::now(),
+            },
+        );
+    }
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn cache_pdf_extraction_pages(
+    handle: tauri::AppHandle,
+    doc_id: String,
+    extraction_version: String,
+    pages: Vec<CachedPdfExtractionPagePayload>,
+) -> Result<(), String> {
+    if pages.is_empty() {
+        return Ok(());
+    }
+
+    let mut cache = load_pdf_extraction_cache(&handle)?;
+    upsert_cached_pdf_extraction_pages(&mut cache, &doc_id, &extraction_version, pages);
+    save_pdf_extraction_cache_after_mutation(&handle, &cache)
+}
+
 #[tauri::command(rename_all = "camelCase")]
 fn cache_pdf_extraction_page(
     handle: tauri::AppHandle,
@@ -1471,22 +1521,7 @@ fn cache_pdf_extraction_page(
     page: CachedPdfExtractionPagePayload,
 ) -> Result<(), String> {
     let mut cache = load_pdf_extraction_cache(&handle)?;
-    let matching_doc_prefix = format!("{}|", doc_id);
-    let matching_version_prefix = format!("{}|{}|", doc_id, extraction_version);
-
-    cache.entries.retain(|key, _| {
-        !key.starts_with(&matching_doc_prefix) || key.starts_with(&matching_version_prefix)
-    });
-    cache.entries.insert(
-        pdf_extraction_cache_key(&doc_id, &extraction_version, page.page),
-        CachedPdfExtractionPageRecord {
-            page: page.page,
-            paragraphs: page.paragraphs,
-            watermarks: page.watermarks,
-            cached_at: Utc::now(),
-        },
-    );
-
+    upsert_cached_pdf_extraction_pages(&mut cache, &doc_id, &extraction_version, vec![page]);
     save_pdf_extraction_cache_after_mutation(&handle, &cache)
 }
 
@@ -2997,6 +3032,7 @@ pub fn run() {
             get_cached_page_translation,
             get_cached_pdf_page_translations,
             get_cached_pdf_extraction_pages,
+            cache_pdf_extraction_pages,
             cache_pdf_extraction_page,
             list_cached_page_translations,
             clear_cached_page_translation,
