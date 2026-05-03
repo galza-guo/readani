@@ -114,6 +114,11 @@ import {
   type CachedPdfPageTranslation,
 } from "./lib/pdfCacheHydration";
 import {
+  applyCachedPdfExtractionPages,
+  type CachedPdfExtractionPage,
+} from "./lib/pdfExtractionHydration";
+import { buildPdfExtractionPlan } from "./lib/pdfExtractionQueue";
+import {
   getPdfBackgroundTranslationMessage,
   getPdfPageLoadingMessage,
 } from "./lib/pdfTranslationFeedback";
@@ -179,6 +184,7 @@ const DEFAULT_SETTINGS: TranslationSettings = {
 
 const ZOOM_LEVELS = [0.75, 1, 1.25, 1.5, 2];
 const PDF_KEYBOARD_ZOOM_STEP = 0.05;
+const PDF_EXTRACTION_CACHE_VERSION = "pdf-extraction-v1";
 
 type DocumentInspection = {
   docId: string;
@@ -1491,7 +1497,7 @@ function AppContent() {
   const canRedoCurrentPage =
     translationEnabled &&
     currentFileType === "pdf" &&
-    allPdfPagesExtracted &&
+    Boolean(pages.find((page) => page.page === currentPage)?.isExtracted) &&
     Boolean(
       currentPdfPagePayload &&
       hasUsablePageText(currentPdfPagePayload.displayText),
@@ -2213,47 +2219,106 @@ function AppContent() {
             console.error("Failed to load PDF outline:", error);
           });
         setPageSizes(sizes);
-        setPages(initialPages);
         setDocId(nextDocId);
-        setCurrentPage(startPage || 1);
+        const initialCurrentPage = clampPage(startPage || 1, doc.numPages);
+        setCurrentPage(initialCurrentPage);
         setDocumentStatusMessage(getReaderStatusLabel("extracting-text"));
 
-        for (let i = 1; i <= doc.numPages; i += 1) {
-          const page = await doc.getPage(i);
-          try {
-            if (isStaleLoad()) {
-              return;
-            }
-
-            const { paragraphs, watermarks } = await extractPageParagraphs(
-              page,
-              nextDocId,
-              i - 1,
-            );
-
-            if (isStaleLoad()) {
-              return;
-            }
-
-            setPages((prev) =>
-              prev.map((entry) =>
-                entry.page === i
-                  ? { ...entry, paragraphs, watermarks, isExtracted: true }
-                  : entry,
-              ),
-            );
-            setLoadingProgress(50 + Math.round((i / doc.numPages) * 50));
-          } finally {
-            page.cleanup();
-          }
-        }
+        const cachedExtractionPages = (await invoke(
+          "get_cached_pdf_extraction_pages",
+          {
+            docId: nextDocId,
+            extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
+          },
+        )) as CachedPdfExtractionPage[];
 
         if (isStaleLoad()) {
           return;
         }
 
-        setLoadingProgress(null);
-        setDocumentStatusMessage(null);
+        const hydratedPages = applyCachedPdfExtractionPages(
+          initialPages,
+          cachedExtractionPages,
+        );
+        setPages(hydratedPages);
+
+        const extractedPages = hydratedPages
+          .filter((page) => page.isExtracted)
+          .map((page) => page.page);
+        const extractionPlan = buildPdfExtractionPlan({
+          totalPages: doc.numPages,
+          currentPage: initialCurrentPage,
+          extractedPages,
+        });
+
+        const extractAndCachePage = async (pageNumber: number) => {
+          const page = await doc.getPage(pageNumber);
+          try {
+            if (isStaleLoad()) {
+              return false;
+            }
+
+            const { paragraphs, watermarks } = await extractPageParagraphs(
+              page,
+              nextDocId,
+              pageNumber - 1,
+            );
+
+            if (isStaleLoad()) {
+              return false;
+            }
+
+            const extractedPage: CachedPdfExtractionPage = {
+              page: pageNumber,
+              paragraphs,
+              watermarks,
+            };
+
+            setPages((prev) =>
+              applyCachedPdfExtractionPages(prev, [extractedPage]),
+            );
+            void invoke("cache_pdf_extraction_page", {
+              docId: nextDocId,
+              extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
+              page: extractedPage,
+            }).catch((error) => {
+              console.error("Failed to cache extracted PDF page:", error);
+            });
+
+            return true;
+          } catch (error) {
+            console.error(`Failed to extract PDF page ${pageNumber}:`, error);
+            return false;
+          } finally {
+            page.cleanup();
+          }
+        };
+
+        const currentPageAlreadyCached = extractedPages.includes(initialCurrentPage);
+        if (currentPageAlreadyCached) {
+          setLoadingProgress(null);
+          setDocumentStatusMessage(null);
+        } else {
+          await extractAndCachePage(initialCurrentPage);
+          if (isStaleLoad()) {
+            return;
+          }
+          setLoadingProgress(null);
+          setDocumentStatusMessage(null);
+        }
+
+        const remainingPages = extractionPlan.filter(
+          (pageNumber) => pageNumber !== initialCurrentPage,
+        );
+        void (async () => {
+          for (const pageNumber of remainingPages) {
+            if (isStaleLoad()) {
+              return;
+            }
+
+            await extractAndCachePage(pageNumber);
+          }
+        })();
       } catch (error) {
         if (isStaleLoad()) {
           return;
@@ -4669,14 +4734,14 @@ function AppContent() {
       !docId ||
       !translationEnabled ||
       !settingsLoaded ||
-      !allPdfPagesExtracted ||
       !effectivePreset ||
       !hasPresetTranslationContext(effectivePreset)
     ) {
       return;
     }
 
-    const lookupPages = pagesRef.current
+    const lookupPages = pages
+      .filter((page) => page.isExtracted && !isPdfPageFullyTranslated(page))
       .map((page) => ({
         page: page.page,
         paragraphs: getTranslatablePdfParagraphs(page).map((paragraph) => ({
@@ -4731,11 +4796,11 @@ function AppContent() {
       cancelled = true;
     };
   }, [
-    allPdfPagesExtracted,
     currentFileType,
     docId,
     effectivePreset,
     currentTargetLanguage,
+    pages,
     translationEnabled,
     settingsLoaded,
   ]);

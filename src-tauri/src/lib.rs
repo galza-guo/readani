@@ -107,6 +107,7 @@ const LEGACY_APP_IDENTIFIER: &str = "com.xnu.pdfread";
 const MIGRATABLE_APP_CONFIG_FILES: &[&str] = &[
     "translation_cache.json",
     "page_translation_cache.json",
+    "pdf_extraction_cache.json",
     "translation_providers.json",
     "app_settings.json",
     "openrouter_key.txt",
@@ -173,6 +174,10 @@ fn cached_book_metadata_file_path(handle: &tauri::AppHandle) -> Result<PathBuf, 
     Ok(app_config_dir(handle)?.join("cached_book_metadata.json"))
 }
 
+fn pdf_extraction_cache_file_path(handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app_config_dir(handle)?.join("pdf_extraction_cache.json"))
+}
+
 fn provider_settings_file_path(handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app_config_dir(handle)?.join("translation_providers.json"))
 }
@@ -213,6 +218,37 @@ struct RectRecord {
     y: f64,
     w: f64,
     h: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CachedPdfParagraphRecord {
+    pid: String,
+    page: u32,
+    source: String,
+    rects: Vec<RectRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CachedPdfExtractionPageRecord {
+    page: u32,
+    paragraphs: Vec<CachedPdfParagraphRecord>,
+    watermarks: Vec<String>,
+    cached_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CachedPdfExtractionPagePayload {
+    page: u32,
+    paragraphs: Vec<CachedPdfParagraphRecord>,
+    watermarks: Vec<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct PdfExtractionCache {
+    entries: HashMap<String, CachedPdfExtractionPageRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -350,6 +386,45 @@ fn save_page_cache_after_mutation(
         remove_file_if_exists(&page_cache_file_path(handle)?)
     } else {
         save_page_cache(handle, cache)
+    }
+}
+
+fn pdf_extraction_cache_key(doc_id: &str, extraction_version: &str, page: u32) -> String {
+    format!("{doc_id}|{extraction_version}|{page}")
+}
+
+fn load_pdf_extraction_cache(handle: &tauri::AppHandle) -> Result<PdfExtractionCache, String> {
+    let path = pdf_extraction_cache_file_path(handle)?;
+    if !path.exists() {
+        return Ok(PdfExtractionCache::default());
+    }
+    let data = fs::read_to_string(path)
+        .map_err(|e| format!("readani could not read the local extraction cache: {}", e))?;
+    serde_json::from_str(&data)
+        .map_err(|e| format!("readani could not read the local extraction cache: {}", e))
+}
+
+fn save_pdf_extraction_cache(
+    handle: &tauri::AppHandle,
+    cache: &PdfExtractionCache,
+) -> Result<(), String> {
+    let path = pdf_extraction_cache_file_path(handle)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let data = serde_json::to_string_pretty(cache).map_err(|e| e.to_string())?;
+    fs::write(path, data)
+        .map_err(|e| format!("readani could not save the local extraction cache: {}", e))
+}
+
+fn save_pdf_extraction_cache_after_mutation(
+    handle: &tauri::AppHandle,
+    cache: &PdfExtractionCache,
+) -> Result<(), String> {
+    if cache.entries.is_empty() {
+        remove_file_if_exists(&pdf_extraction_cache_file_path(handle)?)
+    } else {
+        save_pdf_extraction_cache(handle, cache)
     }
 }
 
@@ -1363,6 +1438,56 @@ fn get_cached_pdf_page_translations(
     let cached_pages = find_fully_cached_pdf_pages(&mut cache, &pages, &target_language.code);
     save_cache_after_mutation(&handle, &cache)?;
     Ok(cached_pages)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn get_cached_pdf_extraction_pages(
+    handle: tauri::AppHandle,
+    doc_id: String,
+    extraction_version: String,
+) -> Result<Vec<CachedPdfExtractionPagePayload>, String> {
+    let cache = load_pdf_extraction_cache(&handle)?;
+    let prefix = format!("{}|{}|", doc_id, extraction_version);
+    let mut pages: Vec<CachedPdfExtractionPagePayload> = cache
+        .entries
+        .iter()
+        .filter(|(key, _)| key.starts_with(&prefix))
+        .map(|(_, entry)| CachedPdfExtractionPagePayload {
+            page: entry.page,
+            paragraphs: entry.paragraphs.clone(),
+            watermarks: entry.watermarks.clone(),
+        })
+        .collect();
+
+    pages.sort_by_key(|entry| entry.page);
+    Ok(pages)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn cache_pdf_extraction_page(
+    handle: tauri::AppHandle,
+    doc_id: String,
+    extraction_version: String,
+    page: CachedPdfExtractionPagePayload,
+) -> Result<(), String> {
+    let mut cache = load_pdf_extraction_cache(&handle)?;
+    let matching_doc_prefix = format!("{}|", doc_id);
+    let matching_version_prefix = format!("{}|{}|", doc_id, extraction_version);
+
+    cache.entries.retain(|key, _| {
+        !key.starts_with(&matching_doc_prefix) || key.starts_with(&matching_version_prefix)
+    });
+    cache.entries.insert(
+        pdf_extraction_cache_key(&doc_id, &extraction_version, page.page),
+        CachedPdfExtractionPageRecord {
+            page: page.page,
+            paragraphs: page.paragraphs,
+            watermarks: page.watermarks,
+            cached_at: Utc::now(),
+        },
+    );
+
+    save_pdf_extraction_cache_after_mutation(&handle, &cache)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -2871,6 +2996,8 @@ pub fn run() {
             translate_page_text,
             get_cached_page_translation,
             get_cached_pdf_page_translations,
+            get_cached_pdf_extraction_pages,
+            cache_pdf_extraction_page,
             list_cached_page_translations,
             clear_cached_page_translation,
             clear_document_page_translations,
