@@ -246,6 +246,13 @@ struct CachedPdfExtractionPagePayload {
     watermarks: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CachedPdfExtractionStatus {
+    cached_page_count: usize,
+    is_complete: bool,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct PdfExtractionCache {
     entries: HashMap<String, CachedPdfExtractionPageRecord>,
@@ -1469,6 +1476,51 @@ fn get_cached_pdf_extraction_pages(
 
     pages.sort_by_key(|entry| entry.page);
     Ok(pages)
+}
+
+fn cached_pdf_extraction_page_numbers(
+    cache: &PdfExtractionCache,
+    doc_id: &str,
+    extraction_version: &str,
+) -> HashSet<u32> {
+    let prefix = format!("{}|{}|", doc_id, extraction_version);
+    cache.entries
+        .iter()
+        .filter(|(key, _)| key.starts_with(&prefix))
+        .map(|(_, entry)| entry.page)
+        .collect()
+}
+
+fn is_cached_pdf_extraction_complete(
+    cache: &PdfExtractionCache,
+    doc_id: &str,
+    extraction_version: &str,
+    total_pages: u32,
+) -> bool {
+    if total_pages == 0 {
+        return false;
+    }
+
+    let cached_pages = cached_pdf_extraction_page_numbers(cache, doc_id, extraction_version);
+    (1..=total_pages).all(|page| cached_pages.contains(&page))
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn get_cached_pdf_extraction_status(
+    handle: tauri::AppHandle,
+    doc_id: String,
+    extraction_version: String,
+    total_pages: u32,
+) -> Result<CachedPdfExtractionStatus, String> {
+    let cache = load_pdf_extraction_cache(&handle)?;
+    let cached_pages = cached_pdf_extraction_page_numbers(&cache, &doc_id, &extraction_version);
+    let is_complete =
+        is_cached_pdf_extraction_complete(&cache, &doc_id, &extraction_version, total_pages);
+
+    Ok(CachedPdfExtractionStatus {
+        cached_page_count: cached_pages.len(),
+        is_complete,
+    })
 }
 
 fn upsert_cached_pdf_extraction_pages(
@@ -3031,6 +3083,7 @@ pub fn run() {
             translate_page_text,
             get_cached_page_translation,
             get_cached_pdf_page_translations,
+            get_cached_pdf_extraction_status,
             get_cached_pdf_extraction_pages,
             cache_pdf_extraction_pages,
             cache_pdf_extraction_page,
@@ -3072,12 +3125,16 @@ mod tests {
     use super::{
         build_fallback_preset_sequence, build_preset_test_prompt,
         build_selection_translation_prompt, clear_cached_sentence_entries_for_document,
+        cached_pdf_extraction_page_numbers,
         collect_sentence_cached_pages, collect_sentence_cached_pages_for_language,
         find_cached_sentence_translation_any_model, find_fully_cached_pdf_pages, hash_source_text,
-        legacy_shared_sentence_cache_key, merge_saved_preset_credentials, sentence_cache_key,
-        CachedPdfPageLookupInput, resolve_cached_book_title, CachedTranslations, TargetLanguage,
-        TranslateSentence, PRESET_TEST_SAMPLE_TEXT, SENTENCE_PROMPT_VERSION,
+        is_cached_pdf_extraction_complete, legacy_shared_sentence_cache_key,
+        merge_saved_preset_credentials, sentence_cache_key, CachedPdfExtractionPageRecord,
+        CachedPdfPageLookupInput, CachedTranslations, PdfExtractionCache,
+        TargetLanguage, TranslateSentence, PRESET_TEST_SAMPLE_TEXT, SENTENCE_PROMPT_VERSION,
+        resolve_cached_book_title,
     };
+    use chrono::Utc;
     use crate::app_settings::{AppSettings, AppTheme, SettingsLanguage, TranslationPreset};
     use crate::providers::ProviderKind;
     use std::collections::{HashMap, HashSet};
@@ -3097,6 +3154,15 @@ mod tests {
             api_key: api_key.map(str::to_string),
             api_key_configured: api_key.is_some(),
             model: model.to_string(),
+        }
+    }
+
+    fn cached_pdf_extraction_record(page: u32) -> CachedPdfExtractionPageRecord {
+        CachedPdfExtractionPageRecord {
+            page,
+            paragraphs: vec![],
+            watermarks: vec![],
+            cached_at: Utc::now(),
         }
     }
 
@@ -3606,6 +3672,99 @@ mod tests {
 
         assert_eq!(cached_pages.len(), 1);
         assert_eq!(cached_pages[0].translations.len(), 2);
+    }
+
+    #[test]
+    fn cached_pdf_extraction_status_is_complete_when_all_pages_exist() {
+        let cache = PdfExtractionCache {
+            entries: HashMap::from([
+                (
+                    "doc-1|pdf-extraction-v1|1".to_string(),
+                    cached_pdf_extraction_record(1),
+                ),
+                (
+                    "doc-1|pdf-extraction-v1|2".to_string(),
+                    cached_pdf_extraction_record(2),
+                ),
+                (
+                    "doc-1|pdf-extraction-v1|3".to_string(),
+                    cached_pdf_extraction_record(3),
+                ),
+                (
+                    "doc-2|pdf-extraction-v1|1".to_string(),
+                    cached_pdf_extraction_record(1),
+                ),
+            ]),
+        };
+
+        assert_eq!(
+            cached_pdf_extraction_page_numbers(&cache, "doc-1", "pdf-extraction-v1"),
+            HashSet::from([1_u32, 2_u32, 3_u32])
+        );
+        assert!(is_cached_pdf_extraction_complete(
+            &cache,
+            "doc-1",
+            "pdf-extraction-v1",
+            3,
+        ));
+    }
+
+    #[test]
+    fn cached_pdf_extraction_status_is_incomplete_when_a_page_is_missing() {
+        let cache = PdfExtractionCache {
+            entries: HashMap::from([
+                (
+                    "doc-1|pdf-extraction-v1|1".to_string(),
+                    cached_pdf_extraction_record(1),
+                ),
+                (
+                    "doc-1|pdf-extraction-v1|3".to_string(),
+                    cached_pdf_extraction_record(3),
+                ),
+            ]),
+        };
+
+        assert!(!is_cached_pdf_extraction_complete(
+            &cache,
+            "doc-1",
+            "pdf-extraction-v1",
+            3,
+        ));
+    }
+
+    #[test]
+    fn cached_pdf_extraction_status_is_scoped_by_document_and_version() {
+        let cache = PdfExtractionCache {
+            entries: HashMap::from([
+                (
+                    "doc-1|pdf-extraction-v1|1".to_string(),
+                    cached_pdf_extraction_record(1),
+                ),
+                (
+                    "doc-1|pdf-extraction-v1|2".to_string(),
+                    cached_pdf_extraction_record(2),
+                ),
+                (
+                    "doc-1|pdf-extraction-v2|3".to_string(),
+                    cached_pdf_extraction_record(3),
+                ),
+                (
+                    "doc-2|pdf-extraction-v1|3".to_string(),
+                    cached_pdf_extraction_record(3),
+                ),
+            ]),
+        };
+
+        assert_eq!(
+            cached_pdf_extraction_page_numbers(&cache, "doc-1", "pdf-extraction-v1"),
+            HashSet::from([1_u32, 2_u32])
+        );
+        assert!(!is_cached_pdf_extraction_complete(
+            &cache,
+            "doc-1",
+            "pdf-extraction-v1",
+            3,
+        ));
     }
 
     #[test]

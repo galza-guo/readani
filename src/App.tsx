@@ -207,6 +207,11 @@ type LoadDocumentIdentity = {
   title?: string;
 };
 
+type CachedPdfExtractionStatus = {
+  cachedPageCount: number;
+  isComplete: boolean;
+};
+
 type PendingReconnectResolution = {
   mode: "similar" | "different";
   book: RecentBook;
@@ -1362,6 +1367,28 @@ function AppContent() {
     [currentFileType, pages],
   );
 
+  const pdfExtractionProgress = useMemo(() => {
+    if (currentFileType !== "pdf" || allPdfPagesExtracted) {
+      return null;
+    }
+
+    const totalCount = pdfDoc?.numPages ?? pages.length;
+    if (totalCount <= 0) {
+      return null;
+    }
+
+    const completedCount = Math.min(
+      totalCount,
+      pages.filter((page) => page.isExtracted).length,
+    );
+
+    return {
+      completedCount,
+      totalCount,
+      progressLabel: `Preparing pages ${completedCount}/${totalCount}`,
+    };
+  }, [allPdfPagesExtracted, currentFileType, pages, pdfDoc]);
+
   const pageTranslationProgress = useMemo(
     () =>
       getPageTranslationProgress({
@@ -2301,6 +2328,41 @@ function AppContent() {
         setCurrentPage(initialCurrentPage);
         setDocumentStatusMessage(getReaderStatusLabel("extracting-text"));
         setPages(initialPages);
+
+        const cachedExtractionStatus = (await invoke(
+          "get_cached_pdf_extraction_status",
+          {
+            docId: nextDocId,
+            extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
+            totalPages: doc.numPages,
+          },
+        )) as CachedPdfExtractionStatus;
+
+        if (isStaleLoad()) {
+          return;
+        }
+
+        if (cachedExtractionStatus.isComplete) {
+          const cachedExtractionPages = (await invoke(
+            "get_cached_pdf_extraction_pages",
+            {
+              docId: nextDocId,
+              extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
+              pages: null,
+            },
+          )) as CachedPdfExtractionPage[];
+
+          if (isStaleLoad()) {
+            return;
+          }
+
+          setPages(
+            applyCachedPdfExtractionPages(initialPages, cachedExtractionPages),
+          );
+          setLoadingProgress(null);
+          setDocumentStatusMessage(null);
+          return;
+        }
 
         const startupHydrationPages = getPdfStartupHydrationPages({
           totalPages: doc.numPages,
@@ -6903,6 +6965,7 @@ function AppContent() {
                       pageTranslation={pageTranslations[currentPage]}
                       loadingMessage={currentPdfLoadingMessage}
                       setupRequired={showPdfSetupPrompt}
+                      extractionProgress={pdfExtractionProgress}
                       progressLabel={translationProgressLabel}
                       progressDetailLabel={pdfProgressDetailLabel}
                       progressDetailState={pdfProgressDetailState}

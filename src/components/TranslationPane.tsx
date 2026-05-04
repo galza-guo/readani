@@ -33,6 +33,12 @@ import type {
 import type { ResolvedSentenceAnnotation } from "../lib/annotationMatching";
 
 type TranslationPaneChromeProps = {
+  translationEnabled: boolean;
+  extractionProgress?: {
+    completedCount: number;
+    totalCount: number;
+    progressLabel: string;
+  } | null;
   progressLabel?: string | null;
   progressDetailLabel?: string | null;
   progressDetailState?: "running" | "stopping" | "waiting" | "paused" | null;
@@ -66,6 +72,7 @@ type PdfTranslationPaneProps = {
   pageTranslation?: PageTranslationState;
   loadingMessage?: string | null;
   setupRequired?: boolean;
+  extractionProgress?: TranslationPaneChromeProps["extractionProgress"];
   progressLabel?: string | null;
   progressDetailLabel?: string | null;
   progressDetailState?: "running" | "stopping" | "waiting" | "paused" | null;
@@ -107,6 +114,7 @@ type EpubTranslationPaneProps = {
   pages: PageDoc[];
   currentPage: number;
   setupRequired?: boolean;
+  extractionProgress?: TranslationPaneChromeProps["extractionProgress"];
   progressLabel?: string | null;
   progressDetailLabel?: string | null;
   progressDetailState?: "running" | "stopping" | "waiting" | "paused" | null;
@@ -721,7 +729,7 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
         isActive && !isHovered ? "is-linked-active" : ""
       } ${isSelected ? "is-selected" : ""} ${
         isAnnotated ? "is-annotated" : ""
-      }`}
+      } ${!translationEnabled ? "is-original-primary" : ""}`}
       onMouseEnter={() => {
         setIsHovered(true);
         onHoverPid(para.pid);
@@ -821,20 +829,37 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
               }
             >
               <div className="pdf-segment-source">{para.source}</div>
-              <button
-                className="pdf-segment-copy-btn"
-                type="button"
-                disabled={!canCopySource || !sourceVisible}
-                tabIndex={showSourceCopy ? 0 : -1}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onCopyText(para.source, "Original text");
-                }}
-                title="Copy original text"
-                aria-label="Copy original text"
-              >
-                <CopyIcon />
-              </button>
+              <div className="pdf-segment-row-actions">
+                {!translationEnabled ? (
+                  <button
+                    className="pdf-segment-annotate-btn"
+                    type="button"
+                    tabIndex={showInlineActions ? 0 : -1}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onToggleSentenceAnnotation?.(para, sentenceIndex ?? 0);
+                    }}
+                    title={annotateLabel}
+                    aria-label={annotateLabel}
+                  >
+                    <AnnotateIcon />
+                  </button>
+                ) : null}
+                <button
+                  className="pdf-segment-copy-btn"
+                  type="button"
+                  disabled={!canCopySource || !sourceVisible}
+                  tabIndex={showSourceCopy ? 0 : -1}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCopyText(para.source, "Original text");
+                  }}
+                  title="Copy original text"
+                  aria-label="Copy original text"
+                >
+                  <CopyIcon />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1250,13 +1275,21 @@ type TranslationProgressBarProps = {
   statusMap: PageProgressStatus[];
   currentPage: number;
   progressLabel: string;
+  isNeutral?: boolean;
   onSeekPage: (page: number) => void;
+};
+
+type ExtractionProgressBarProps = {
+  completedCount: number;
+  totalCount: number;
+  progressLabel: string;
 };
 
 const TranslationProgressBar = memo(function TranslationProgressBar({
   statusMap,
   currentPage,
   progressLabel,
+  isNeutral = false,
   onSeekPage,
 }: TranslationProgressBarProps) {
   const barRef = useRef<HTMLDivElement>(null);
@@ -1352,7 +1385,7 @@ const TranslationProgressBar = memo(function TranslationProgressBar({
 
   return (
     <div
-      className="translation-progress-bar"
+      className={`translation-progress-bar ${isNeutral ? "is-neutral" : ""}`}
       ref={barRef}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -1379,7 +1412,7 @@ const TranslationProgressBar = memo(function TranslationProgressBar({
       {statusMap.map((status, index) => (
         <span
           key={index}
-          data-status={status}
+          data-status={isNeutral ? "neutral" : status}
           className="translation-progress-segment"
           style={{ "--segment-index": index } as CSSProperties}
         />
@@ -1395,7 +1428,39 @@ const TranslationProgressBar = memo(function TranslationProgressBar({
   );
 });
 
+const ExtractionProgressBar = memo(function ExtractionProgressBar({
+  completedCount,
+  totalCount,
+  progressLabel,
+}: ExtractionProgressBarProps) {
+  const clampedCompletedCount = Math.max(
+    0,
+    Math.min(completedCount, totalCount),
+  );
+  const fillPercent =
+    totalCount > 0 ? (clampedCompletedCount / totalCount) * 100 : 0;
+
+  return (
+    <div
+      className="translation-progress-bar is-extraction"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={totalCount}
+      aria-valuenow={clampedCompletedCount}
+      aria-label={progressLabel}
+      title={progressLabel}
+    >
+      <span
+        className="translation-progress-fill"
+        style={{ width: `${fillPercent}%` }}
+      />
+    </div>
+  );
+});
+
 function TranslationPaneFooter({
+  translationEnabled,
+  extractionProgress,
   progressLabel,
   progressDetailLabel,
   progressDetailState,
@@ -1415,15 +1480,21 @@ function TranslationPaneFooter({
   return (
     <div className="translation-pane-footer">
       <div className="translation-pane-footer-progress">
-        {statusMap &&
+        {extractionProgress ? (
+          <ExtractionProgressBar
+            completedCount={extractionProgress.completedCount}
+            totalCount={extractionProgress.totalCount}
+            progressLabel={extractionProgress.progressLabel}
+          />
+        ) : statusMap &&
         statusMap.length > 0 &&
-        progressLabel &&
         onSeekPage &&
         currentPage ? (
           <TranslationProgressBar
             statusMap={statusMap}
             currentPage={currentPage}
-            progressLabel={progressLabel}
+            progressLabel={progressLabel ?? "Page navigation"}
+            isNeutral={!translationEnabled}
             onSeekPage={onSeekPage}
           />
         ) : progressLabel ? (
@@ -1480,6 +1551,7 @@ function PdfTranslationPane({
   pageTranslation,
   loadingMessage,
   setupRequired = false,
+  extractionProgress,
   progressLabel,
   progressDetailLabel,
   progressDetailState,
@@ -1934,6 +2006,8 @@ function PdfTranslationPane({
         </div>
       </div>
       <TranslationPaneFooter
+        translationEnabled={translationEnabled}
+        extractionProgress={extractionProgress}
         progressLabel={progressLabel}
         progressDetailLabel={progressDetailLabel}
         progressDetailState={progressDetailState}
@@ -1998,6 +2072,7 @@ function EpubTranslationPane({
   pages,
   currentPage,
   setupRequired = false,
+  extractionProgress,
   progressLabel,
   progressDetailLabel,
   progressDetailState,
@@ -2166,6 +2241,8 @@ function EpubTranslationPane({
         />
       )}
       <TranslationPaneFooter
+        translationEnabled={translationEnabled}
+        extractionProgress={extractionProgress}
         progressLabel={progressLabel}
         progressDetailLabel={progressDetailLabel}
         progressDetailState={progressDetailState}
@@ -2246,6 +2323,7 @@ export function TranslationPane(props: TranslationPaneProps) {
         pageTranslation={props.pageTranslation}
         loadingMessage={props.loadingMessage}
         setupRequired={props.setupRequired}
+        extractionProgress={props.extractionProgress}
         progressLabel={props.progressLabel}
         progressDetailLabel={props.progressDetailLabel}
         progressDetailState={props.progressDetailState}
@@ -2288,6 +2366,7 @@ export function TranslationPane(props: TranslationPaneProps) {
       pages={props.pages}
       currentPage={props.currentPage}
       setupRequired={props.setupRequired}
+      extractionProgress={props.extractionProgress}
       progressLabel={props.progressLabel}
       progressDetailLabel={props.progressDetailLabel}
       progressDetailState={props.progressDetailState}

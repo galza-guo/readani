@@ -32,6 +32,11 @@ function renderPdfPane(
     loadingMessage?: string | null;
     setupRequired?: boolean;
     progressLabel?: string | null;
+    extractionProgress?: {
+      completedCount: number;
+      totalCount: number;
+      progressLabel: string;
+    } | null;
     progressDetailLabel?: string | null;
     progressDetailState?: "running" | "stopping" | "waiting" | "paused" | null;
     bulkActionLabel?: string;
@@ -76,6 +81,7 @@ function renderPdfPane(
         loadingMessage={options.loadingMessage}
         setupRequired={options.setupRequired}
         progressLabel={options.progressLabel}
+        extractionProgress={options.extractionProgress}
         progressDetailLabel={options.progressDetailLabel}
         progressDetailState={options.progressDetailState}
         bulkActionLabel={options.bulkActionLabel ?? "Translate All"}
@@ -240,6 +246,21 @@ describe("TranslationPane", () => {
     expect(html).toContain("translation-pane-progress-text");
     expect(html).toContain("translation-pane-progress-detail is-running");
     expect(html).toContain(">Stop Translating All<");
+  });
+
+  test("renders extraction progress before translation progress is ready", () => {
+    const html = renderPdfPane({
+      extractionProgress: {
+        completedCount: 2,
+        totalCount: 9,
+        progressLabel: "Preparing pages 2/9",
+      },
+      progressLabel: null,
+    });
+
+    expect(html).toContain("translation-progress-bar is-extraction");
+    expect(html).toContain('aria-label="Preparing pages 2/9"');
+    expect(html).toContain("translation-progress-fill");
   });
 
   test("renders waiting state without animated ellipsis", () => {

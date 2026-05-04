@@ -1473,6 +1473,12 @@ body.is-resizing-split-y * {
   min-width: 0;
 }
 
+.pdf-segment-card.is-original-primary .pdf-segment-source {
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
 .pdf-segment-source-reveal {
   display: grid;
   grid-template-rows: 0fr;
@@ -1888,6 +1894,24 @@ body.is-resizing-split-y * {
   box-shadow: 0 0 0 2px var(--accent);
 }
 
+.translation-progress-bar.is-extraction {
+  background: var(--border);
+  overflow: hidden;
+  cursor: default;
+}
+
+.translation-progress-bar.is-extraction:hover {
+  height: 4px;
+}
+
+.translation-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--warning);
+  transition: width 0.18s ease;
+}
+
 .translation-progress-segment {
   flex: 1 1 0%;
   min-width: 1px;
@@ -1917,6 +1941,14 @@ body.is-resizing-split-y * {
   will-change: opacity, transform;
   animation: progress-queued-wave 1.35s cubic-bezier(0.22, 1, 0.36, 1) infinite;
   animation-delay: calc(var(--segment-index, 0) * 48ms);
+}
+
+.translation-progress-bar.is-neutral .translation-progress-segment,
+.translation-progress-segment[data-status="neutral"] {
+  background: var(--border);
+  opacity: 0.72;
+  animation: none;
+  transform: none;
 }
 
 @keyframes progress-queued-wave {
