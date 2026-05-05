@@ -2,6 +2,23 @@
 
 All notable changes to **readani** since forking from upstream (v0.1.8).
 
+## [1.3.0] — 2026-05-05
+
+### Added
+
+- **Sentence annotations** — highlight and annotate individual sentences on the PDF. Annotations appear as colored highlight overlays on the PDF and as inline note cards in the translation pane. Annotations persist across sessions and survive text extraction changes via source-hash matching. ([`01f1d8d`](src/components/AnnotationsPanel.tsx), [`fb57aeb`](src/lib/annotationMatching.ts))
+- **Annotations panel** — sidebar panel listing all annotations for the current document, grouped by page, with note previews and "needs review" badges for annotations whose source text has drifted. ([`8f0ea5f`](src/components/AnnotationsPanel.tsx))
+- **Per-book translation preferences** — each book remembers its own translation preset, target language, and enabled state. Switching between books restores the previous settings automatically. ([`8786dbe`](src/App.tsx))
+- **Lazy PDF extraction caching** — extracted text is cached per-document and per-extraction version, avoiding redundant re-extraction when reopening documents. Cache writes are batched for efficiency. ([`86ea848`](src/lib/pdfExtractionCacheQueue.ts), [`d723322`](src/lib/pdfExtractionCacheQueue.ts))
+- **Model-neutral translation cache** — cached translations are now shared across models when the source text, document, and target language match, reducing redundant API calls when switching presets. ([`65c227f`](src-tauri/src/lib.rs))
+- **Neutral extraction progress** — extraction progress indicator shows status independently of translation state, with original-text highlights for extracted but not-yet-translated sentences. ([`67d5d67`](src/App.css))
+
+### Changed
+
+- Inline annotation notes display directly inside sentence cards instead of requiring a separate panel interaction. ([`8f0ea5f`](src/components/TranslationPane.tsx))
+- Annotation comment editing is refined with improved focus handling and queue-pause behavior during edits. ([`6b7ef70`](src/App.tsx))
+- Target language changes now fully clear visible translations to prevent stale content from persisting. ([`14193a7`](src/App.tsx))
+
 ## [1.2.1] — 2026-04-30
 
 ### Added
@@ -89,6 +106,7 @@ The first release of **readani** as a standalone bilingual PDF reader, forked fr
 - PDF memory leaks in reader lifecycle — proper cleanup of pdf.js resources on unmount ([`cf17b87`](src/components/PdfPage.tsx))
 - Backend serde aliases for legacy provider kind values to maintain compatibility ([`aad5e20`](src-tauri/src/lib.rs))
 
+[1.3.0]: https://github.com/galza-guo/readani/releases/tag/v1.3.0
 [1.2.1]: https://github.com/galza-guo/readani/releases/tag/v1.2.1
 [1.2.0]: https://github.com/galza-guo/readani/releases/tag/v1.2.0
 [1.1.0]: https://github.com/galza-guo/readani/releases/tag/v1.1.0

@@ -19,7 +19,7 @@ describe("branding", () => {
     const navigationPrefsSource = readRepoFile("src", "lib", "pdfNavigationPrefs.ts");
 
     expect(packageJson).toContain('"name": "readani"');
-    expect(packageJson).toContain('"version": "1.2.0"');
+    expect(packageJson).toContain('"version": "1.3.0"');
     expect(appSource).toContain('const APP_WINDOW_TITLE = "readani"');
     expect(appSource).toContain("`${APP_WINDOW_TITLE} · ${trimmedBookTitle}`");
     expect(appSource).toContain("document.title = nextWindowTitle");
@@ -46,7 +46,7 @@ describe("branding", () => {
     expect(indexHtml).not.toContain("/vite.svg");
 
     expect(tauriConfig).toContain('"productName": "readani"');
-    expect(tauriConfig).toContain('"version": "1.2.0"');
+    expect(tauriConfig).toContain('"version": "1.3.0"');
     expect(tauriConfig).toContain(
       '"shortDescription": "Desktop bilingual PDF and EPUB reader for side-by-side translation."'
     );
@@ -56,7 +56,7 @@ describe("branding", () => {
     expect(tauriConfig).not.toContain("pdfread");
 
     expect(cargoToml).toContain('name = "readani"');
-    expect(cargoToml).toContain('version = "1.2.0"');
+    expect(cargoToml).toContain('version = "1.3.0"');
     expect(cargoToml).toContain(
       'description = "Desktop bilingual PDF and EPUB reader for side-by-side translation."'
     );

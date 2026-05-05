@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <strong>v1.2.1</strong> · Tauri · React · TypeScript · pdf.js
+  <strong>v1.3.0</strong> · Tauri · React · TypeScript · pdf.js
 </p>
 
 ## 它是什么
