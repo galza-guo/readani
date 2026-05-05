@@ -504,6 +504,17 @@ function sanitizeEpubPagesForPresetChange(pages: PageDoc[]) {
   }));
 }
 
+function clearPageTranslationsForTargetLanguageChange(pages: PageDoc[]) {
+  return pages.map((page) => ({
+    ...page,
+    paragraphs: page.paragraphs.map((paragraph) => ({
+      ...paragraph,
+      translation: undefined,
+      status: "idle" as const,
+    })),
+  }));
+}
+
 function getPresetById(presets: TranslationPreset[], presetId?: string | null) {
   if (!presetId) {
     return undefined;
@@ -5116,6 +5127,10 @@ function AppContent() {
         return;
       }
 
+      const previousLanguageCode = currentTargetLanguageRef.current.code;
+      const shouldClearVisibleTranslations =
+        preference.enabled &&
+        previousLanguageCode !== preference.targetLanguage.code;
       const id = docIdRef.current;
       setBookTranslationPreferences((prev) => {
         const next = {
@@ -5149,8 +5164,17 @@ function AppContent() {
       if (debounceRef.current) {
         window.clearTimeout(debounceRef.current);
       }
-      setPageTranslations((prev) => sanitizePdfTranslationsForPresetChange(prev));
-      setPages((prev) => sanitizeEpubPagesForPresetChange(prev));
+      if (shouldClearVisibleTranslations) {
+        setPageTranslations({});
+        setPages((prev) => clearPageTranslationsForTargetLanguageChange(prev));
+      } else {
+        setPageTranslations((prev) =>
+          sanitizePdfTranslationsForPresetChange(prev),
+        );
+        setPages((prev) => sanitizeEpubPagesForPresetChange(prev));
+      }
+      currentTargetLanguageRef.current = preference.targetLanguage;
+      translationEnabledRef.current = preference.enabled;
     },
     [resetTranslateAllSlowModeRuntime],
   );
