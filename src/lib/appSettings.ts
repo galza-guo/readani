@@ -1,5 +1,6 @@
 import type {
   PresetSaveStatus,
+  ProviderReasoningMode,
   TargetLanguage,
   ThemeMode,
   TranslationPreset,
@@ -32,7 +33,12 @@ export const PRESET_PROVIDER_OPTIONS: Array<{
   { value: "openrouter", label: "OpenRouter" },
   { value: "deepseek", label: "DeepSeek" },
   { value: "ollama", label: "Ollama" },
-  { value: "openai-compatible", label: "OpenAI-Compatible" },
+  { value: "openai", label: "OpenAI" },
+  { value: "google-gemini", label: "Google Gemini" },
+  { value: "siliconflow", label: "SiliconFlow" },
+  { value: "dashscope", label: "DashScope" },
+  { value: "modelscope", label: "ModelScope" },
+  { value: "openai-compatible", label: "Custom" },
 ];
 
 export const SAVED_API_KEY_MASK = "**************";
@@ -42,6 +48,11 @@ const PROVIDER_LABELS: Record<TranslationProviderKind, string> = {
   deepseek: "DeepSeek",
   ollama: "Ollama",
   "openai-compatible": "Custom",
+  openai: "OpenAI",
+  "google-gemini": "Gemini",
+  siliconflow: "SiliconFlow",
+  dashscope: "DashScope",
+  modelscope: "ModelScope",
 };
 
 const DEFAULT_MODELS: Record<TranslationProviderKind, string> = {
@@ -49,11 +60,21 @@ const DEFAULT_MODELS: Record<TranslationProviderKind, string> = {
   deepseek: "deepseek-chat",
   ollama: "llama3.2",
   "openai-compatible": "gpt-4o-mini",
+  openai: "gpt-5.4-mini",
+  "google-gemini": "gemini-2.5-flash",
+  siliconflow: "Qwen/Qwen3-235B-A22B",
+  dashscope: "qwen-plus",
+  modelscope: "Qwen/Qwen3-30B-A3B",
 };
 
 const DEFAULT_BASE_URLS: Partial<Record<TranslationProviderKind, string>> = {
   deepseek: "https://api.deepseek.com",
   ollama: "http://localhost:11434/v1",
+  openai: "https://api.openai.com/v1",
+  "google-gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+  siliconflow: "https://api.siliconflow.cn/v1",
+  dashscope: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  modelscope: "https://api-inference.modelscope.cn/v1",
 };
 
 type LanguageLike = {
@@ -75,6 +96,11 @@ const LEGACY_PROVIDER_KIND_BY_CANONICAL: Record<TranslationProviderKind, string>
   deepseek: "deep-seek",
   ollama: "ollama",
   "openai-compatible": "open-ai-compatible",
+  openai: "openai",
+  "google-gemini": "google-gemini",
+  siliconflow: "siliconflow",
+  dashscope: "dashscope",
+  modelscope: "modelscope",
 };
 
 const CANONICAL_PROVIDER_KIND_BY_VARIANT: Record<string, TranslationProviderKind> = {
@@ -85,17 +111,40 @@ const CANONICAL_PROVIDER_KIND_BY_VARIANT: Record<string, TranslationProviderKind
   ollama: "ollama",
   "openai-compatible": "openai-compatible",
   "open-ai-compatible": "openai-compatible",
+  openai: "openai",
+  "google-gemini": "google-gemini",
+  siliconflow: "siliconflow",
+  dashscope: "dashscope",
+  modelscope: "modelscope",
 };
 
 const PROVIDERS_WITH_API_KEYS = new Set<TranslationProviderKind>([
   "openrouter",
   "deepseek",
   "openai-compatible",
+  "openai",
+  "google-gemini",
+  "siliconflow",
+  "dashscope",
+  "modelscope",
 ]);
 
 const PROVIDERS_WITH_EDITABLE_BASE_URLS = new Set<TranslationProviderKind>([
   "ollama",
   "openai-compatible",
+]);
+
+const DEEPSEEK_THINKING_MODES = new Set<ProviderReasoningMode>([
+  "off",
+  "high",
+  "max",
+]);
+
+const STANDARD_REASONING_MODES = new Set<ProviderReasoningMode>([
+  "off",
+  "low",
+  "medium",
+  "high",
 ]);
 
 export function normalizeProviderKind(
@@ -115,10 +164,33 @@ export function serializeProviderKindForCommand(
 }
 
 export function normalizePresetFromStorage(preset: TranslationPreset): TranslationPreset {
-  return {
+  const providerKind = normalizeProviderKind(preset.providerKind);
+  const normalizedPreset: TranslationPreset = {
     ...preset,
-    providerKind: normalizeProviderKind(preset.providerKind),
+    providerKind,
   };
+
+  delete normalizedPreset.thinking;
+  delete normalizedPreset.reasoning;
+
+  if (
+    providerKind === "deepseek"
+    || providerKind === "siliconflow"
+    || providerKind === "dashscope"
+  ) {
+    normalizedPreset.thinking = normalizeProviderReasoningMode(providerKind, preset.thinking);
+  }
+
+  if (
+    providerKind === "openrouter"
+    || providerKind === "ollama"
+    || providerKind === "openai"
+    || providerKind === "google-gemini"
+  ) {
+    normalizedPreset.reasoning = normalizeProviderReasoningMode(providerKind, preset.reasoning);
+  }
+
+  return normalizedPreset;
 }
 
 export function normalizeSettingsFromStorage(
@@ -258,6 +330,55 @@ export function getProviderOptionLabel(providerKind: TranslationProviderKind) {
   );
 }
 
+export function providerUsesThinking(providerKind: TranslationProviderKind | string) {
+  const normalizedProviderKind = normalizeProviderKind(providerKind);
+  return normalizedProviderKind === "deepseek"
+    || normalizedProviderKind === "siliconflow"
+    || normalizedProviderKind === "dashscope";
+}
+
+export function providerUsesReasoning(providerKind: TranslationProviderKind | string) {
+  const normalizedProviderKind = normalizeProviderKind(providerKind);
+  return normalizedProviderKind === "openrouter"
+    || normalizedProviderKind === "ollama"
+    || normalizedProviderKind === "openai"
+    || normalizedProviderKind === "google-gemini";
+}
+
+export function normalizeProviderReasoningMode(
+  providerKind: TranslationProviderKind | string,
+  value?: string
+): ProviderReasoningMode {
+  const normalizedProviderKind = normalizeProviderKind(providerKind);
+  const normalizedValue = value as ProviderReasoningMode | undefined;
+
+  // DeepSeek: thinking toggle (off/high/max)
+  if (normalizedProviderKind === "deepseek") {
+    return normalizedValue && DEEPSEEK_THINKING_MODES.has(normalizedValue)
+      ? normalizedValue
+      : "off";
+  }
+
+  // SiliconFlow, DashScope: boolean thinking (off/high only)
+  if (normalizedProviderKind === "siliconflow" || normalizedProviderKind === "dashscope") {
+    return normalizedValue === "high" || normalizedValue === "max" ? "high" : "off";
+  }
+
+  // Standard reasoning: off/low/medium/high
+  if (
+    normalizedProviderKind === "openrouter"
+    || normalizedProviderKind === "ollama"
+    || normalizedProviderKind === "openai"
+    || normalizedProviderKind === "google-gemini"
+  ) {
+    return normalizedValue && STANDARD_REASONING_MODES.has(normalizedValue)
+      ? normalizedValue
+      : "off";
+  }
+
+  return "off";
+}
+
 export function getPresetValidationState(
   preset: TranslationPreset,
   apiKeyInput: string
@@ -385,7 +506,11 @@ export function isPresetUnchangedFromSavedState({
       normalizeProviderKind(savedPreset.providerKind) &&
     preset.model.trim() === savedPreset.model.trim() &&
     (preset.baseUrl?.trim() ?? "") === (savedPreset.baseUrl?.trim() ?? "") &&
-    Boolean(preset.apiKeyConfigured) === Boolean(savedPreset.apiKeyConfigured)
+    Boolean(preset.apiKeyConfigured) === Boolean(savedPreset.apiKeyConfigured) &&
+    normalizeProviderReasoningMode(preset.providerKind, preset.thinking) ===
+      normalizeProviderReasoningMode(savedPreset.providerKind, savedPreset.thinking) &&
+    normalizeProviderReasoningMode(preset.providerKind, preset.reasoning) ===
+      normalizeProviderReasoningMode(savedPreset.providerKind, savedPreset.reasoning)
   );
 }
 
@@ -436,7 +561,7 @@ export function normalizePresetDraft(
     .filter((candidate) => candidate.id !== preset.id)
     .map((candidate) => candidate.label);
 
-  return {
+  const normalizedPreset: TranslationPreset = {
     ...preset,
     providerKind,
     label: dedupePresetLabel(nextLabel, otherLabels),
@@ -446,13 +571,44 @@ export function normalizePresetDraft(
         return undefined;
       }
 
-      if (providerKind === "deepseek") {
-        return DEFAULT_BASE_URLS[providerKind];
+      const defaultUrl = DEFAULT_BASE_URLS[providerKind];
+
+      if (
+        providerKind === "deepseek"
+        || providerKind === "openai"
+        || providerKind === "google-gemini"
+        || providerKind === "siliconflow"
+        || providerKind === "dashscope"
+        || providerKind === "modelscope"
+      ) {
+        return defaultUrl;
       }
 
-      return preset.baseUrl?.trim() || DEFAULT_BASE_URLS[providerKind];
+      return preset.baseUrl?.trim() || defaultUrl;
     })(),
   };
+
+  delete normalizedPreset.thinking;
+  delete normalizedPreset.reasoning;
+
+  if (
+    providerKind === "deepseek"
+    || providerKind === "siliconflow"
+    || providerKind === "dashscope"
+  ) {
+    normalizedPreset.thinking = normalizeProviderReasoningMode(providerKind, preset.thinking);
+  }
+
+  if (
+    providerKind === "openrouter"
+    || providerKind === "ollama"
+    || providerKind === "openai"
+    || providerKind === "google-gemini"
+  ) {
+    normalizedPreset.reasoning = normalizeProviderReasoningMode(providerKind, preset.reasoning);
+  }
+
+  return normalizedPreset;
 }
 
 export function createPresetDraft(

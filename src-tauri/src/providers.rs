@@ -11,6 +11,16 @@ pub enum ProviderKind {
     Ollama,
     #[serde(rename = "openai-compatible", alias = "open-ai-compatible")]
     OpenAiCompatible,
+    #[serde(rename = "openai")]
+    OpenAi,
+    #[serde(rename = "google-gemini")]
+    GoogleGemini,
+    #[serde(rename = "siliconflow")]
+    SiliconFlow,
+    #[serde(rename = "dashscope")]
+    DashScope,
+    #[serde(rename = "modelscope")]
+    ModelScope,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +34,54 @@ pub struct ProviderConfig {
     #[serde(default)]
     pub api_key_configured: bool,
     pub default_model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProviderReasoningMode {
+    Off,
+    Low,
+    Medium,
+    High,
+    Max,
+}
+
+impl ProviderReasoningMode {
+    pub fn cache_value(&self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Max => "max",
+        }
+    }
+
+    fn as_standard_effort(&self) -> &'static str {
+        match self {
+            Self::Off => "none",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Max => "high",
+        }
+    }
+
+    fn as_deepseek_thinking(&self) -> serde_json::Value {
+        match self {
+            Self::High => serde_json::json!({
+                "type": "enabled",
+                "reasoning_effort": "high"
+            }),
+            Self::Max => serde_json::json!({
+                "type": "enabled",
+                "reasoning_effort": "max"
+            }),
+            Self::Off | Self::Low | Self::Medium => serde_json::json!({
+                "type": "disabled"
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +117,11 @@ struct ModelRecord {
 }
 
 const OLLAMA_BASE_URL: &str = "http://localhost:11434/v1";
+const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai";
+const SILICONFLOW_BASE_URL: &str = "https://api.siliconflow.cn/v1";
+const DASHSCOPE_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+const MODELSCOPE_BASE_URL: &str = "https://api-inference.modelscope.cn/v1";
 
 impl ProviderKind {
     pub fn uses_api_key(&self) -> bool {
@@ -124,7 +187,14 @@ impl ProviderConfig {
     pub fn models_url(&self) -> Result<String, String> {
         match self.kind {
             ProviderKind::OpenRouter => Ok("https://openrouter.ai/api/v1/models".to_string()),
-            ProviderKind::DeepSeek | ProviderKind::Ollama | ProviderKind::OpenAiCompatible => {
+            ProviderKind::DeepSeek
+            | ProviderKind::Ollama
+            | ProviderKind::OpenAiCompatible
+            | ProviderKind::OpenAi
+            | ProviderKind::GoogleGemini
+            | ProviderKind::SiliconFlow
+            | ProviderKind::DashScope
+            | ProviderKind::ModelScope => {
                 Ok(format!("{}/models", self.resolved_base_url()?))
             }
         }
@@ -135,7 +205,14 @@ impl ProviderConfig {
             ProviderKind::OpenRouter => {
                 Ok("https://openrouter.ai/api/v1/chat/completions".to_string())
             }
-            ProviderKind::DeepSeek | ProviderKind::Ollama | ProviderKind::OpenAiCompatible => {
+            ProviderKind::DeepSeek
+            | ProviderKind::Ollama
+            | ProviderKind::OpenAiCompatible
+            | ProviderKind::OpenAi
+            | ProviderKind::GoogleGemini
+            | ProviderKind::SiliconFlow
+            | ProviderKind::DashScope
+            | ProviderKind::ModelScope => {
                 Ok(format!("{}/chat/completions", self.resolved_base_url()?))
             }
         }
@@ -213,6 +290,46 @@ impl ProviderConfig {
                 .to_string()),
             ProviderKind::OpenAiCompatible => self.required_base_url(),
             ProviderKind::OpenRouter => Err("OpenRouter does not use a base URL.".to_string()),
+            ProviderKind::OpenAi => Ok(self
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(OPENAI_BASE_URL)
+                .trim_end_matches('/')
+                .to_string()),
+            ProviderKind::GoogleGemini => Ok(self
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(GEMINI_BASE_URL)
+                .trim_end_matches('/')
+                .to_string()),
+            ProviderKind::SiliconFlow => Ok(self
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(SILICONFLOW_BASE_URL)
+                .trim_end_matches('/')
+                .to_string()),
+            ProviderKind::DashScope => Ok(self
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(DASHSCOPE_BASE_URL)
+                .trim_end_matches('/')
+                .to_string()),
+            ProviderKind::ModelScope => Ok(self
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(MODELSCOPE_BASE_URL)
+                .trim_end_matches('/')
+                .to_string()),
         }
     }
 
@@ -240,6 +357,17 @@ impl ProviderConfig {
                     return Err(format!("{} API key is missing.", self.label));
                 }
                 self.required_base_url()?;
+                Ok(())
+            }
+            ProviderKind::OpenAi
+            | ProviderKind::GoogleGemini
+            | ProviderKind::SiliconFlow
+            | ProviderKind::DashScope
+            | ProviderKind::ModelScope => {
+                if self.authorization_token().is_none() {
+                    return Err(format!("{} API key is missing.", self.label));
+                }
+                self.resolved_base_url()?;
                 Ok(())
             }
         }
@@ -360,23 +488,25 @@ pub async fn request_chat_completion(
     provider: &ProviderConfig,
     model: &str,
     temperature: f32,
+    reasoning: Option<&ProviderReasoningMode>,
     system_prompt: &str,
     user_prompt: &str,
 ) -> Result<String, String> {
     provider.validate_for_request()?;
 
     let client = build_http_client()?;
+    let payload = build_chat_completion_payload(
+        &provider.kind,
+        model,
+        temperature,
+        reasoning,
+        system_prompt,
+        user_prompt,
+    );
     let mut request = client
         .post(provider.chat_completions_url()?)
         .header("Content-Type", "application/json")
-        .json(&serde_json::json!({
-            "model": model,
-            "temperature": temperature,
-            "messages": [
-                { "role": "system", "content": system_prompt },
-                { "role": "user", "content": user_prompt }
-            ]
-        }));
+        .json(&payload);
 
     if let Some(token) = provider.authorization_token() {
         request = request.header("Authorization", format!("Bearer {}", token));
@@ -413,6 +543,57 @@ pub async fn request_chat_completion(
         .ok_or_else(|| format!("{} returned no choices.", provider.label))?;
 
     extract_message_content(&message.message.content)
+}
+
+fn build_chat_completion_payload(
+    provider_kind: &ProviderKind,
+    model: &str,
+    temperature: f32,
+    reasoning: Option<&ProviderReasoningMode>,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "model": model,
+        "temperature": temperature,
+        "messages": [
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_prompt }
+        ]
+    });
+
+    match provider_kind {
+        ProviderKind::DeepSeek => {
+            if let Some(mode) = reasoning {
+                payload["thinking"] = mode.as_deepseek_thinking();
+            }
+        }
+        ProviderKind::OpenRouter | ProviderKind::Ollama => {
+            if let Some(mode) = reasoning {
+                payload["reasoning"] = serde_json::json!({
+                    "effort": mode.as_standard_effort()
+                });
+            }
+        }
+        ProviderKind::OpenAi | ProviderKind::GoogleGemini => {
+            if let Some(mode) = reasoning {
+                payload["reasoning_effort"] = serde_json::json!(mode.as_standard_effort());
+            }
+        }
+        ProviderKind::SiliconFlow => {
+            if let Some(mode) = reasoning {
+                payload["enable_thinking"] = serde_json::json!(*mode != ProviderReasoningMode::Off);
+            }
+        }
+        ProviderKind::DashScope => {
+            if let Some(mode) = reasoning {
+                payload["enable_thinking"] = serde_json::json!(*mode != ProviderReasoningMode::Off);
+            }
+        }
+        ProviderKind::OpenAiCompatible | ProviderKind::ModelScope => {}
+    }
+
+    payload
 }
 
 pub async fn list_models(provider: &ProviderConfig) -> Result<Vec<String>, String> {
@@ -463,7 +644,9 @@ pub async fn list_models(provider: &ProviderConfig) -> Result<Vec<String>, Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{ProviderConfig, ProviderKind};
+    use super::{
+        build_chat_completion_payload, ProviderConfig, ProviderKind, ProviderReasoningMode,
+    };
     use serde_json::{from_str, to_string};
 
     #[test]
@@ -547,6 +730,73 @@ mod tests {
         assert_eq!(
             to_string(&ProviderKind::OpenAiCompatible).unwrap(),
             "\"openai-compatible\""
+        );
+    }
+
+    #[test]
+    fn chat_completion_payload_uses_documented_reasoning_controls() {
+        let deepseek = build_chat_completion_payload(
+            &ProviderKind::DeepSeek,
+            "deepseek-chat",
+            0.0,
+            Some(&ProviderReasoningMode::Max),
+            "system",
+            "user",
+        );
+        assert_eq!(
+            deepseek.pointer("/thinking/type").and_then(serde_json::Value::as_str),
+            Some("enabled")
+        );
+        assert_eq!(
+            deepseek
+                .pointer("/thinking/reasoning_effort")
+                .and_then(serde_json::Value::as_str),
+            Some("max")
+        );
+
+        let deepseek_off = build_chat_completion_payload(
+            &ProviderKind::DeepSeek,
+            "deepseek-chat",
+            0.0,
+            Some(&ProviderReasoningMode::Off),
+            "system",
+            "user",
+        );
+        assert_eq!(
+            deepseek_off
+                .pointer("/thinking/type")
+                .and_then(serde_json::Value::as_str),
+            Some("disabled")
+        );
+
+        let openrouter = build_chat_completion_payload(
+            &ProviderKind::OpenRouter,
+            "openai/gpt-4o-mini",
+            0.0,
+            Some(&ProviderReasoningMode::High),
+            "system",
+            "user",
+        );
+        assert_eq!(
+            openrouter
+                .pointer("/reasoning/effort")
+                .and_then(serde_json::Value::as_str),
+            Some("high")
+        );
+
+        let ollama = build_chat_completion_payload(
+            &ProviderKind::Ollama,
+            "gpt-oss",
+            0.0,
+            Some(&ProviderReasoningMode::Off),
+            "system",
+            "user",
+        );
+        assert_eq!(
+            ollama
+                .pointer("/reasoning/effort")
+                .and_then(serde_json::Value::as_str),
+            Some("none")
         );
     }
 }

@@ -6984,6 +6984,9 @@ function AppContent() {
                       onTranslationPreferenceChange={
                         handleTranslationPreferenceChange
                       }
+                      providerPresets={settings.presets}
+                      activeProviderPresetId={effectivePreset?.id}
+                      onActiveProviderPresetChange={handleActivatePreset}
                       currentPage={currentPage}
                       page={currentPdfPageDoc}
                       pageTranslation={pageTranslations[currentPage]}
@@ -7063,6 +7066,9 @@ function AppContent() {
                       onTranslationPreferenceChange={
                         handleTranslationPreferenceChange
                       }
+                      providerPresets={settings.presets}
+                      activeProviderPresetId={effectivePreset?.id}
+                      onActiveProviderPresetChange={handleActivatePreset}
                       pages={pages}
                       currentPage={currentPage}
                       setupRequired={showEpubSetupPrompt}

@@ -41,7 +41,14 @@ export type TranslationProviderKind =
   | "openrouter"
   | "deepseek"
   | "ollama"
-  | "openai-compatible";
+  | "openai-compatible"
+  | "openai"
+  | "google-gemini"
+  | "siliconflow"
+  | "dashscope"
+  | "modelscope";
+
+export type ProviderReasoningMode = "off" | "low" | "medium" | "high" | "max";
 
 export type TranslationPreset = {
   id: string;
@@ -51,6 +58,8 @@ export type TranslationPreset = {
   apiKey?: string;
   apiKeyConfigured?: boolean;
   model: string;
+  thinking?: ProviderReasoningMode;
+  reasoning?: ProviderReasoningMode;
 };
 
 export type TranslationProvider = TranslationPreset;

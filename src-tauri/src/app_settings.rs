@@ -1,4 +1,4 @@
-use crate::providers::{ProviderConfig, ProviderKind, TranslationProviders};
+use crate::providers::{ProviderConfig, ProviderKind, ProviderReasoningMode, TranslationProviders};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_MODEL: &str = "openrouter/free";
@@ -34,6 +34,10 @@ pub struct TranslationPreset {
     #[serde(default)]
     pub api_key_configured: bool,
     pub model: String,
+    #[serde(default)]
+    pub thinking: Option<ProviderReasoningMode>,
+    #[serde(default)]
+    pub reasoning: Option<ProviderReasoningMode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +92,8 @@ impl TranslationPreset {
             api_key_configured: api_key.is_some(),
             api_key,
             model,
+            thinking: normalize_thinking(&self.provider_kind, self.thinking.clone()),
+            reasoning: normalize_reasoning(&self.provider_kind, self.reasoning.clone()),
         }
     }
 
@@ -103,6 +109,25 @@ impl TranslationPreset {
         };
         provider.normalize();
         provider
+    }
+}
+
+pub fn preset_reasoning_mode(preset: &TranslationPreset) -> Option<&ProviderReasoningMode> {
+    match preset.provider_kind {
+        ProviderKind::DeepSeek => preset.thinking.as_ref(),
+        ProviderKind::OpenRouter | ProviderKind::Ollama => preset.reasoning.as_ref(),
+        ProviderKind::OpenAi
+        | ProviderKind::GoogleGemini => preset.reasoning.as_ref(),
+        ProviderKind::SiliconFlow
+        | ProviderKind::DashScope => preset.thinking.as_ref(),
+        ProviderKind::OpenAiCompatible | ProviderKind::ModelScope => None,
+    }
+}
+
+pub fn preset_cache_provider_id(preset: &TranslationPreset) -> String {
+    match preset_reasoning_mode(preset) {
+        Some(mode) => format!("{}|reasoning={:?}", preset.id, mode),
+        None => preset.id.clone(),
     }
 }
 
@@ -245,6 +270,8 @@ pub fn migrate_legacy_translation_providers(
             api_key: normalized_provider.api_key.clone(),
             api_key_configured: normalized_provider.api_key_configured,
             model,
+            thinking: None,
+            reasoning: None,
         }
         .normalized();
 
@@ -290,6 +317,11 @@ pub fn build_preset_label(provider_kind: &ProviderKind, model: &str) -> String {
         ProviderKind::DeepSeek => "DeepSeek",
         ProviderKind::Ollama => "Ollama",
         ProviderKind::OpenAiCompatible => "Custom",
+        ProviderKind::OpenAi => "OpenAI",
+        ProviderKind::GoogleGemini => "Gemini",
+        ProviderKind::SiliconFlow => "SiliconFlow",
+        ProviderKind::DashScope => "DashScope",
+        ProviderKind::ModelScope => "ModelScope",
     };
     let trimmed_model = model.trim();
 
@@ -361,6 +393,51 @@ fn normalize_base_url(base_url: Option<&str>, provider_kind: &ProviderKind) -> O
     .map(|value| value.trim_end_matches('/').to_string())
 }
 
+fn normalize_thinking(
+    provider_kind: &ProviderKind,
+    thinking: Option<ProviderReasoningMode>,
+) -> Option<ProviderReasoningMode> {
+    match (provider_kind, thinking) {
+        (ProviderKind::DeepSeek, Some(ProviderReasoningMode::High)) => {
+            Some(ProviderReasoningMode::High)
+        }
+        (ProviderKind::DeepSeek, Some(ProviderReasoningMode::Max)) => {
+            Some(ProviderReasoningMode::Max)
+        }
+        (ProviderKind::SiliconFlow | ProviderKind::DashScope, Some(ProviderReasoningMode::High)) => {
+            Some(ProviderReasoningMode::High)
+        }
+        _ => None,
+    }
+}
+
+fn normalize_reasoning(
+    provider_kind: &ProviderKind,
+    reasoning: Option<ProviderReasoningMode>,
+) -> Option<ProviderReasoningMode> {
+    match (provider_kind, reasoning) {
+        (
+            ProviderKind::OpenRouter
+            | ProviderKind::Ollama
+            | ProviderKind::OpenAi
+            | ProviderKind::GoogleGemini,
+            Some(
+                mode @ (ProviderReasoningMode::Low
+                | ProviderReasoningMode::Medium
+                | ProviderReasoningMode::High),
+            ),
+        ) => Some(mode),
+        (
+            ProviderKind::OpenRouter
+            | ProviderKind::Ollama
+            | ProviderKind::OpenAi
+            | ProviderKind::GoogleGemini,
+            Some(ProviderReasoningMode::Off),
+        ) => Some(ProviderReasoningMode::Off),
+        _ => None,
+    }
+}
+
 fn normalize_optional_string(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -378,6 +455,11 @@ fn build_preset_id_seed(provider_kind: &ProviderKind, model: &str) -> String {
         ProviderKind::DeepSeek => "deepseek",
         ProviderKind::Ollama => "ollama",
         ProviderKind::OpenAiCompatible => "openai-compatible",
+        ProviderKind::OpenAi => "openai",
+        ProviderKind::GoogleGemini => "google-gemini",
+        ProviderKind::SiliconFlow => "siliconflow",
+        ProviderKind::DashScope => "dashscope",
+        ProviderKind::ModelScope => "modelscope",
     };
 
     match normalize_required_string(Some(model)) {
@@ -444,6 +526,11 @@ fn matches_legacy_active_provider(
         ProviderKind::DeepSeek => legacy_active_provider_id == "deepseek",
         ProviderKind::Ollama => legacy_active_provider_id == "ollama",
         ProviderKind::OpenAiCompatible => legacy_active_provider_id == "openai-compatible",
+        ProviderKind::OpenAi
+        | ProviderKind::GoogleGemini
+        | ProviderKind::SiliconFlow
+        | ProviderKind::DashScope
+        | ProviderKind::ModelScope => false,
     }
 }
 
@@ -453,6 +540,11 @@ fn default_model_for_provider_kind(provider_kind: &ProviderKind) -> &'static str
         ProviderKind::DeepSeek => "deepseek-chat",
         ProviderKind::Ollama => "llama3.2",
         ProviderKind::OpenAiCompatible => "gpt-4o-mini",
+        ProviderKind::OpenAi => "gpt-5.4-mini",
+        ProviderKind::GoogleGemini => "gemini-2.5-flash",
+        ProviderKind::SiliconFlow => "Qwen/Qwen3-235B-A22B",
+        ProviderKind::DashScope => "qwen-plus",
+        ProviderKind::ModelScope => "Qwen/Qwen3-30B-A3B",
     }
 }
 
@@ -462,7 +554,13 @@ fn is_seeded_legacy_placeholder_preset(preset: &TranslationPreset) -> bool {
     let expected_base_url = match preset.provider_kind {
         ProviderKind::DeepSeek => Some(DEEPSEEK_BASE_URL.to_string()),
         ProviderKind::Ollama => Some(OLLAMA_BASE_URL.to_string()),
-        ProviderKind::OpenRouter | ProviderKind::OpenAiCompatible => None,
+        ProviderKind::OpenRouter
+        | ProviderKind::OpenAiCompatible
+        | ProviderKind::OpenAi
+        | ProviderKind::GoogleGemini
+        | ProviderKind::SiliconFlow
+        | ProviderKind::DashScope
+        | ProviderKind::ModelScope => None,
     };
 
     preset.id == expected_id
@@ -567,6 +665,8 @@ mod tests {
                 api_key: Some("sk-or-test".to_string()),
                 api_key_configured: false,
                 model: " openrouter/free ".to_string(),
+                thinking: None,
+                reasoning: None,
             }],
         };
 
@@ -597,6 +697,8 @@ mod tests {
                 api_key: Some("ignored".to_string()),
                 api_key_configured: true,
                 model: " llama3.2 ".to_string(),
+                thinking: None,
+                reasoning: None,
             }],
         };
 
@@ -675,6 +777,8 @@ mod tests {
                     api_key: None,
                     api_key_configured: false,
                     model: "openrouter/free".to_string(),
+                    thinking: None,
+                    reasoning: None,
                 },
                 TranslationPreset {
                     id: "deepseek-deepseek-chat".to_string(),
@@ -684,6 +788,8 @@ mod tests {
                     api_key: None,
                     api_key_configured: false,
                     model: "deepseek-chat".to_string(),
+                    thinking: None,
+                    reasoning: None,
                 },
                 TranslationPreset {
                     id: "openai-compatible-gpt-4o-mini".to_string(),
@@ -693,6 +799,8 @@ mod tests {
                     api_key: None,
                     api_key_configured: false,
                     model: "gpt-4o-mini".to_string(),
+                    thinking: None,
+                    reasoning: None,
                 },
                 TranslationPreset {
                     id: "ollama-llama3-2".to_string(),
@@ -702,6 +810,8 @@ mod tests {
                     api_key: None,
                     api_key_configured: false,
                     model: "llama3.2".to_string(),
+                    thinking: None,
+                    reasoning: None,
                 },
             ],
         };
@@ -729,6 +839,8 @@ mod tests {
                 api_key: None,
                 api_key_configured: false,
                 model: "".to_string(),
+                thinking: None,
+                reasoning: None,
             }],
         };
 

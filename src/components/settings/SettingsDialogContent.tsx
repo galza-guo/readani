@@ -13,12 +13,16 @@ import {
   getPresetApiKeyFieldState,
   getPresetValidationState,
   getProviderOptionLabel,
+  normalizeProviderReasoningMode,
   normalizeAutoTranslateNextPages,
   PRESET_PROVIDER_OPTIONS,
   providerUsesApiKey,
   providerUsesEditableBaseUrl,
+  providerUsesReasoning,
+  providerUsesThinking,
 } from "../../lib/appSettings";
 import type {
+  ProviderReasoningMode,
   PresetSaveStatus,
   PresetTestResult,
   TranslationCacheSummary,
@@ -72,6 +76,33 @@ const AUTO_TRANSLATE_NEXT_PAGE_OPTIONS = [
   { value: 5, label: "5" },
   { value: 10, label: "10" },
   { value: 20, label: "20" },
+];
+
+const DEEPSEEK_THINKING_OPTIONS: Array<{
+  value: ProviderReasoningMode;
+  label: string;
+}> = [
+  { value: "off", label: "Off" },
+  { value: "high", label: "High" },
+  { value: "max", label: "Max" },
+];
+
+const THINKING_TOGGLE_OPTIONS: Array<{
+  value: ProviderReasoningMode;
+  label: string;
+}> = [
+  { value: "off", label: "Off" },
+  { value: "high", label: "On" },
+];
+
+const STANDARD_REASONING_OPTIONS: Array<{
+  value: ProviderReasoningMode;
+  label: string;
+}> = [
+  { value: "off", label: "Off" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
 ];
 
 function getAutoTranslateNextPageLabel(value: number) {
@@ -755,26 +786,29 @@ export function SettingsDialogContent({
                         align="end"
                         sideOffset={8}
                       >
-                        <div className="settings-help-title">Add provider</div>
                         <div className="settings-provider-picker-list">
                           {PRESET_PROVIDER_OPTIONS.map((provider) => (
-                            <button
-                              key={provider.value}
-                              className="settings-provider-option"
-                              onClick={() => {
-                                const presetId = onAddPreset(provider.value);
-                                setProviderPickerOpen(false);
-                                if (presetId) {
-                                  void Promise.resolve(onEditingPresetChange(presetId)).catch(() => {});
-                                }
-                              }}
-                              type="button"
-                            >
-                              <span>{provider.label}</span>
-                            </button>
+                            <>
+                              {provider.value === "openai-compatible" ? (
+                                <div key="divider" className="settings-provider-picker-divider" />
+                              ) : null}
+                              <button
+                                key={provider.value}
+                                className="settings-provider-option"
+                                onClick={() => {
+                                  const presetId = onAddPreset(provider.value);
+                                  setProviderPickerOpen(false);
+                                  if (presetId) {
+                                    void Promise.resolve(onEditingPresetChange(presetId)).catch(() => {});
+                                  }
+                                }}
+                                type="button"
+                              >
+                                <span>{provider.label}</span>
+                              </button>
+                            </>
                           ))}
                         </div>
-                        <Popover.Arrow className="popover-arrow" />
                       </Popover.Content>
                     </Popover.Portal>
                   </Popover.Root>
@@ -1043,6 +1077,124 @@ export function SettingsDialogContent({
                                 </div>
                               ) : null}
                             </div>
+
+                            {providerUsesThinking(editingPreset.providerKind) ? (
+                              <div className="settings-item">
+                                <Label.Root className="settings-label type-field-label" htmlFor="preset-thinking">
+                                  Thinking
+                                </Label.Root>
+                                <Select.Root
+                                  value={normalizeProviderReasoningMode(
+                                    editingPreset.providerKind,
+                                    editingPreset.thinking,
+                                  )}
+                                  onValueChange={(value) =>
+                                    onPresetChange({
+                                      ...editingPreset,
+                                      thinking: value as ProviderReasoningMode,
+                                      reasoning: undefined,
+                                    })
+                                  }
+                                >
+                                  <Select.Trigger
+                                    className="select-trigger"
+                                    aria-label="Thinking"
+                                    id="preset-thinking"
+                                  >
+                                    <span>
+                                      {(editingPreset.providerKind === "siliconflow" || editingPreset.providerKind === "dashscope"
+                                        ? THINKING_TOGGLE_OPTIONS
+                                        : DEEPSEEK_THINKING_OPTIONS
+                                      ).find(
+                                        (option) =>
+                                          option.value ===
+                                          normalizeProviderReasoningMode(
+                                            editingPreset.providerKind,
+                                            editingPreset.thinking,
+                                          ),
+                                      )?.label ?? "Off"}
+                                    </span>
+                                    <Select.Icon asChild>
+                                      <ChevronDownIcon />
+                                    </Select.Icon>
+                                  </Select.Trigger>
+                                  <Select.Portal>
+                                    <Select.Content className="select-content settings-select-content" position="popper">
+                                      <Select.Viewport>
+                                        {(editingPreset.providerKind === "siliconflow" || editingPreset.providerKind === "dashscope"
+                                          ? THINKING_TOGGLE_OPTIONS
+                                          : DEEPSEEK_THINKING_OPTIONS
+                                        ).map((option) => (
+                                          <Select.Item
+                                            key={option.value}
+                                            value={option.value}
+                                            className="select-item"
+                                          >
+                                            <Select.ItemText>{option.label}</Select.ItemText>
+                                          </Select.Item>
+                                        ))}
+                                      </Select.Viewport>
+                                    </Select.Content>
+                                  </Select.Portal>
+                                </Select.Root>
+                              </div>
+                            ) : null}
+
+                            {providerUsesReasoning(editingPreset.providerKind) ? (
+                              <div className="settings-item">
+                                <Label.Root className="settings-label type-field-label" htmlFor="preset-reasoning">
+                                  Reasoning
+                                </Label.Root>
+                                <Select.Root
+                                  value={normalizeProviderReasoningMode(
+                                    editingPreset.providerKind,
+                                    editingPreset.reasoning,
+                                  )}
+                                  onValueChange={(value) =>
+                                    onPresetChange({
+                                      ...editingPreset,
+                                      reasoning: value as ProviderReasoningMode,
+                                      thinking: undefined,
+                                    })
+                                  }
+                                >
+                                  <Select.Trigger
+                                    className="select-trigger"
+                                    aria-label="Reasoning"
+                                    id="preset-reasoning"
+                                  >
+                                    <span>
+                                      {STANDARD_REASONING_OPTIONS.find(
+                                        (option) =>
+                                          option.value ===
+                                          normalizeProviderReasoningMode(
+                                            editingPreset.providerKind,
+                                            editingPreset.reasoning,
+                                          ),
+                                      )?.label ?? "Off"}
+                                    </span>
+                                    <Select.Icon asChild>
+                                      <ChevronDownIcon />
+                                    </Select.Icon>
+                                  </Select.Trigger>
+                                  <Select.Portal>
+                                    <Select.Content className="select-content settings-select-content" position="popper">
+                                      <Select.Viewport>
+                                        {STANDARD_REASONING_OPTIONS.map((option) => (
+                                          <Select.Item
+                                            key={option.value}
+                                            value={option.value}
+                                            className="select-item"
+                                          >
+                                            <Select.ItemText>{option.label}</Select.ItemText>
+                                          </Select.Item>
+                                        ))}
+                                      </Select.Viewport>
+                                    </Select.Content>
+                                  </Select.Portal>
+                                </Select.Root>
+                              </div>
+                            ) : null}
 
                             <div className="settings-actions-row">
                               <button

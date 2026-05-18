@@ -3,8 +3,8 @@ mod page_cache;
 mod providers;
 
 use app_settings::{
-    merge_app_settings, migrate_legacy_translation_providers, AppSettings, SettingsLanguage,
-    TranslationPreset,
+    merge_app_settings, migrate_legacy_translation_providers, preset_reasoning_mode, AppSettings,
+    SettingsLanguage, TranslationPreset,
 };
 use chrono::{DateTime, Utc};
 use page_cache::{
@@ -1021,6 +1021,7 @@ async fn run_preset_test(
         &provider,
         &normalized.model,
         0.0,
+        preset_reasoning_mode(&normalized),
         build_selection_translation_system_prompt(),
         &build_preset_test_prompt(target_language),
     )
@@ -1249,6 +1250,7 @@ async fn translate_page_text_with_preset(
         &provider,
         &preset.model,
         temperature,
+        preset_reasoning_mode(preset),
         &build_page_translation_system_prompt(),
         &build_page_translation_prompt(
             target_language,
@@ -1786,6 +1788,7 @@ async fn translate_selection_text(
                     &provider,
                     &preset.model,
                     0.0,
+                    preset_reasoning_mode(&preset),
                     build_selection_translation_system_prompt(),
                     &build_selection_translation_prompt(&target_language, trimmed.as_str()),
                 )
@@ -2317,6 +2320,7 @@ async fn request_sentence_translations_with_preset(
         &provider,
         &preset.model,
         temperature,
+        preset_reasoning_mode(preset),
         &system_prompt,
         &user_prompt,
     )
@@ -2334,6 +2338,7 @@ async fn request_sentence_translations_with_preset(
             &provider,
             &preset.model,
             temperature,
+            preset_reasoning_mode(preset),
             &system_prompt,
             &strict_user_prompt,
         )
@@ -2606,6 +2611,7 @@ async fn openrouter_word_lookup(
                     &provider,
                     &preset.model,
                     0.0,
+                    preset_reasoning_mode(&preset),
                     &system_prompt,
                     &user_prompt,
                 )
@@ -2950,7 +2956,7 @@ async fn chat_with_context(
     );
 
     let content =
-        request_chat_completion(&provider, &model, 0.3, system_prompt, &user_prompt).await?;
+        request_chat_completion(&provider, &model, 0.3, None, system_prompt, &user_prompt).await?;
     Ok(content)
 }
 
@@ -3154,6 +3160,8 @@ mod tests {
             api_key: api_key.map(str::to_string),
             api_key_configured: api_key.is_some(),
             model: model.to_string(),
+            thinking: None,
+            reasoning: None,
         }
     }
 
@@ -3201,6 +3209,8 @@ mod tests {
             api_key: Some("sk-saved".to_string()),
             api_key_configured: true,
             model: "openai/gpt-4o-mini".to_string(),
+            thinking: None,
+            reasoning: None,
         };
         let incoming = TranslationPreset {
             id: "preset-1".to_string(),
@@ -3210,6 +3220,8 @@ mod tests {
             api_key: None,
             api_key_configured: true,
             model: "openai/gpt-4o-mini".to_string(),
+            thinking: None,
+            reasoning: None,
         };
 
         let merged = merge_saved_preset_credentials(&[saved], incoming);
@@ -3228,6 +3240,8 @@ mod tests {
             api_key: Some("old-key".to_string()),
             api_key_configured: true,
             model: "llama3.2".to_string(),
+            thinking: None,
+            reasoning: None,
         };
         let incoming = TranslationPreset {
             id: "preset-1".to_string(),
@@ -3237,6 +3251,8 @@ mod tests {
             api_key: None,
             api_key_configured: false,
             model: "llama3.2".to_string(),
+            thinking: None,
+            reasoning: None,
         };
 
         let merged = merge_saved_preset_credentials(&[saved], incoming);

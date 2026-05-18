@@ -21,13 +21,13 @@ import {
 import { getFriendlyProviderError } from "../lib/providerErrors";
 import type { PageProgressStatus } from "../lib/pageTranslationScheduler";
 import { useToast } from "./toast/ToastProvider";
-import { ExpandableIconButton } from "./reader/ExpandableIconButton";
 import type {
   PageDoc,
   PageTranslationState,
   Paragraph,
   SelectionTranslation,
   TargetLanguage,
+  TranslationPreset,
   WordTranslation,
 } from "../types";
 import type { ResolvedSentenceAnnotation } from "../lib/annotationMatching";
@@ -62,11 +62,20 @@ type TranslationLanguageControlProps = {
   }) => void;
 };
 
+type TranslationPresetControlProps = {
+  presets: TranslationPreset[];
+  activePresetId?: string | null;
+  onActivatePreset?: (presetId: string) => void | Promise<void>;
+};
+
 type PdfTranslationPaneProps = {
   mode: "pdf";
   translationEnabled: boolean;
   targetLanguage: TargetLanguage;
   onTranslationPreferenceChange: TranslationLanguageControlProps["onChange"];
+  providerPresets?: TranslationPreset[];
+  activeProviderPresetId?: string | null;
+  onActiveProviderPresetChange?: (presetId: string) => void | Promise<void>;
   currentPage: number;
   page?: PageDoc;
   pageTranslation?: PageTranslationState;
@@ -111,6 +120,9 @@ type EpubTranslationPaneProps = {
   translationEnabled: boolean;
   targetLanguage: TargetLanguage;
   onTranslationPreferenceChange: TranslationLanguageControlProps["onChange"];
+  providerPresets?: TranslationPreset[];
+  activeProviderPresetId?: string | null;
+  onActiveProviderPresetChange?: (presetId: string) => void | Promise<void>;
   pages: PageDoc[];
   currentPage: number;
   setupRequired?: boolean;
@@ -149,6 +161,8 @@ type EpubTranslationPaneProps = {
 };
 
 type TranslationPaneProps = PdfTranslationPaneProps | EpubTranslationPaneProps;
+
+const TRANSLATION_TEXT_SIZE_LEVELS = [0.9, 1, 1.1, 1.2, 1.35] as const;
 
 function getFallbackAttemptSummary(pageTranslation?: PageTranslationState) {
   const attemptCount = pageTranslation?.fallbackTrace?.attemptCount ?? 0;
@@ -274,6 +288,31 @@ function CheckSmallIcon() {
       <path d="M20 6L9 17l-5-5" />
     </svg>
   );
+}
+
+function MoreIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+      <circle cx="5" cy="12" r="1" />
+    </svg>
+  );
+}
+
+function getPresetSummary(preset: TranslationPreset) {
+  const model = preset.model.trim();
+
+  return model ? `${preset.label} · ${model}` : preset.label;
 }
 
 function TranslationLanguageControl({
@@ -467,6 +506,182 @@ function TranslationLanguageControl({
               <div className="language-combobox-empty">No languages found.</div>
             ) : null}
           </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+function TranslationPresetControl({
+  presets,
+  activePresetId,
+  onActivatePreset,
+}: TranslationPresetControlProps) {
+  const [open, setOpen] = useState(false);
+  const activePreset =
+    presets.find((preset) => preset.id === activePresetId) ?? presets[0];
+  const canSwitch = Boolean(onActivatePreset && presets.length > 1);
+
+  if (!activePreset) {
+    return null;
+  }
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button
+          className="translation-pane-menu-item translation-pane-preset-trigger"
+          type="button"
+          disabled={!canSwitch}
+          aria-label="Switch provider or model"
+          aria-expanded={open}
+          title={
+            canSwitch
+              ? "Switch provider or model"
+              : "Only one provider/model is configured"
+          }
+        >
+          <span className="translation-pane-menu-item-text">
+            {getPresetSummary(activePreset)}
+          </span>
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          align="end"
+          className="translation-pane-submenu-content"
+          sideOffset={8}
+        >
+          {presets.map((preset) => {
+            const isSelected = preset.id === activePreset.id;
+
+            return (
+              <button
+                key={preset.id}
+                className={`language-combobox-option ${
+                  isSelected ? "is-selected" : ""
+                }`}
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  if (!isSelected) {
+                    void onActivatePreset?.(preset.id);
+                  }
+                }}
+              >
+                <span>{getPresetSummary(preset)}</span>
+                {isSelected ? <CheckSmallIcon /> : null}
+              </button>
+            );
+          })}
+          <Popover.Arrow className="popover-arrow" />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+function TranslationPaneHeaderMenu({
+  translationEnabled,
+  targetLanguage,
+  onTranslationPreferenceChange,
+  providerPresets = [],
+  activeProviderPresetId,
+  onActiveProviderPresetChange,
+  textSizeIndex,
+  onTextSizeIndexChange,
+  onRedoPage,
+  redoPageDisabled,
+}: {
+  translationEnabled: boolean;
+  targetLanguage: TargetLanguage;
+  onTranslationPreferenceChange: TranslationLanguageControlProps["onChange"];
+  providerPresets?: TranslationPreset[];
+  activeProviderPresetId?: string | null;
+  onActiveProviderPresetChange?: (presetId: string) => void | Promise<void>;
+  textSizeIndex: number;
+  onTextSizeIndexChange: (index: number) => void;
+  onRedoPage?: () => void;
+  redoPageDisabled?: boolean;
+}) {
+  const textSizePercent = Math.round(
+    TRANSLATION_TEXT_SIZE_LEVELS[textSizeIndex] * 100,
+  );
+  const canShrink = textSizeIndex > 0;
+  const canEnlarge = textSizeIndex < TRANSLATION_TEXT_SIZE_LEVELS.length - 1;
+
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button
+          className="translation-pane-menu-trigger"
+          type="button"
+          aria-label="Translation options"
+          title="Translation options"
+        >
+          <MoreIcon />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          align="end"
+          className="translation-pane-menu-content"
+          sideOffset={8}
+        >
+          <div className="translation-pane-menu-row is-end-aligned">
+            <TranslationLanguageControl
+              enabled={translationEnabled}
+              targetLanguage={targetLanguage}
+              onChange={onTranslationPreferenceChange}
+            />
+          </div>
+          <div className="translation-pane-menu-row is-end-aligned">
+            <div
+              className="translation-text-size-control"
+              aria-label="Translation text size"
+            >
+              <button
+                className="translation-text-size-btn"
+                type="button"
+                onClick={() => onTextSizeIndexChange(textSizeIndex - 1)}
+                disabled={!canShrink}
+                aria-label="Shrink translation text"
+                title="Shrink translation text"
+              >
+                A-
+              </button>
+              <span className="translation-text-size-readout">
+                {textSizePercent}%
+              </span>
+              <button
+                className="translation-text-size-btn"
+                type="button"
+                onClick={() => onTextSizeIndexChange(textSizeIndex + 1)}
+                disabled={!canEnlarge}
+                aria-label="Enlarge translation text"
+                title="Enlarge translation text"
+              >
+                A+
+              </button>
+            </div>
+          </div>
+          <TranslationPresetControl
+            presets={providerPresets}
+            activePresetId={activeProviderPresetId}
+            onActivatePreset={onActiveProviderPresetChange}
+          />
+          {onRedoPage ? (
+            <button
+              className="translation-pane-menu-item"
+              type="button"
+              onClick={onRedoPage}
+              disabled={redoPageDisabled}
+            >
+              <RetryIcon />
+              <span className="translation-pane-menu-item-text">Redo page</span>
+            </button>
+          ) : null}
+          <Popover.Arrow className="popover-arrow" />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
@@ -1546,6 +1761,9 @@ function PdfTranslationPane({
   translationEnabled,
   targetLanguage,
   onTranslationPreferenceChange,
+  providerPresets,
+  activeProviderPresetId,
+  onActiveProviderPresetChange,
   currentPage,
   page,
   pageTranslation,
@@ -1585,7 +1803,11 @@ function PdfTranslationPane({
 }: Omit<PdfTranslationPaneProps, "mode">) {
   const { showToast } = useToast();
   const [selectedPids, setSelectedPids] = useState<string[]>([]);
+  const [textSizeIndex, setTextSizeIndex] = useState(1);
   const selectionAnchorIndexRef = useRef<number | null>(null);
+  const paneStyle = {
+    "--translation-text-scale": TRANSLATION_TEXT_SIZE_LEVELS[textSizeIndex],
+  } as CSSProperties;
   const annotationByPid = useMemo(() => {
     const map = new Map<string, ResolvedSentenceAnnotation>();
     if (annotations) {
@@ -1771,7 +1993,7 @@ function PdfTranslationPane({
   );
 
   return (
-    <div className="translation-pane page-translation-pane">
+    <div className="translation-pane page-translation-pane" style={paneStyle}>
       <div className="translation-pane-header rail-pane-header">
         <div className="rail-pane-header-copy">
           <div className="rail-pane-title-row">
@@ -1830,11 +2052,6 @@ function PdfTranslationPane({
           </div>
         ) : null}
         <div className="page-translation-actions rail-pane-header-actions">
-          <TranslationLanguageControl
-            enabled={translationEnabled}
-            targetLanguage={targetLanguage}
-            onChange={onTranslationPreferenceChange}
-          />
           <button
             className={`annotation-mode-btn ${annotationModeEnabled ? "is-active" : ""}`}
             type="button"
@@ -1854,16 +2071,18 @@ function PdfTranslationPane({
           >
             <AnnotateIcon />
           </button>
-          <ExpandableIconButton
-            type="button"
-            onClick={() => onRetryPage(currentPage)}
-            disabled={!canRetryPage}
-            aria-label="Redo page"
-            label="Redo page"
-            labelDirection="left"
-          >
-            <RetryIcon />
-          </ExpandableIconButton>
+          <TranslationPaneHeaderMenu
+            translationEnabled={translationEnabled}
+            targetLanguage={targetLanguage}
+            onTranslationPreferenceChange={onTranslationPreferenceChange}
+            providerPresets={providerPresets}
+            activeProviderPresetId={activeProviderPresetId}
+            onActiveProviderPresetChange={onActiveProviderPresetChange}
+            textSizeIndex={textSizeIndex}
+            onTextSizeIndexChange={setTextSizeIndex}
+            onRedoPage={() => onRetryPage(currentPage)}
+            redoPageDisabled={!canRetryPage}
+          />
         </div>
       </div>
       <div className="page-translation-scroll">
@@ -2069,6 +2288,9 @@ function EpubTranslationPane({
   translationEnabled,
   targetLanguage,
   onTranslationPreferenceChange,
+  providerPresets,
+  activeProviderPresetId,
+  onActiveProviderPresetChange,
   pages,
   currentPage,
   setupRequired = false,
@@ -2105,9 +2327,13 @@ function EpubTranslationPane({
   onNoteEditingChange,
 }: Omit<EpubTranslationPaneProps, "mode">) {
   const { showToast } = useToast();
+  const [textSizeIndex, setTextSizeIndex] = useState(1);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const lastHandledScrollPageRef = useRef<number | null>(null);
   const isServerRender = typeof window === "undefined";
+  const paneStyle = {
+    "--translation-text-scale": TRANSLATION_TEXT_SIZE_LEVELS[textSizeIndex],
+  } as CSSProperties;
 
   const handleCopyText = useCallback(
     (text: string, label: string) => {
@@ -2199,7 +2425,7 @@ function EpubTranslationPane({
   );
 
   return (
-    <div className="translation-pane">
+    <div className="translation-pane" style={paneStyle}>
       <div className="translation-pane-header rail-pane-header">
         <div className="rail-pane-header-copy">
           <div className="rail-pane-title-row">
@@ -2207,11 +2433,6 @@ function EpubTranslationPane({
           </div>
         </div>
         <div className="page-translation-actions rail-pane-header-actions">
-          <TranslationLanguageControl
-            enabled={translationEnabled}
-            targetLanguage={targetLanguage}
-            onChange={onTranslationPreferenceChange}
-          />
           <button
             className={`annotation-mode-btn ${annotationModeEnabled ? "is-active" : ""}`}
             type="button"
@@ -2221,6 +2442,16 @@ function EpubTranslationPane({
           >
             <AnnotateIcon />
           </button>
+          <TranslationPaneHeaderMenu
+            translationEnabled={translationEnabled}
+            targetLanguage={targetLanguage}
+            onTranslationPreferenceChange={onTranslationPreferenceChange}
+            providerPresets={providerPresets}
+            activeProviderPresetId={activeProviderPresetId}
+            onActiveProviderPresetChange={onActiveProviderPresetChange}
+            textSizeIndex={textSizeIndex}
+            onTextSizeIndexChange={setTextSizeIndex}
+          />
         </div>
       </div>
       {setupRequired && translationEnabled ? (

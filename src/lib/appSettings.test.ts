@@ -25,6 +25,7 @@ import {
   providerUsesApiKey,
   providerUsesEditableBaseUrl,
   serializeProviderKindForCommand,
+  normalizeProviderReasoningMode,
 } from "./appSettings";
 
 describe("app settings helpers", () => {
@@ -179,6 +180,57 @@ describe("app settings helpers", () => {
       "openrouter",
       "openai-compatible",
     ]);
+  });
+
+  test("normalizes provider reasoning controls from storage", () => {
+    const normalized = normalizeSettingsFromStorage({
+      activePresetId: "preset-1",
+      autoFallbackEnabled: false,
+      autoTranslateNextPages: 1,
+      translateAllSlowMode: false,
+      defaultLanguage: {
+        code: "zh-CN",
+        label: "Chinese (Simplified)",
+      },
+      theme: "system",
+      presets: [
+        {
+          id: "preset-1",
+          label: "DeepSeek · deepseek-chat",
+          providerKind: "deepseek",
+          model: "deepseek-chat",
+          thinking: "max",
+        },
+        {
+          id: "preset-2",
+          label: "OpenRouter · model",
+          providerKind: "openrouter",
+          model: "model",
+          reasoning: "medium",
+        },
+        {
+          id: "preset-3",
+          label: "Custom · model",
+          providerKind: "openai-compatible",
+          model: "model",
+          reasoning: "high",
+        } as any,
+      ],
+    });
+
+    expect(normalized.presets[0]?.thinking).toBe("max");
+    expect(normalized.presets[1]?.reasoning).toBe("medium");
+    expect(normalized.presets[2]?.reasoning).toBeUndefined();
+  });
+
+  test("keeps provider-specific reasoning values in their documented ranges", () => {
+    expect(normalizeProviderReasoningMode("deepseek", "low")).toBe("off");
+    expect(normalizeProviderReasoningMode("deepseek", "high")).toBe("high");
+    expect(normalizeProviderReasoningMode("deepseek", "max")).toBe("max");
+    expect(normalizeProviderReasoningMode("openrouter", "max")).toBe("off");
+    expect(normalizeProviderReasoningMode("openrouter", "low")).toBe("low");
+    expect(normalizeProviderReasoningMode("ollama", "medium")).toBe("medium");
+    expect(normalizeProviderReasoningMode("openai-compatible", "high")).toBe("off");
   });
 
   test("defaults automatic fallback to false when older saved settings do not include it", () => {
