@@ -8,6 +8,8 @@ const DEFAULT_AUTO_TRANSLATE_NEXT_PAGES: u32 = 1;
 const MAX_AUTO_TRANSLATE_NEXT_PAGES: u32 = 20;
 const DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const OLLAMA_BASE_URL: &str = "http://localhost:11434/v1";
+const ZAI_CODING_BASE_URL: &str = "https://api.z.ai/api/coding/paas/v4";
+const BIGMODEL_CODING_BASE_URL: &str = "https://open.bigmodel.cn/api/coding/paas/v4";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -38,6 +40,8 @@ pub struct TranslationPreset {
     pub thinking: Option<ProviderReasoningMode>,
     #[serde(default)]
     pub reasoning: Option<ProviderReasoningMode>,
+    #[serde(default)]
+    pub coding_plan: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,7 +78,11 @@ impl TranslationPreset {
     pub fn normalized(&self) -> Self {
         let provider_kind = self.provider_kind.clone();
         let model = normalize_required_string(Some(&self.model)).unwrap_or_default();
-        let base_url = normalize_base_url(self.base_url.as_deref(), &provider_kind);
+        let base_url = resolve_coding_plan_base_url(
+            &provider_kind,
+            self.coding_plan,
+            normalize_base_url(self.base_url.as_deref(), &provider_kind),
+        );
         let api_key = if provider_kind.uses_api_key() {
             normalize_optional_string(self.api_key.as_deref())
         } else {
@@ -94,15 +102,21 @@ impl TranslationPreset {
             model,
             thinking: normalize_thinking(&self.provider_kind, self.thinking.clone()),
             reasoning: normalize_reasoning(&self.provider_kind, self.reasoning.clone()),
+            coding_plan: self.coding_plan,
         }
     }
 
     pub fn to_provider_config(&self) -> ProviderConfig {
+        let base_url = match (self.coding_plan, &self.provider_kind) {
+            (true, ProviderKind::Zai) => Some(ZAI_CODING_BASE_URL.to_string()),
+            (true, ProviderKind::BigModel) => Some(BIGMODEL_CODING_BASE_URL.to_string()),
+            _ => self.base_url.clone(),
+        };
         let mut provider = ProviderConfig {
             id: self.id.clone(),
             label: self.label.clone(),
             kind: self.provider_kind.clone(),
-            base_url: self.base_url.clone(),
+            base_url,
             api_key: self.api_key.clone(),
             api_key_configured: self.api_key_configured,
             default_model: Some(self.model.clone()),
@@ -117,7 +131,11 @@ pub fn preset_reasoning_mode(preset: &TranslationPreset) -> Option<&ProviderReas
         ProviderKind::DeepSeek => preset.thinking.as_ref(),
         ProviderKind::OpenRouter | ProviderKind::Ollama => preset.reasoning.as_ref(),
         ProviderKind::OpenAi
-        | ProviderKind::GoogleGemini => preset.reasoning.as_ref(),
+        | ProviderKind::GoogleGemini
+        | ProviderKind::MiniMaxIo
+        | ProviderKind::MiniMaxi
+        | ProviderKind::Zai
+        | ProviderKind::BigModel => preset.reasoning.as_ref(),
         ProviderKind::SiliconFlow
         | ProviderKind::DashScope => preset.thinking.as_ref(),
         ProviderKind::OpenAiCompatible | ProviderKind::ModelScope => None,
@@ -126,7 +144,7 @@ pub fn preset_reasoning_mode(preset: &TranslationPreset) -> Option<&ProviderReas
 
 pub fn preset_cache_provider_id(preset: &TranslationPreset) -> String {
     match preset_reasoning_mode(preset) {
-        Some(mode) => format!("{}|reasoning={:?}", preset.id, mode),
+        Some(mode) => format!("{}|reasoning={}", preset.id, mode.cache_value()),
         None => preset.id.clone(),
     }
 }
@@ -272,6 +290,7 @@ pub fn migrate_legacy_translation_providers(
             model,
             thinking: None,
             reasoning: None,
+            coding_plan: false,
         }
         .normalized();
 
@@ -322,6 +341,10 @@ pub fn build_preset_label(provider_kind: &ProviderKind, model: &str) -> String {
         ProviderKind::SiliconFlow => "SiliconFlow",
         ProviderKind::DashScope => "DashScope",
         ProviderKind::ModelScope => "ModelScope",
+        ProviderKind::MiniMaxIo => "MiniMax.io",
+        ProviderKind::MiniMaxi => "MiniMaxi.com",
+        ProviderKind::Zai => "Z.ai",
+        ProviderKind::BigModel => "BigModel",
     };
     let trimmed_model = model.trim();
 
@@ -393,6 +416,21 @@ fn normalize_base_url(base_url: Option<&str>, provider_kind: &ProviderKind) -> O
     .map(|value| value.trim_end_matches('/').to_string())
 }
 
+fn resolve_coding_plan_base_url(
+    provider_kind: &ProviderKind,
+    coding_plan: bool,
+    base_url: Option<String>,
+) -> Option<String> {
+    if !coding_plan {
+        return base_url;
+    }
+    match provider_kind {
+        ProviderKind::Zai => Some(ZAI_CODING_BASE_URL.to_string()),
+        ProviderKind::BigModel => Some(BIGMODEL_CODING_BASE_URL.to_string()),
+        _ => base_url,
+    }
+}
+
 fn normalize_thinking(
     provider_kind: &ProviderKind,
     thinking: Option<ProviderReasoningMode>,
@@ -420,7 +458,11 @@ fn normalize_reasoning(
             ProviderKind::OpenRouter
             | ProviderKind::Ollama
             | ProviderKind::OpenAi
-            | ProviderKind::GoogleGemini,
+            | ProviderKind::GoogleGemini
+            | ProviderKind::MiniMaxIo
+            | ProviderKind::MiniMaxi
+            | ProviderKind::Zai
+            | ProviderKind::BigModel,
             Some(
                 mode @ (ProviderReasoningMode::Low
                 | ProviderReasoningMode::Medium
@@ -431,7 +473,11 @@ fn normalize_reasoning(
             ProviderKind::OpenRouter
             | ProviderKind::Ollama
             | ProviderKind::OpenAi
-            | ProviderKind::GoogleGemini,
+            | ProviderKind::GoogleGemini
+            | ProviderKind::MiniMaxIo
+            | ProviderKind::MiniMaxi
+            | ProviderKind::Zai
+            | ProviderKind::BigModel,
             Some(ProviderReasoningMode::Off),
         ) => Some(ProviderReasoningMode::Off),
         _ => None,
@@ -460,6 +506,10 @@ fn build_preset_id_seed(provider_kind: &ProviderKind, model: &str) -> String {
         ProviderKind::SiliconFlow => "siliconflow",
         ProviderKind::DashScope => "dashscope",
         ProviderKind::ModelScope => "modelscope",
+        ProviderKind::MiniMaxIo => "minimax-io",
+        ProviderKind::MiniMaxi => "minimaxi",
+        ProviderKind::Zai => "zai",
+        ProviderKind::BigModel => "bigmodel",
     };
 
     match normalize_required_string(Some(model)) {
@@ -530,7 +580,11 @@ fn matches_legacy_active_provider(
         | ProviderKind::GoogleGemini
         | ProviderKind::SiliconFlow
         | ProviderKind::DashScope
-        | ProviderKind::ModelScope => false,
+        | ProviderKind::ModelScope
+        | ProviderKind::MiniMaxIo
+        | ProviderKind::MiniMaxi
+        | ProviderKind::Zai
+        | ProviderKind::BigModel => false,
     }
 }
 
@@ -545,6 +599,10 @@ fn default_model_for_provider_kind(provider_kind: &ProviderKind) -> &'static str
         ProviderKind::SiliconFlow => "Qwen/Qwen3-235B-A22B",
         ProviderKind::DashScope => "qwen-plus",
         ProviderKind::ModelScope => "Qwen/Qwen3-30B-A3B",
+        ProviderKind::MiniMaxIo => "MiniMax-M2.7",
+        ProviderKind::MiniMaxi => "MiniMax-M2.7",
+        ProviderKind::Zai => "glm-5.1",
+        ProviderKind::BigModel => "glm-5.1",
     }
 }
 
@@ -560,7 +618,11 @@ fn is_seeded_legacy_placeholder_preset(preset: &TranslationPreset) -> bool {
         | ProviderKind::GoogleGemini
         | ProviderKind::SiliconFlow
         | ProviderKind::DashScope
-        | ProviderKind::ModelScope => None,
+        | ProviderKind::ModelScope
+        | ProviderKind::MiniMaxIo
+        | ProviderKind::MiniMaxi
+        | ProviderKind::Zai
+        | ProviderKind::BigModel => None,
     };
 
     preset.id == expected_id
@@ -667,6 +729,7 @@ mod tests {
                 model: " openrouter/free ".to_string(),
                 thinking: None,
                 reasoning: None,
+                coding_plan: false,
             }],
         };
 
@@ -699,6 +762,7 @@ mod tests {
                 model: " llama3.2 ".to_string(),
                 thinking: None,
                 reasoning: None,
+                coding_plan: false,
             }],
         };
 
@@ -779,6 +843,7 @@ mod tests {
                     model: "openrouter/free".to_string(),
                     thinking: None,
                     reasoning: None,
+                    coding_plan: false,
                 },
                 TranslationPreset {
                     id: "deepseek-deepseek-chat".to_string(),
@@ -790,6 +855,7 @@ mod tests {
                     model: "deepseek-chat".to_string(),
                     thinking: None,
                     reasoning: None,
+                    coding_plan: false,
                 },
                 TranslationPreset {
                     id: "openai-compatible-gpt-4o-mini".to_string(),
@@ -801,6 +867,7 @@ mod tests {
                     model: "gpt-4o-mini".to_string(),
                     thinking: None,
                     reasoning: None,
+                    coding_plan: false,
                 },
                 TranslationPreset {
                     id: "ollama-llama3-2".to_string(),
@@ -812,6 +879,7 @@ mod tests {
                     model: "llama3.2".to_string(),
                     thinking: None,
                     reasoning: None,
+                    coding_plan: false,
                 },
             ],
         };
@@ -841,6 +909,7 @@ mod tests {
                 model: "".to_string(),
                 thinking: None,
                 reasoning: None,
+                coding_plan: false,
             }],
         };
 

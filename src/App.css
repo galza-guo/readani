@@ -3548,12 +3548,43 @@ body.is-resizing-split-y * {
   line-height: var(--type-line-height-ui);
   text-align: left;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .settings-provider-option:hover,
 .settings-provider-option:focus-visible {
   background: var(--panel-muted);
   outline: none;
+}
+
+.settings-provider-option-icon,
+.settings-provider-trigger-icon,
+.settings-provider-select-item-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+}
+
+.settings-provider-option-label,
+.settings-provider-trigger-value {
+  display: inline-flex;
+  align-items: center;
+}
+
+.settings-provider-trigger-value {
+  gap: 8px;
+}
+
+.settings-provider-select-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-provider-select-item-icon {
+  color: var(--ink);
 }
 
 .settings-help-title {

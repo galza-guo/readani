@@ -3,8 +3,8 @@ mod page_cache;
 mod providers;
 
 use app_settings::{
-    merge_app_settings, migrate_legacy_translation_providers, preset_reasoning_mode, AppSettings,
-    SettingsLanguage, TranslationPreset,
+    merge_app_settings, migrate_legacy_translation_providers, preset_cache_provider_id,
+    preset_reasoning_mode, AppSettings, SettingsLanguage, TranslationPreset,
 };
 use chrono::{DateTime, Utc};
 use page_cache::{
@@ -580,6 +580,15 @@ fn resolve_preset(
 
 fn preset_has_translation_context(preset: &TranslationPreset) -> bool {
     !preset.id.trim().is_empty() && !preset.model.trim().is_empty()
+}
+
+fn resolve_cache_provider_id(
+    handle: &tauri::AppHandle,
+    preset_id: &str,
+) -> Result<String, String> {
+    let settings = load_app_settings(handle)?;
+    let preset = settings.preset(preset_id)?;
+    Ok(preset_cache_provider_id(&preset))
 }
 
 fn build_fallback_preset_sequence(
@@ -1221,12 +1230,13 @@ async fn translate_page_text_with_preset(
     next_context: &str,
 ) -> Result<(String, bool), String> {
     let provider = preset.to_provider_config();
+    let cache_provider_id = preset_cache_provider_id(preset);
     let source_hash = hash_source_text(display_text);
     let cache_key = page_cache_key(
         doc_id,
         page,
         &source_hash,
-        &preset.id,
+        &cache_provider_id,
         &preset.model,
         &target_language.code,
         PAGE_PROMPT_VERSION,
@@ -1238,7 +1248,7 @@ async fn translate_page_text_with_preset(
         doc_id,
         page,
         &source_hash,
-        &preset.id,
+        &cache_provider_id,
         &preset.model,
         &target_language.code,
         PAGE_PROMPT_VERSION,
@@ -1272,7 +1282,7 @@ async fn translate_page_text_with_preset(
             page,
             translated_text: translated_text.clone(),
             source_hash,
-            provider_id: preset.id.clone(),
+            provider_id: cache_provider_id,
             model: preset.model.clone(),
             language: target_language.code.clone(),
             prompt_version: PAGE_PROMPT_VERSION.to_string(),
@@ -1351,11 +1361,12 @@ fn list_cached_page_translations(
     doc_id: String,
     pages: Vec<PageCacheLookupInput>,
 ) -> Result<Vec<u32>, String> {
+    let cache_provider_id = resolve_cache_provider_id(&handle, &preset_id)?;
     let cache = load_page_cache(&handle)?;
     let cached_pages = list_cached_pages(
         &cache,
         &doc_id,
-        &preset_id,
+        &cache_provider_id,
         &model,
         &target_language.code,
         PAGE_PROMPT_VERSION,
@@ -1376,7 +1387,7 @@ fn list_cached_page_translations(
             &doc_id,
             input.page,
             &source_hash,
-            &preset_id,
+            &cache_provider_id,
             &model,
             &target_language.code,
             PAGE_PROMPT_VERSION,
@@ -1407,6 +1418,7 @@ fn get_cached_page_translation(
         return Ok(None);
     }
 
+    let cache_provider_id = resolve_cache_provider_id(&handle, &preset_id)?;
     let source_hash = hash_source_text(trimmed_display);
     let cache = load_page_cache(&handle)?;
     let entry = find_cached_page_translation(
@@ -1414,7 +1426,7 @@ fn get_cached_page_translation(
         &doc_id,
         page,
         &source_hash,
-        &preset_id,
+        &cache_provider_id,
         &model,
         &target_language.code,
         PAGE_PROMPT_VERSION,
@@ -1588,12 +1600,13 @@ fn clear_cached_page_translation(
     doc_id: String,
     page: u32,
 ) -> Result<(), String> {
+    let cache_provider_id = resolve_cache_provider_id(&handle, &preset_id)?;
     let mut cache = load_page_cache(&handle)?;
     clear_cached_page(
         &mut cache,
         &doc_id,
         page,
-        &preset_id,
+        &cache_provider_id,
         &model,
         &target_language.code,
         PAGE_PROMPT_VERSION,
@@ -1609,11 +1622,12 @@ fn clear_document_page_translations(
     target_language: TargetLanguage,
     doc_id: String,
 ) -> Result<(), String> {
+    let cache_provider_id = resolve_cache_provider_id(&handle, &preset_id)?;
     let mut cache = load_page_cache(&handle)?;
     clear_cached_pages_for_document(
         &mut cache,
         &doc_id,
-        &preset_id,
+        &cache_provider_id,
         &model,
         &target_language.code,
         PAGE_PROMPT_VERSION,
@@ -3162,6 +3176,7 @@ mod tests {
             model: model.to_string(),
             thinking: None,
             reasoning: None,
+            coding_plan: false,
         }
     }
 
@@ -3211,6 +3226,7 @@ mod tests {
             model: "openai/gpt-4o-mini".to_string(),
             thinking: None,
             reasoning: None,
+            coding_plan: false,
         };
         let incoming = TranslationPreset {
             id: "preset-1".to_string(),
@@ -3222,6 +3238,7 @@ mod tests {
             model: "openai/gpt-4o-mini".to_string(),
             thinking: None,
             reasoning: None,
+            coding_plan: false,
         };
 
         let merged = merge_saved_preset_credentials(&[saved], incoming);
@@ -3242,6 +3259,7 @@ mod tests {
             model: "llama3.2".to_string(),
             thinking: None,
             reasoning: None,
+            coding_plan: false,
         };
         let incoming = TranslationPreset {
             id: "preset-1".to_string(),
@@ -3253,6 +3271,7 @@ mod tests {
             model: "llama3.2".to_string(),
             thinking: None,
             reasoning: None,
+            coding_plan: false,
         };
 
         let merged = merge_saved_preset_credentials(&[saved], incoming);

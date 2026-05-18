@@ -26,6 +26,8 @@ import {
   providerUsesEditableBaseUrl,
   serializeProviderKindForCommand,
   normalizeProviderReasoningMode,
+  detectCodingPlanKey,
+  getCodingPlanBaseUrl,
 } from "./appSettings";
 
 describe("app settings helpers", () => {
@@ -581,6 +583,8 @@ describe("app settings helpers", () => {
         providerKind: "openrouter",
         model: "openai/gpt-4o-mini",
         apiKeyConfigured: true,
+        codingPlan: false,
+        reasoning: "off",
       },
     ]);
   });
@@ -646,5 +650,142 @@ describe("app settings helpers", () => {
         apiKeyConfigured: true,
       },
     ]);
+  });
+
+  test("uses MiniMax-M2.7 as default model for minimax providers", () => {
+    expect(getDefaultModelForProvider("minimax-io")).toBe("MiniMax-M2.7");
+    expect(getDefaultModelForProvider("minimaxi")).toBe("MiniMax-M2.7");
+  });
+
+  test("uses glm-5.1 as default model for zai and bigmodel", () => {
+    expect(getDefaultModelForProvider("zai")).toBe("glm-5.1");
+    expect(getDefaultModelForProvider("bigmodel")).toBe("glm-5.1");
+  });
+
+  test("resolves default base URLs for new providers", () => {
+    expect(getDefaultBaseUrlForProvider("minimax-io")).toBe("https://api.minimax.io/v1");
+    expect(getDefaultBaseUrlForProvider("minimaxi")).toBe("https://api.minimaxi.com/v1");
+    expect(getDefaultBaseUrlForProvider("zai")).toBe("https://api.z.ai/api/paas/v4");
+    expect(getDefaultBaseUrlForProvider("bigmodel")).toBe("https://open.bigmodel.cn/api/paas/v4");
+  });
+
+  test("new providers use standard reasoning", () => {
+    expect(normalizeProviderReasoningMode("minimax-io", "low")).toBe("low");
+    expect(normalizeProviderReasoningMode("minimax-io", "medium")).toBe("medium");
+    expect(normalizeProviderReasoningMode("minimax-io", "high")).toBe("high");
+    expect(normalizeProviderReasoningMode("minimaxi", "off")).toBe("off");
+    expect(normalizeProviderReasoningMode("zai", "low")).toBe("low");
+    expect(normalizeProviderReasoningMode("bigmodel", "high")).toBe("high");
+    expect(normalizeProviderReasoningMode("bigmodel", "max")).toBe("off");
+  });
+
+  test("all new providers require API keys", () => {
+    expect(providerUsesApiKey("minimax-io")).toBe(true);
+    expect(providerUsesApiKey("minimaxi")).toBe(true);
+    expect(providerUsesApiKey("zai")).toBe(true);
+    expect(providerUsesApiKey("bigmodel")).toBe(true);
+  });
+
+  test("new providers do not use editable base URLs", () => {
+    expect(providerUsesEditableBaseUrl("minimax-io")).toBe(false);
+    expect(providerUsesEditableBaseUrl("zai")).toBe(false);
+    expect(providerUsesEditableBaseUrl("bigmodel")).toBe(false);
+  });
+
+  test("detects MiniMax coding plan API key by sk-cp- prefix", () => {
+    expect(detectCodingPlanKey("minimax-io", "sk-cp-abc123")).toBe(true);
+    expect(detectCodingPlanKey("minimax-io", "sk-cp-  ")).toBe(true);
+    expect(detectCodingPlanKey("minimaxi", "sk-cp-test-key")).toBe(true);
+    expect(detectCodingPlanKey("minimax-io", "eyJhbGciOiJIUzI1NiJ9")).toBe(false);
+    expect(detectCodingPlanKey("minimax-io", "")).toBe(false);
+  });
+
+  test("detectCodingPlanKey returns false for providers without known prefix", () => {
+    expect(detectCodingPlanKey("zai", "sk-cp-abc")).toBe(false);
+    expect(detectCodingPlanKey("bigmodel", "sk-cp-abc")).toBe(false);
+    expect(detectCodingPlanKey("openrouter", "sk-cp-abc")).toBe(false);
+  });
+
+  test("resolves coding plan base URLs for zai and bigmodel", () => {
+    expect(getCodingPlanBaseUrl("zai")).toBe("https://api.z.ai/api/coding/paas/v4");
+    expect(getCodingPlanBaseUrl("bigmodel")).toBe("https://open.bigmodel.cn/api/coding/paas/v4");
+    expect(getCodingPlanBaseUrl("minimax-io")).toBeUndefined();
+  });
+
+  test("normalizes coding plan field from storage", () => {
+    const normalized = normalizeSettingsFromStorage({
+      activePresetId: "preset-1",
+      autoFallbackEnabled: false,
+      autoTranslateNextPages: 1,
+      translateAllSlowMode: false,
+      defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
+      theme: "system",
+      presets: [
+        {
+          id: "preset-1",
+          label: "Z.ai · glm-5.1",
+          providerKind: "zai",
+          model: "glm-5.1",
+          codingPlan: true as any,
+        },
+        {
+          id: "preset-2",
+          label: "MiniMax · MiniMax-M2.7",
+          providerKind: "minimax-io",
+          model: "MiniMax-M2.7",
+          codingPlan: undefined as any,
+        },
+      ],
+    });
+
+    expect(normalized.presets[0]?.codingPlan).toBe(true);
+    expect(normalized.presets[1]?.codingPlan).toBe(false);
+  });
+
+  test("normalizes reasoning from storage for new providers", () => {
+    const normalized = normalizeSettingsFromStorage({
+      activePresetId: "preset-1",
+      autoFallbackEnabled: false,
+      autoTranslateNextPages: 1,
+      translateAllSlowMode: false,
+      defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
+      theme: "system",
+      presets: [
+        {
+          id: "preset-1",
+          label: "MiniMax · model",
+          providerKind: "minimax-io",
+          model: "model",
+          reasoning: "medium",
+        },
+        {
+          id: "preset-2",
+          label: "Z.ai · model",
+          providerKind: "zai",
+          model: "model",
+          reasoning: "high",
+        },
+      ],
+    });
+
+    expect(normalized.presets[0]?.reasoning).toBe("medium");
+    expect(normalized.presets[1]?.reasoning).toBe("high");
+  });
+
+  test("starts a new minimax preset with the correct defaults", () => {
+    const preset = createPresetDraft("minimax-io", []);
+
+    expect(preset.providerKind).toBe("minimax-io");
+    expect(preset.model).toBe("");
+    expect(preset.baseUrl).toBe("https://api.minimax.io/v1");
+    expect(preset.codingPlan).toBe(false);
+  });
+
+  test("starts a new zai preset with general api base URL", () => {
+    const preset = createPresetDraft("zai", []);
+
+    expect(preset.providerKind).toBe("zai");
+    expect(preset.baseUrl).toBe("https://api.z.ai/api/paas/v4");
+    expect(preset.codingPlan).toBe(false);
   });
 });

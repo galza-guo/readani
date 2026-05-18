@@ -122,9 +122,12 @@ describe("SettingsDialogContent", () => {
     const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
 
     expect(html).toContain("Add provider");
+    expect(html).toContain("settings-provider-trigger-icon");
     expect(settingsDialogSource).not.toContain("settings-save-action");
     expect(settingsDialogSource).toContain("settings-provider-picker");
     expect(settingsDialogSource).not.toContain("function PencilIcon()");
+    expect(settingsDialogSource).toContain("ProviderBrandIcon");
+    expect(settingsDialogSource).toContain("settings-provider-option-icon");
   });
 
   test("renders a simple cache summary with a delete-all action and book rows", () => {

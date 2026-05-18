@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import * as Label from "@radix-ui/react-label";
 import * as Popover from "@radix-ui/react-popover";
 import * as Select from "@radix-ui/react-select";
@@ -8,6 +8,7 @@ import { ConfirmationDialog } from "../ConfirmationDialog";
 import { LanguageCombobox } from "./LanguageCombobox";
 import { canListModels } from "../../lib/providerForm";
 import {
+  detectCodingPlanKey,
   getDefaultBaseUrlForProvider,
   getDefaultModelForProvider,
   getPresetApiKeyFieldState,
@@ -17,10 +18,12 @@ import {
   normalizeAutoTranslateNextPages,
   PRESET_PROVIDER_OPTIONS,
   providerUsesApiKey,
+  providerUsesCodingPlan,
   providerUsesEditableBaseUrl,
   providerUsesReasoning,
   providerUsesThinking,
 } from "../../lib/appSettings";
+import { ProviderBrandIcon } from "./providerIcons";
 import type {
   ProviderReasoningMode,
   PresetSaveStatus,
@@ -167,6 +170,21 @@ function HelpIcon() {
       <path d="M9.5 9a2.5 2.5 0 1 1 4.2 1.8c-.8.7-1.7 1.2-1.7 2.7" />
       <circle cx="12" cy="17" r="1" fill="currentColor" stroke="none" />
     </svg>
+  );
+}
+
+function ProviderIcon({
+  providerKind,
+  className,
+}: {
+  providerKind: TranslationProviderKind;
+  className?: string;
+}) {
+  return (
+    <ProviderBrandIcon
+      className={className}
+      providerKind={providerKind}
+    />
   );
 }
 
@@ -788,12 +806,11 @@ export function SettingsDialogContent({
                       >
                         <div className="settings-provider-picker-list">
                           {PRESET_PROVIDER_OPTIONS.map((provider) => (
-                            <>
+                            <Fragment key={provider.value}>
                               {provider.value === "openai-compatible" ? (
-                                <div key="divider" className="settings-provider-picker-divider" />
+                                <div className="settings-provider-picker-divider" />
                               ) : null}
                               <button
-                                key={provider.value}
                                 className="settings-provider-option"
                                 onClick={() => {
                                   const presetId = onAddPreset(provider.value);
@@ -804,9 +821,13 @@ export function SettingsDialogContent({
                                 }}
                                 type="button"
                               >
-                                <span>{provider.label}</span>
+                                <ProviderIcon
+                                  className="settings-provider-option-icon"
+                                  providerKind={provider.value}
+                                />
+                                <span className="settings-provider-option-label">{provider.label}</span>
                               </button>
-                            </>
+                            </Fragment>
                           ))}
                         </div>
                       </Popover.Content>
@@ -968,7 +989,13 @@ export function SettingsDialogContent({
                                   aria-label="Provider"
                                   id="preset-provider-kind"
                                 >
-                                  <span>{getProviderOptionLabel(editingPreset.providerKind)}</span>
+                                  <span className="settings-provider-trigger-value">
+                                    <ProviderIcon
+                                      className="settings-provider-trigger-icon"
+                                      providerKind={editingPreset.providerKind}
+                                    />
+                                    <span>{getProviderOptionLabel(editingPreset.providerKind)}</span>
+                                  </span>
                                   <Select.Icon asChild>
                                     <ChevronDownIcon />
                                   </Select.Icon>
@@ -980,8 +1007,12 @@ export function SettingsDialogContent({
                                         <Select.Item
                                           key={provider.value}
                                           value={provider.value}
-                                          className="select-item"
+                                          className="select-item settings-provider-select-item"
                                         >
+                                          <ProviderIcon
+                                            className="settings-provider-select-item-icon"
+                                            providerKind={provider.value}
+                                          />
                                           <Select.ItemText>{provider.label}</Select.ItemText>
                                         </Select.Item>
                                       ))}
@@ -1030,11 +1061,64 @@ export function SettingsDialogContent({
                                   onBlur={() => {
                                     void Promise.resolve(onPresetApiKeyBlur(editingPreset.id)).catch(() => {});
                                   }}
-                                  onChange={(event) =>
-                                    onPresetApiKeyInputChange(editingPreset.id, event.target.value)
-                                  }
+                                  onChange={(event) => {
+                                    const key = event.target.value;
+                                    onPresetApiKeyInputChange(editingPreset.id, key);
+                                    if (
+                                      !editingPreset.codingPlan &&
+                                      detectCodingPlanKey(editingPreset.providerKind, key)
+                                    ) {
+                                      onPresetChange({
+                                        ...editingPreset,
+                                        codingPlan: true,
+                                      });
+                                    }
+                                  }}
                                   onFocus={() => onPresetApiKeyFocus(editingPreset.id)}
                                 />
+                              </div>
+                            ) : null}
+
+                            {editingPreset && providerUsesCodingPlan(editingPreset.providerKind) ? (
+                              <div className="settings-item">
+                                <div className="settings-toggle-row" style={{ borderTop: 0, borderBottom: 0 }}>
+                                  <div className="settings-toggle-copy">
+                                    <div className="settings-toggle-title-row">
+                                      <span className="settings-toggle-title">Coding Plan</span>
+                                      <Tooltip.Root>
+                                        <Tooltip.Trigger asChild>
+                                          <button
+                                            aria-label="About Coding Plan"
+                                            className="btn btn-icon-only btn-quiet-action settings-help-button"
+                                            type="button"
+                                          >
+                                            <HelpIcon />
+                                          </button>
+                                        </Tooltip.Trigger>
+                                        <Tooltip.Portal>
+                                          <Tooltip.Content className="tooltip-content settings-toggle-tooltip" side="top" sideOffset={6}>
+                                            Use a coding plan key for subscription-based billing.
+                                            <Tooltip.Arrow className="tooltip-arrow" />
+                                          </Tooltip.Content>
+                                        </Tooltip.Portal>
+                                      </Tooltip.Root>
+                                    </div>
+                                  </div>
+                                  <button
+                                    aria-checked={editingPreset.codingPlan ?? false}
+                                    className={`settings-switch ${editingPreset.codingPlan ? "is-on" : ""}`}
+                                    onClick={() =>
+                                      onPresetChange({
+                                        ...editingPreset,
+                                        codingPlan: !editingPreset.codingPlan,
+                                      })
+                                    }
+                                    role="switch"
+                                    type="button"
+                                  >
+                                    <span className="settings-switch-thumb" />
+                                  </button>
+                                </div>
                               </div>
                             ) : null}
 

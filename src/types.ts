@@ -46,7 +46,11 @@ export type TranslationProviderKind =
   | "google-gemini"
   | "siliconflow"
   | "dashscope"
-  | "modelscope";
+  | "modelscope"
+  | "minimax-io"
+  | "minimaxi"
+  | "zai"
+  | "bigmodel";
 
 export type ProviderReasoningMode = "off" | "low" | "medium" | "high" | "max";
 
@@ -60,6 +64,7 @@ export type TranslationPreset = {
   model: string;
   thinking?: ProviderReasoningMode;
   reasoning?: ProviderReasoningMode;
+  codingPlan?: boolean;
 };
 
 export type TranslationProvider = TranslationPreset;

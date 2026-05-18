@@ -38,6 +38,10 @@ export const PRESET_PROVIDER_OPTIONS: Array<{
   { value: "siliconflow", label: "SiliconFlow" },
   { value: "dashscope", label: "DashScope" },
   { value: "modelscope", label: "ModelScope" },
+  { value: "minimax-io", label: "MiniMax.io" },
+  { value: "minimaxi", label: "MiniMaxi.com" },
+  { value: "zai", label: "Z.ai" },
+  { value: "bigmodel", label: "BigModel" },
   { value: "openai-compatible", label: "Custom" },
 ];
 
@@ -53,6 +57,10 @@ const PROVIDER_LABELS: Record<TranslationProviderKind, string> = {
   siliconflow: "SiliconFlow",
   dashscope: "DashScope",
   modelscope: "ModelScope",
+  "minimax-io": "MiniMax.io",
+  minimaxi: "MiniMaxi.com",
+  zai: "Z.ai",
+  bigmodel: "BigModel",
 };
 
 const DEFAULT_MODELS: Record<TranslationProviderKind, string> = {
@@ -65,6 +73,10 @@ const DEFAULT_MODELS: Record<TranslationProviderKind, string> = {
   siliconflow: "Qwen/Qwen3-235B-A22B",
   dashscope: "qwen-plus",
   modelscope: "Qwen/Qwen3-30B-A3B",
+  "minimax-io": "MiniMax-M2.7",
+  minimaxi: "MiniMax-M2.7",
+  zai: "glm-5.1",
+  bigmodel: "glm-5.1",
 };
 
 const DEFAULT_BASE_URLS: Partial<Record<TranslationProviderKind, string>> = {
@@ -75,6 +87,10 @@ const DEFAULT_BASE_URLS: Partial<Record<TranslationProviderKind, string>> = {
   siliconflow: "https://api.siliconflow.cn/v1",
   dashscope: "https://dashscope.aliyuncs.com/compatible-mode/v1",
   modelscope: "https://api-inference.modelscope.cn/v1",
+  "minimax-io": "https://api.minimax.io/v1",
+  minimaxi: "https://api.minimaxi.com/v1",
+  zai: "https://api.z.ai/api/paas/v4",
+  bigmodel: "https://open.bigmodel.cn/api/paas/v4",
 };
 
 type LanguageLike = {
@@ -101,6 +117,10 @@ const LEGACY_PROVIDER_KIND_BY_CANONICAL: Record<TranslationProviderKind, string>
   siliconflow: "siliconflow",
   dashscope: "dashscope",
   modelscope: "modelscope",
+  "minimax-io": "minimax-io",
+  minimaxi: "minimaxi",
+  zai: "zai",
+  bigmodel: "bigmodel",
 };
 
 const CANONICAL_PROVIDER_KIND_BY_VARIANT: Record<string, TranslationProviderKind> = {
@@ -116,6 +136,10 @@ const CANONICAL_PROVIDER_KIND_BY_VARIANT: Record<string, TranslationProviderKind
   siliconflow: "siliconflow",
   dashscope: "dashscope",
   modelscope: "modelscope",
+  "minimax-io": "minimax-io",
+  minimaxi: "minimaxi",
+  zai: "zai",
+  bigmodel: "bigmodel",
 };
 
 const PROVIDERS_WITH_API_KEYS = new Set<TranslationProviderKind>([
@@ -127,12 +151,26 @@ const PROVIDERS_WITH_API_KEYS = new Set<TranslationProviderKind>([
   "siliconflow",
   "dashscope",
   "modelscope",
+  "minimax-io",
+  "minimaxi",
+  "zai",
+  "bigmodel",
 ]);
 
 const PROVIDERS_WITH_EDITABLE_BASE_URLS = new Set<TranslationProviderKind>([
   "ollama",
   "openai-compatible",
 ]);
+
+const CODING_PLAN_BASE_URLS: Partial<Record<TranslationProviderKind, string>> = {
+  zai: "https://api.z.ai/api/coding/paas/v4",
+  bigmodel: "https://open.bigmodel.cn/api/coding/paas/v4",
+};
+
+const CODING_PLAN_KEY_PREFIXES: Partial<Record<TranslationProviderKind, string>> = {
+  "minimax-io": "sk-cp-",
+  minimaxi: "sk-cp-",
+};
 
 const DEEPSEEK_THINKING_MODES = new Set<ProviderReasoningMode>([
   "off",
@@ -168,6 +206,7 @@ export function normalizePresetFromStorage(preset: TranslationPreset): Translati
   const normalizedPreset: TranslationPreset = {
     ...preset,
     providerKind,
+    codingPlan: Boolean(preset.codingPlan),
   };
 
   delete normalizedPreset.thinking;
@@ -186,6 +225,10 @@ export function normalizePresetFromStorage(preset: TranslationPreset): Translati
     || providerKind === "ollama"
     || providerKind === "openai"
     || providerKind === "google-gemini"
+    || providerKind === "minimax-io"
+    || providerKind === "minimaxi"
+    || providerKind === "zai"
+    || providerKind === "bigmodel"
   ) {
     normalizedPreset.reasoning = normalizeProviderReasoningMode(providerKind, preset.reasoning);
   }
@@ -342,7 +385,11 @@ export function providerUsesReasoning(providerKind: TranslationProviderKind | st
   return normalizedProviderKind === "openrouter"
     || normalizedProviderKind === "ollama"
     || normalizedProviderKind === "openai"
-    || normalizedProviderKind === "google-gemini";
+    || normalizedProviderKind === "google-gemini"
+    || normalizedProviderKind === "minimax-io"
+    || normalizedProviderKind === "minimaxi"
+    || normalizedProviderKind === "zai"
+    || normalizedProviderKind === "bigmodel";
 }
 
 export function normalizeProviderReasoningMode(
@@ -370,6 +417,10 @@ export function normalizeProviderReasoningMode(
     || normalizedProviderKind === "ollama"
     || normalizedProviderKind === "openai"
     || normalizedProviderKind === "google-gemini"
+    || normalizedProviderKind === "minimax-io"
+    || normalizedProviderKind === "minimaxi"
+    || normalizedProviderKind === "zai"
+    || normalizedProviderKind === "bigmodel"
   ) {
     return normalizedValue && STANDARD_REASONING_MODES.has(normalizedValue)
       ? normalizedValue
@@ -566,9 +617,15 @@ export function normalizePresetDraft(
     providerKind,
     label: dedupePresetLabel(nextLabel, otherLabels),
     model: normalizedModel,
+    codingPlan: Boolean(preset.codingPlan),
     baseUrl: (() => {
       if (providerKind === "openrouter") {
         return undefined;
+      }
+
+      const codingPlanUrl = preset.codingPlan ? CODING_PLAN_BASE_URLS[providerKind] : undefined;
+      if (codingPlanUrl) {
+        return codingPlanUrl;
       }
 
       const defaultUrl = DEFAULT_BASE_URLS[providerKind];
@@ -580,6 +637,10 @@ export function normalizePresetDraft(
         || providerKind === "siliconflow"
         || providerKind === "dashscope"
         || providerKind === "modelscope"
+        || providerKind === "minimax-io"
+        || providerKind === "minimaxi"
+        || providerKind === "zai"
+        || providerKind === "bigmodel"
       ) {
         return defaultUrl;
       }
@@ -604,11 +665,42 @@ export function normalizePresetDraft(
     || providerKind === "ollama"
     || providerKind === "openai"
     || providerKind === "google-gemini"
+    || providerKind === "minimax-io"
+    || providerKind === "minimaxi"
+    || providerKind === "zai"
+    || providerKind === "bigmodel"
   ) {
     normalizedPreset.reasoning = normalizeProviderReasoningMode(providerKind, preset.reasoning);
   }
 
   return normalizedPreset;
+}
+
+export function detectCodingPlanKey(
+  providerKind: TranslationProviderKind | string,
+  apiKey: string,
+): boolean {
+  const prefix = CODING_PLAN_KEY_PREFIXES[normalizeProviderKind(providerKind)];
+  if (!prefix) {
+    return false;
+  }
+  return apiKey.trim().startsWith(prefix);
+}
+
+export function providerUsesCodingPlan(
+  providerKind: TranslationProviderKind | string,
+): boolean {
+  const normalized = normalizeProviderKind(providerKind);
+  return normalized === "minimax-io"
+    || normalized === "minimaxi"
+    || normalized === "zai"
+    || normalized === "bigmodel";
+}
+
+export function getCodingPlanBaseUrl(
+  providerKind: TranslationProviderKind | string,
+): string | undefined {
+  return CODING_PLAN_BASE_URLS[normalizeProviderKind(providerKind)];
 }
 
 export function createPresetDraft(

@@ -21,6 +21,14 @@ pub enum ProviderKind {
     DashScope,
     #[serde(rename = "modelscope")]
     ModelScope,
+    #[serde(rename = "minimax-io")]
+    MiniMaxIo,
+    #[serde(rename = "minimaxi")]
+    MiniMaxi,
+    #[serde(rename = "zai")]
+    Zai,
+    #[serde(rename = "bigmodel")]
+    BigModel,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,6 +130,10 @@ const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/
 const SILICONFLOW_BASE_URL: &str = "https://api.siliconflow.cn/v1";
 const DASHSCOPE_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const MODELSCOPE_BASE_URL: &str = "https://api-inference.modelscope.cn/v1";
+const MINIMAX_BASE_URL: &str = "https://api.minimax.io/v1";
+const MINIMAXI_BASE_URL: &str = "https://api.minimaxi.com/v1";
+const ZAI_BASE_URL: &str = "https://api.z.ai/api/paas/v4";
+const BIGMODEL_BASE_URL: &str = "https://open.bigmodel.cn/api/paas/v4";
 
 impl ProviderKind {
     pub fn uses_api_key(&self) -> bool {
@@ -194,7 +206,11 @@ impl ProviderConfig {
             | ProviderKind::GoogleGemini
             | ProviderKind::SiliconFlow
             | ProviderKind::DashScope
-            | ProviderKind::ModelScope => {
+            | ProviderKind::ModelScope
+            | ProviderKind::MiniMaxIo
+            | ProviderKind::MiniMaxi
+            | ProviderKind::Zai
+            | ProviderKind::BigModel => {
                 Ok(format!("{}/models", self.resolved_base_url()?))
             }
         }
@@ -212,7 +228,11 @@ impl ProviderConfig {
             | ProviderKind::GoogleGemini
             | ProviderKind::SiliconFlow
             | ProviderKind::DashScope
-            | ProviderKind::ModelScope => {
+            | ProviderKind::ModelScope
+            | ProviderKind::MiniMaxIo
+            | ProviderKind::MiniMaxi
+            | ProviderKind::Zai
+            | ProviderKind::BigModel => {
                 Ok(format!("{}/chat/completions", self.resolved_base_url()?))
             }
         }
@@ -330,6 +350,38 @@ impl ProviderConfig {
                 .unwrap_or(MODELSCOPE_BASE_URL)
                 .trim_end_matches('/')
                 .to_string()),
+            ProviderKind::MiniMaxIo => Ok(self
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(MINIMAX_BASE_URL)
+                .trim_end_matches('/')
+                .to_string()),
+            ProviderKind::MiniMaxi => Ok(self
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(MINIMAXI_BASE_URL)
+                .trim_end_matches('/')
+                .to_string()),
+            ProviderKind::Zai => Ok(self
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(ZAI_BASE_URL)
+                .trim_end_matches('/')
+                .to_string()),
+            ProviderKind::BigModel => Ok(self
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(BIGMODEL_BASE_URL)
+                .trim_end_matches('/')
+                .to_string()),
         }
     }
 
@@ -363,7 +415,11 @@ impl ProviderConfig {
             | ProviderKind::GoogleGemini
             | ProviderKind::SiliconFlow
             | ProviderKind::DashScope
-            | ProviderKind::ModelScope => {
+            | ProviderKind::ModelScope
+            | ProviderKind::MiniMaxIo
+            | ProviderKind::MiniMaxi
+            | ProviderKind::Zai
+            | ProviderKind::BigModel => {
                 if self.authorization_token().is_none() {
                     return Err(format!("{} API key is missing.", self.label));
                 }
@@ -575,7 +631,12 @@ fn build_chat_completion_payload(
                 });
             }
         }
-        ProviderKind::OpenAi | ProviderKind::GoogleGemini => {
+        ProviderKind::OpenAi
+        | ProviderKind::GoogleGemini
+        | ProviderKind::MiniMaxIo
+        | ProviderKind::MiniMaxi
+        | ProviderKind::Zai
+        | ProviderKind::BigModel => {
             if let Some(mode) = reasoning {
                 payload["reasoning_effort"] = serde_json::json!(mode.as_standard_effort());
             }
