@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { Virtuoso } from "react-virtuoso";
@@ -101,14 +102,14 @@ function PdfThumbnailItem({
         {cachedThumbnail ? (
           <img
             src={cachedThumbnail}
-            alt={`Thumbnail for page ${pageNumber}`}
+            alt={t("nav.thumbnailForPage", { pageNumber: String(pageNumber) })}
             className="pdf-thumbnail-image"
           />
         ) : (
           <div className="pdf-thumbnail-skeleton" />
         )}
       </div>
-      <span className="pdf-thumbnail-label">Page {pageNumber}</span>
+      <span className="pdf-thumbnail-label">{t("reader.page")} {pageNumber}</span>
     </button>
   );
 }

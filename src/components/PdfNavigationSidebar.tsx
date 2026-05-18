@@ -4,6 +4,7 @@ import * as Tabs from "@radix-ui/react-tabs";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { PdfThumbnailList } from "./PdfThumbnailList";
 import type { PdfNavTab, PdfOutlineLink } from "../lib/pdfNavigation";
+import { t } from "../lib/i18n";
 
 type PdfNavigationSidebarProps = {
   docId: string;
@@ -36,18 +37,18 @@ export function PdfNavigationSidebar({
   }, [currentPage, outline]);
 
   return (
-    <aside className="pdf-sidebar" aria-label="PDF navigation">
+    <aside className="pdf-sidebar" aria-label={t("nav.pdfNavigation")}>
       <Tabs.Root
         className="pdf-sidebar-tabs"
         value={activeTab}
         onValueChange={(value) => onTabChange(value as PdfNavTab)}
       >
-        <Tabs.List className="pdf-sidebar-tabs-list" aria-label="PDF navigation views">
+        <Tabs.List className="pdf-sidebar-tabs-list" aria-label={t("nav.pdfNavigationViews")}>
           <Tabs.Trigger className="pdf-sidebar-tab-trigger" value="thumbnails">
-            Thumbnails
+            {t("nav.thumbnails")}
           </Tabs.Trigger>
           <Tabs.Trigger className="pdf-sidebar-tab-trigger" value="contents">
-            Contents
+            {t("nav.contents")}
           </Tabs.Trigger>
         </Tabs.List>
 
@@ -63,7 +64,7 @@ export function PdfNavigationSidebar({
 
         <Tabs.Content className="pdf-sidebar-content" value="contents">
           {outline.length === 0 ? (
-            <div className="pdf-contents-empty">No contents available.</div>
+            <div className="pdf-contents-empty">{t("nav.noContents")}</div>
           ) : (
             <ScrollArea.Root className="pdf-contents-scroll">
               <ScrollArea.Viewport className="pdf-contents-viewport">

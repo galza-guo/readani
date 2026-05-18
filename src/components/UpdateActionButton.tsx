@@ -1,4 +1,5 @@
 import { ExpandableIconButton } from "./reader/ExpandableIconButton";
+import { t } from "../lib/i18n";
 
 type UpdateActionButtonProps = {
   onClick: () => void;
@@ -23,9 +24,9 @@ export function UpdateActionButton({
 }: UpdateActionButtonProps) {
   return (
     <ExpandableIconButton
-      aria-label="Install update"
+      aria-label={t("update.readyToInstall")}
       className={["update-action-button", className].filter(Boolean).join(" ")}
-      label="Update"
+      label={t("common.update")}
       labelDirection={labelDirection}
       onClick={onClick}
     >

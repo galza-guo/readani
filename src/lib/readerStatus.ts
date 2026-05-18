@@ -1,3 +1,5 @@
+import { t } from "./i18n";
+
 export type ReaderStatusKind =
   | "ready"
   | "loading-document"
@@ -17,32 +19,36 @@ export function getReaderStatusLabel(
   options: ReaderStatusOptions = {}
 ): string {
   if (kind === "loading-document") {
-    return "Loading document";
+    return t("readerStatus.loadingDocument");
   }
 
   if (kind === "extracting-text") {
-    return "Extracting text";
+    return t("readerStatus.extractingText");
   }
 
   if (kind === "translating-page") {
-    return options.page ? `Translating page ${options.page}` : "Translating page";
+    return options.page
+      ? t("readerStatus.translatingPage", { page: String(options.page) })
+      : t("readerStatus.translatingPage", { page: "?" });
   }
 
   if (kind === "redoing-page") {
-    return options.page ? `Redoing page ${options.page}` : "Redoing page";
+    return options.page
+      ? t("readerStatus.redoingPage", { page: String(options.page) })
+      : t("readerStatus.redoingPage", { page: "?" });
   }
 
   if (kind === "translating-section") {
-    return "Translating section";
+    return t("readerStatus.translatingSection");
   }
 
   if (kind === "redoing-section") {
-    return "Redoing section";
+    return t("readerStatus.redoingSection");
   }
 
   if (kind === "translation-failed") {
-    return "Translation failed";
+    return t("readerStatus.translationFailed");
   }
 
-  return "Ready";
+  return t("readerStatus.ready");
 }

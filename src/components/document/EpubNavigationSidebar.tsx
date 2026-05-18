@@ -1,5 +1,6 @@
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import type { NavItem } from "epubjs";
+import { t } from "../../lib/i18n";
 
 type EpubNavigationSidebarProps = {
   toc: NavItem[];
@@ -13,13 +14,13 @@ export function EpubNavigationSidebar({
   onNavigate,
 }: EpubNavigationSidebarProps) {
   return (
-    <aside className="epub-sidebar" aria-label="EPUB navigation">
-      <div className="epub-sidebar-title type-section-title">Contents</div>
+    <aside className="epub-sidebar" aria-label={t("nav.epubNavigation")}>
+      <div className="epub-sidebar-title type-section-title">{t("nav.contents")}</div>
       <ScrollArea.Root className="epub-toc-scroll">
         <ScrollArea.Viewport className="epub-toc-viewport">
           <div className="epub-toc">
             {toc.length === 0 ? (
-              <div className="pdf-contents-empty">No contents available.</div>
+              <div className="pdf-contents-empty">{t("nav.noContents")}</div>
             ) : (
               toc.map((item, index) => (
                 <button

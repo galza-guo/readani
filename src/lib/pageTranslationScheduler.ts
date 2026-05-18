@@ -1,5 +1,6 @@
 import type { PageDoc, PageTranslationState } from "../types";
 import { hasUsablePageText } from "./pageText";
+import { t } from "./i18n";
 import {
   getTranslatablePdfParagraphs,
   isPdfPageFullyTranslated,
@@ -19,7 +20,7 @@ type PageTranslationProgress = {
   translatedCount: number;
   totalCount: number;
   isFullyTranslated: boolean;
-  unitLabel: "pages" | "sections";
+  unitLabel: string;
 };
 
 type PageProgressQueueState = {
@@ -142,7 +143,7 @@ export function getPageTranslationProgress({
     totalCount: translatablePages.length,
     isFullyTranslated:
       translatablePages.length > 0 && translatedPages.length === translatablePages.length,
-    unitLabel: "pages",
+    unitLabel: t("translation.pages"),
   };
 }
 
@@ -186,12 +187,12 @@ export function getEpubSectionTranslationProgress(pages: PageDoc[]): PageTransla
     totalCount: translatableSections.length,
     isFullyTranslated:
       translatableSections.length > 0 && translatedSections.length === translatableSections.length,
-    unitLabel: "sections",
+    unitLabel: t("translation.sections"),
   };
 }
 
 export function getFullBookActionLabel(progress: PageTranslationProgress) {
-  return progress.isFullyTranslated ? "Retranslate All" : "Translate All";
+  return progress.isFullyTranslated ? t("translation.retranslateAll") : t("translation.translateAll");
 }
 
 export function bumpRequestVersion(

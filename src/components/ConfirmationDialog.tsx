@@ -1,4 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
+import { t } from "../lib/i18n";
 
 type ConfirmationDialogAction = {
   label: string;
@@ -20,7 +21,7 @@ export function ConfirmationDialog({
   onOpenChange,
   title,
   description,
-  cancelLabel = "Cancel",
+  cancelLabel = t("common.cancel"),
   actions,
 }: ConfirmationDialogProps) {
   return (

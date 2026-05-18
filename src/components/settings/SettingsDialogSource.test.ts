@@ -28,8 +28,8 @@ describe("settings dialog focus behavior", () => {
     expect(settingsDialogSource).toContain('className="settings-dialog-header"');
     expect(settingsDialogSource).toContain('className="settings-dialog-title-row"');
     expect(settingsDialogSource).toContain('className="dialog-title type-title-large"');
-    expect(settingsDialogSource).toContain('aria-label="Close settings"');
-    expect(settingsDialogSource).toContain('title={closeDisabled ? "Closing..." : "Close"}');
+    expect(settingsDialogSource).toContain('aria-label={t("common.close")}');
+    expect(settingsDialogSource).toContain('title={closeDisabled ? t("common.closing") : t("common.close")}');
     expect(settingsDialogSource).toContain('className="settings-dialog-body"');
   });
 
@@ -47,7 +47,7 @@ describe("settings dialog focus behavior", () => {
 
     expect(appSource).toContain("settingsCloseConfirmOpen");
     expect(appSource).toContain("collectBlockingUnsavedPresetIds");
-    expect(appSource).toContain("Discard unsaved changes?");
+    expect(appSource).toContain('t("dialog.discardUnsavedChangesTitle")');
     expect(appSource).not.toContain("discardAllUnsavedSettings");
     expect(appSource).not.toContain("handleSettingsDone");
   });

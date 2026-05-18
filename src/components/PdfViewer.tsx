@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import {
   useCallback,
   useEffect,
@@ -328,21 +329,21 @@ export function PdfViewer({
   );
 
   if (!pageSize) {
-    return <div className="empty-state">Loading page...</div>;
+    return <div className="empty-state">{t("reader.loadingPage")}</div>;
   }
 
   return (
     <div className="pdf-reader-main">
       <PageNavigationToolbar
-        previousLabel="Previous page"
-        nextLabel="Next page"
+        previousLabel={t("reader.previousPage")}
+        nextLabel={t("reader.nextPage")}
         previousDisabled={currentPage <= 1}
         nextDisabled={currentPage >= pageSizes.length}
         onPrevious={() => onNavigateToPage(currentPage - 1)}
         onNext={() => onNavigateToPage(currentPage + 1)}
       >
         <label className="pdf-page-jump">
-          <span className="pdf-page-jump-label">Page</span>
+          <span className="pdf-page-jump-label">{t("reader.page")}</span>
           <input
             className="pdf-page-input"
             type="text"
@@ -352,9 +353,9 @@ export function PdfViewer({
             onBlur={commitPageInput}
             onKeyDown={handlePageInputKeyDown}
             onFocus={(event) => event.currentTarget.select()}
-            aria-label="Current page"
+            aria-label={t("reader.currentPage")}
           />
-          <span className="pdf-page-jump-total">of {pageSizes.length}</span>
+          <span className="pdf-page-jump-total">{t("reader.pageOf", { count: String(pageSizes.length) })}</span>
         </label>
       </PageNavigationToolbar>
 
@@ -400,11 +401,11 @@ export function PdfViewer({
                 className="pdf-zoom-mode-select"
                 value={selectedZoomOption || ""}
                 onChange={handleZoomOptionChange}
-                aria-label="Zoom preset"
+                aria-label={t("reader.zoomPreset")}
               >
-                <option value="">Custom</option>
-                <option value="fit-width">Fit width</option>
-                <option value="fit-height">Fit height</option>
+                <option value="">{t("reader.zoomCustom")}</option>
+                <option value="fit-width">{t("reader.zoomFitWidth")}</option>
+                <option value="fit-height">{t("reader.zoomFitHeight")}</option>
                 <option value="100">100%</option>
                 <option value="150">150%</option>
               </select>
@@ -424,8 +425,8 @@ export function PdfViewer({
             <button
               type="button"
               className="btn pdf-zoom-trigger"
-              aria-label="Open zoom controls"
-              title="Zoom controls"
+              aria-label={t("reader.openZoomControls")}
+              title={t("reader.zoomControls")}
               aria-expanded={false}
               onClick={() => {
                 clearZoomPopoverCloseTimer();

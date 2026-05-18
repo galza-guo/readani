@@ -1,3 +1,5 @@
+import { t } from "./i18n";
+
 export const TRANSLATE_ALL_SLOW_MODE_BATCH_SIZE = 3;
 export const TRANSLATE_ALL_SLOW_MODE_PAUSE_MS = 12_000;
 export const TRANSLATE_ALL_SLOW_MODE_INITIAL_BACKOFF_MS = 45_000;
@@ -58,19 +60,38 @@ export function getTranslateAllTransientRetryLabel(args: {
   page: number | null;
   remainingSeconds: number;
 }) {
-  const errorLabel =
-    args.errorKind === "rate-limit"
-      ? "Rate limit hit"
-      : args.errorKind === "network-request"
-        ? "Network error"
-        : args.errorKind === "timeout"
-          ? "Timeout"
-          : args.errorKind === "provider-unavailable"
-            ? "Provider unavailable"
-            : "Error";
-  const pageLabel = args.page !== null ? ` on page ${args.page}` : "";
+  if (args.errorKind === "rate-limit") {
+    if (args.page !== null) {
+      return t("readerStatus.translateAll.rateLimitHit", {
+        page: String(args.page),
+        remainingSeconds: String(args.remainingSeconds),
+      });
+    }
+    return t("readerStatus.translateAll.rateLimitHitShort", {
+      remainingSeconds: String(args.remainingSeconds),
+    });
+  }
 
-  return `${errorLabel}${pageLabel}. Retrying in ${args.remainingSeconds}s`;
+  const errorLabel =
+    args.errorKind === "network-request"
+      ? t("readerStatus.translateAll.errorNetwork")
+      : args.errorKind === "timeout"
+        ? t("readerStatus.translateAll.errorTimeout")
+        : args.errorKind === "provider-unavailable"
+          ? t("readerStatus.translateAll.errorProviderUnavailable")
+          : t("readerStatus.translateAll.errorGeneric");
+
+  if (args.page !== null) {
+    return t("readerStatus.translateAll.transientRetryLabel", {
+      error: errorLabel,
+      page: String(args.page),
+      remainingSeconds: String(args.remainingSeconds),
+    });
+  }
+  return t("readerStatus.translateAll.transientRetryLabelNoPage", {
+    error: errorLabel,
+    remainingSeconds: String(args.remainingSeconds),
+  });
 }
 
 export function selectSlowModeEpubPageBatch(

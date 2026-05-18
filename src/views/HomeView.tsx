@@ -8,6 +8,7 @@ import { UpdateActionButton } from "../components/UpdateActionButton";
 import type { RecentBook, ThemeMode } from "../types";
 import readaniBannerForDarkTheme from "../assets/readani-banner-dark-theme.png";
 import readaniBannerForLightTheme from "../assets/readani-banner-light-theme.png";
+import { t } from "../lib/i18n";
 
 type HomeViewProps = {
   onOpenBook: (book: RecentBook) => void;
@@ -87,10 +88,10 @@ function formatRelativeTime(dateString: string): string {
   const diffHours = Math.floor(diffMins / 60);
   const diffDays = Math.floor(diffHours / 24);
 
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffMins < 1) return t("home.justNow");
+  if (diffMins < 60) return t("home.minutesAgo", { count: String(diffMins) });
+  if (diffHours < 24) return t("home.hoursAgo", { count: String(diffHours) });
+  if (diffDays < 7) return t("home.daysAgo", { count: String(diffDays) });
 
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
@@ -157,8 +158,8 @@ export function HomeView({
               <UpdateActionButton onClick={onInstallUpdate} />
             ) : null}
             <ExpandableIconButton
-              aria-label="About"
-              label="About"
+              aria-label={t("common.about")}
+              label={t("common.about")}
               labelDirection="left"
               onClick={onOpenAbout}
             >
@@ -169,11 +170,11 @@ export function HomeView({
               onToggle={onThemeToggle}
               showHoverLabel={true}
               labelDirection="left"
-              hoverLabel="Theme"
+              hoverLabel={t("theme.switch")}
             />
             <ExpandableIconButton
-              aria-label="Settings"
-              label="Settings"
+              aria-label={t("common.settings")}
+              label={t("common.settings")}
               labelDirection="left"
               onClick={onOpenSettings}
             >
@@ -182,9 +183,9 @@ export function HomeView({
           </div>
           {showTranslationSetupCallout ? (
             <div className="home-setup-callout">
-              <span>Translation is not set up yet.</span>
+              <span>{t("home.translationNotSetUp")}</span>
               <button className="home-setup-callout-link" onClick={onOpenSettings} type="button">
-                Open Settings to add a provider.
+                {t("home.openSettings")}
               </button>
             </div>
           ) : null}
@@ -209,24 +210,24 @@ export function HomeView({
                 className="home-logo-img home-logo-img--dark"
               />
             </div>
-            <p className="home-subtitle">Language barriers removed.</p>
+            <p className="home-subtitle">{t("home.languageBarriersRemoved")}</p>
           </div>
 
           {/* Drop zone */}
           <div className="home-dropzone" onClick={onOpenFile}>
             <UploadIcon />
             <div className="home-dropzone-text">
-              <span className="home-dropzone-title type-section-title">Open PDF or EPUB</span>
-              <span className="home-dropzone-hint">Click to browse or drag file here</span>
+              <span className="home-dropzone-title type-section-title">{t("home.openPdfOrEpub")}</span>
+              <span className="home-dropzone-hint">{t("home.clickToBrowse")}</span>
             </div>
-            <span className="home-dropzone-shortcut">⌘O</span>
+            <span className="home-dropzone-shortcut">{t("home.shortcutHint")}</span>
           </div>
           {/* Recent files */}
           {loading ? (
             <div className="home-loading"><div className="home-spinner" /></div>
           ) : hasBooks ? (
             <div className="home-recent">
-              <div className="home-recent-title type-section-title">Recent</div>
+              <div className="home-recent-title type-section-title">{t("home.recent")}</div>
               <ScrollArea.Root className="home-recent-scroll">
                 <ScrollArea.Viewport className="home-recent-viewport">
                   <div className="home-recent-list">
@@ -244,13 +245,13 @@ export function HomeView({
                               </span>
                             </button>
                             <button
-                              aria-label={`Remove ${book.title} from Recent`}
+                              aria-label={t("home.removeFromRecentWithTitle", { title: book.title })}
                               className="home-file-delete"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 void handleRemove(book);
                               }}
-                              title="Remove from Recent"
+                              title={t("home.removeFromRecent")}
                               type="button"
                             >
                               <TrashIcon />
@@ -261,7 +262,7 @@ export function HomeView({
                           <ContextMenu.Content className="context-menu">
                             <ContextMenu.Item className="context-menu-item context-menu-item-danger" onSelect={() => handleRemove(book)}>
                               <TrashIcon />
-                              <span>Remove</span>
+                              <span>{t("home.remove")}</span>
                             </ContextMenu.Item>
                           </ContextMenu.Content>
                         </ContextMenu.Portal>
@@ -277,7 +278,7 @@ export function HomeView({
           ) : null}
 
           <div className="home-disclaimer">
-            Translation quality depends on the provider, model, and the quality of the PDF or OCR text.
+            {t("home.translationDisclaimer")}
           </div>
         </div>
       </main>

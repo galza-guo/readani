@@ -8,6 +8,7 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
+import { t } from "../../lib/i18n";
 
 type ToastTone = "neutral" | "success" | "error";
 
@@ -224,7 +225,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
               ) : null}
             </div>
             <button
-              aria-label="Dismiss notification"
+              aria-label={t("toast.dismiss")}
               className="toast__dismiss"
               onClick={() => removeToast(toast.id)}
               type="button"

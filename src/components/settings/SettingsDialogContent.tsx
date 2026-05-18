@@ -8,6 +8,8 @@ import { ConfirmationDialog } from "../ConfirmationDialog";
 import { LanguageCombobox } from "./LanguageCombobox";
 import { canListModels } from "../../lib/providerForm";
 import {
+  buildAppLanguagePickerSections,
+  buildTranslateToLanguagePickerSections,
   detectCodingPlanKey,
   getDefaultBaseUrlForProvider,
   getDefaultModelForProvider,
@@ -23,6 +25,12 @@ import {
   providerUsesReasoning,
   providerUsesThinking,
 } from "../../lib/appSettings";
+import {
+  getLanguageLabel,
+  getLanguageSelfLabel,
+  SUPPORTED_LANGUAGE_COUNT,
+} from "../../lib/languageOptions";
+import { hasLocaleMessage, t } from "../../lib/i18n";
 import { ProviderBrandIcon } from "./providerIcons";
 import type {
   ProviderReasoningMode,
@@ -57,7 +65,7 @@ export type SettingsDialogContentProps = {
   onAddPreset: (providerKind: TranslationProviderKind) => string;
   onDeletePreset: (presetId: string) => void | Promise<void>;
   onDeleteAllTranslationCache: () => void | Promise<void>;
-  onDeleteCachedBook: (docId: string, title: string) => void | Promise<void>;
+  onDeleteCachedBook: (docId: string, title: string, languageCode: string) => void | Promise<void>;
   onEditingPresetChange: (presetId: string | null) => void | Promise<void>;
   onActivatePreset: (presetId: string) => void | Promise<void>;
   onPresetChange: (preset: TranslationPreset) => void;
@@ -109,10 +117,22 @@ const STANDARD_REASONING_OPTIONS: Array<{
 ];
 
 function getAutoTranslateNextPageLabel(value: number) {
-  return (
-    AUTO_TRANSLATE_NEXT_PAGE_OPTIONS.find((option) => option.value === value)
-      ?.label ?? String(value)
-  );
+  const option = AUTO_TRANSLATE_NEXT_PAGE_OPTIONS.find((option) => option.value === value);
+  if (option?.value === 0) return t("common.off");
+  return option?.label ?? String(value);
+}
+
+function getCacheLanguageLabel(languageCode: string) {
+  if (languageCode.startsWith("custom:")) {
+    return languageCode
+      .slice("custom:".length)
+      .split("-")
+      .filter(Boolean)
+      .map((segment) => segment[0]?.toUpperCase() + segment.slice(1))
+      .join(" ");
+  }
+
+  return getLanguageLabel(languageCode) ?? languageCode;
 }
 
 function PlusIcon() {
@@ -334,7 +354,7 @@ function ModelCombobox({
               );
             })
           ) : (
-            <div className="model-combobox-empty">No matching models.</div>
+            <div className="model-combobox-empty">{t("provider.noMatchingModels")}</div>
           )}
         </div>
       ) : null}
@@ -349,14 +369,14 @@ function getPresetRowStatusCopy(
   if (status?.state === "dirty" || status?.state === "saving") {
     return {
       className: "settings-preset-status is-progress",
-      label: "Saving...",
+      label: t("common.saving"),
     };
   }
 
   if (status?.state === "error") {
     return {
       className: "settings-preset-status is-error",
-      label: "Save failed",
+      label: t("common.saveFailed"),
     };
   }
 
@@ -365,7 +385,7 @@ function getPresetRowStatusCopy(
       className: `settings-preset-status is-ok ${
         savedIndicatorPhase === "fading" ? "is-fading" : ""
       }`,
-      label: "Saved",
+      label: t("common.saved"),
     };
   }
 
@@ -375,15 +395,15 @@ function getPresetRowStatusCopy(
 function getModelLoadHint(preset: TranslationPreset, apiKeyInput: string) {
   if (providerUsesEditableBaseUrl(preset.providerKind) && !preset.baseUrl?.trim()) {
     return providerUsesApiKey(preset.providerKind)
-      ? "Add Base URL and API key to load models."
-      : "Add Base URL to load models.";
+      ? t("provider.addBaseUrlAndApiKeyToLoad")
+      : t("provider.addBaseUrlToLoad");
   }
 
   if (providerUsesApiKey(preset.providerKind) && !apiKeyInput.trim() && !preset.apiKeyConfigured) {
-    return "Add API key to load models automatically.";
+    return t("provider.addApiKeyToLoad");
   }
 
-  return "The model list will load automatically when this provider is ready.";
+  return t("provider.modelsWillLoadAutomatically");
 }
 
 function formatCacheSize(bytes: number) {
@@ -441,10 +461,20 @@ export function SettingsDialogContent({
   onTestPreset,
   onTestAllPresets,
 }: SettingsDialogContentProps) {
+  const appLanguageSearchPlaceholder = hasLocaleMessage("languages.searchSupported")
+    ? t("languages.searchSupported", {
+        count: String(SUPPORTED_LANGUAGE_COUNT),
+      })
+    : t("languages.search");
+  const translateToSearchPlaceholder = hasLocaleMessage("languages.searchOrCustom")
+    ? t("languages.searchOrCustom")
+    : t("languages.search");
   const [pendingDeletePresetId, setPendingDeletePresetId] = useState<string | null>(null);
-  const [pendingDeleteCacheBookId, setPendingDeleteCacheBookId] = useState<
-    string | null
-  >(null);
+  const [pendingDeleteCacheBook, setPendingDeleteCacheBook] = useState<{
+    docId: string;
+    title: string;
+    languageCode: string;
+  } | null>(null);
   const [pendingDeleteAllCache, setPendingDeleteAllCache] = useState(false);
   const [providerPickerOpen, setProviderPickerOpen] = useState(false);
   const [savedIndicatorPhaseById, setSavedIndicatorPhaseById] = useState<
@@ -459,11 +489,6 @@ export function SettingsDialogContent({
 
   const pendingDeletePreset = pendingDeletePresetId
     ? settings.presets.find((preset) => preset.id === pendingDeletePresetId)
-    : undefined;
-  const pendingDeleteCacheBook = pendingDeleteCacheBookId
-    ? translationCacheSummary?.books.find(
-        (book) => book.docId === pendingDeleteCacheBookId,
-      )
     : undefined;
   const cacheActionInProgress = translationCacheActionTarget !== null;
 
@@ -614,36 +639,10 @@ export function SettingsDialogContent({
   }, []);
 
   const helpPopover = (
-    <Popover.Root>
-      <Popover.Trigger asChild>
-        <button
-          aria-label="How to set this up"
-          className="btn btn-icon-only btn-quiet-action settings-help-button"
-          type="button"
-        >
-          <HelpIcon />
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content className="settings-help-popover" side="bottom" align="start" sideOffset={8}>
-          <div className="settings-help-title">How to set this up</div>
-          <ol className="settings-help-list">
-            <li>Add a provider.</li>
-            <li>Add any required connection details.</li>
-            <li>Pick a model.</li>
-            <li>Use Test connection to confirm.</li>
-          </ol>
-          <Popover.Arrow className="popover-arrow" />
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
-  );
-
-  const translateAllSlowModeTooltip = (
     <Tooltip.Root>
       <Tooltip.Trigger asChild>
         <button
-          aria-label="About Translate All slow mode"
+          aria-label={t("settings.howToSetup")}
           className="btn btn-icon-only btn-quiet-action settings-help-button"
           type="button"
         >
@@ -656,9 +655,31 @@ export function SettingsDialogContent({
           side="top"
           sideOffset={6}
         >
-          Useful for rate-limited providers and free models. During Translate All,
-          readani pauses between small batches and retries automatically after
-          rate-limit errors. Other errors still stop the run.
+          {t("settings.howToSetupContent")}
+          <Tooltip.Arrow className="tooltip-arrow" />
+        </Tooltip.Content>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+
+  const translateAllSlowModeTooltip = (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+        <button
+          aria-label={t("settings.aboutSlowMode")}
+          className="btn btn-icon-only btn-quiet-action settings-help-button"
+          type="button"
+        >
+          <HelpIcon />
+        </button>
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Content
+          className="tooltip-content settings-toggle-tooltip"
+          side="top"
+          sideOffset={6}
+        >
+          {t("settings.slowModeTooltip")}
           <Tooltip.Arrow className="tooltip-arrow" />
         </Tooltip.Content>
       </Tooltip.Portal>
@@ -678,30 +699,58 @@ export function SettingsDialogContent({
             className="panel-toggle-btn settings-tab-trigger"
             value="general"
           >
-            General
+            {t("settings.tabs.general")}
           </Tabs.Trigger>
           <Tabs.Trigger
             className="panel-toggle-btn settings-tab-trigger"
             value="providers"
           >
-            Providers
+            {t("settings.tabs.providers")}
           </Tabs.Trigger>
           <Tabs.Trigger
             className="panel-toggle-btn settings-tab-trigger"
             value="cache"
           >
-            Cache
+            {t("settings.tabs.cache")}
           </Tabs.Trigger>
         </Tabs.List>
 
         <Tabs.Content className="settings-content" forceMount value="general">
           <div className="settings-layout">
             <div className="settings-block settings-block-inline">
-              <Label.Root className="settings-label type-field-label" htmlFor="default-language-select">
-                Default language
+              <Label.Root className="settings-label type-field-label" htmlFor="app-language-select">
+                {t("settings.general.appLanguage")}
               </Label.Root>
               <div className="settings-inline-control">
                 <LanguageCombobox
+                  allowCustom={false}
+                  buildSections={buildAppLanguagePickerSections}
+                  contentClassName="language-combobox-content-shortlist"
+                  getOptionLabel={getLanguageSelfLabel}
+                  id="app-language-select"
+                  onChange={(nextLanguage) =>
+                    void Promise.resolve(
+                      onSettingsChange({
+                        ...settings,
+                        appLanguage: nextLanguage,
+                      })
+                    ).catch(() => {})
+                  }
+                  searchable={false}
+                  searchPlaceholder={appLanguageSearchPlaceholder}
+                  value={settings.appLanguage}
+                />
+              </div>
+            </div>
+            <div className="settings-block settings-block-inline">
+              <Label.Root className="settings-label type-field-label" htmlFor="default-language-select">
+                {t("settings.general.translateTo")}
+              </Label.Root>
+              <div className="settings-inline-control">
+                <LanguageCombobox
+                  buildSections={buildTranslateToLanguagePickerSections}
+                  contentClassName="language-combobox-content-common-list"
+                  getOptionLabel={getLanguageSelfLabel}
                   id="default-language-select"
                   onChange={(nextLanguage) =>
                     void Promise.resolve(
@@ -711,13 +760,14 @@ export function SettingsDialogContent({
                       })
                     ).catch(() => {})
                   }
+                  searchPlaceholder={translateToSearchPlaceholder}
                   value={settings.defaultLanguage}
                 />
               </div>
             </div>
             <div className="settings-block settings-block-inline">
               <Label.Root className="settings-label type-field-label" htmlFor="auto-translate-next-pages">
-                Auto-translate ahead
+                {t("settings.general.autoTranslateAhead")}
               </Label.Root>
               <div className="settings-inline-control">
                 <Select.Root
@@ -735,7 +785,7 @@ export function SettingsDialogContent({
                   value={String(settings.autoTranslateNextPages)}
                 >
                   <Select.Trigger
-                    aria-label="Auto-translate ahead"
+                    aria-label={t("settings.general.autoTranslateAhead")}
                     className="select-trigger"
                     id="auto-translate-next-pages"
                   >
@@ -753,7 +803,7 @@ export function SettingsDialogContent({
                             key={option.value}
                             value={String(option.value)}
                           >
-                            <Select.ItemText>{option.label}</Select.ItemText>
+                            <Select.ItemText>{option.value === 0 ? t("common.off") : option.label}</Select.ItemText>
                           </Select.Item>
                         ))}
                       </Select.Viewport>
@@ -770,7 +820,7 @@ export function SettingsDialogContent({
             <div className="settings-block settings-block-providers">
               <div className="settings-toolbar">
                 <div className="settings-toolbar-heading">
-                  <span className="settings-toolbar-title type-section-title">Model Presets</span>
+                  <span className="settings-toolbar-title type-section-title">{t("settings.modelPresets")}</span>
                   {helpPopover}
                 </div>
                 <div className="settings-toolbar-actions">
@@ -783,15 +833,15 @@ export function SettingsDialogContent({
                       }}
                       type="button"
                     >
-                      {testAllRunning ? "Testing..." : "Test all"}
+                      {testAllRunning ? t("common.testing") : t("settings.testAll")}
                     </button>
                   ) : null}
                   <Popover.Root open={providerPickerOpen} onOpenChange={setProviderPickerOpen}>
                     <Popover.Trigger asChild>
                       <button
                         className="btn btn-icon-only btn-quiet-action settings-icon-button"
-                        aria-label="Add provider"
-                        title="Add provider"
+                        aria-label={t("settings.addProvider")}
+                        title={t("settings.addProvider")}
                         type="button"
                       >
                         <PlusIcon />
@@ -845,7 +895,7 @@ export function SettingsDialogContent({
                     }}
                     type="button"
                   >
-                    To enable translation, add a provider.
+                    {t("settings.toEnableTranslation")}
                   </button>
                 </div>
               ) : (
@@ -885,10 +935,10 @@ export function SettingsDialogContent({
                             }}
                             title={
                               isActive
-                                ? "Currently in use"
+                                ? t("settings.currentlyInUse")
                                 : validation.isValid
-                                  ? "Use this provider"
-                                  : "Finish setup to use this provider"
+                                  ? t("settings.useThisProvider")
+                                  : t("settings.finishSetupToUse")
                             }
                             type="button"
                           >
@@ -897,9 +947,9 @@ export function SettingsDialogContent({
                                 <span className="settings-preset-label type-pane-title">{preset.label}</span>
                                 {testStatus?.ok ? (
                                   <span
-                                    aria-label="Preset test passed"
+                                    aria-label={t("settings.presetTestPassed")}
                                     className="settings-preset-success"
-                                    title="Preset test passed"
+                                    title={t("settings.presetTestPassed")}
                                   >
                                     <CheckCircleIcon />
                                   </span>
@@ -907,7 +957,7 @@ export function SettingsDialogContent({
                                   <Tooltip.Root>
                                     <Tooltip.Trigger asChild>
                                       <span
-                                        aria-label="Preset test failed"
+                                        aria-label={t("settings.presetTestFailed")}
                                         className="settings-preset-warning"
                                         title={testStatus.detail ?? testStatus.message}
                                       >
@@ -939,7 +989,7 @@ export function SettingsDialogContent({
                           <div className="settings-preset-controls">
                             {isSessionActive ? (
                               <span className="settings-preset-status is-session">
-                                In use this session
+                                {t("settings.inUseThisSession")}
                               </span>
                             ) : null}
                             {rowStatus ? (
@@ -947,7 +997,7 @@ export function SettingsDialogContent({
                             ) : null}
                             <button
                               aria-expanded={isEditing}
-                              aria-label={isEditing ? "Collapse provider settings" : "Expand provider settings"}
+                              aria-label={isEditing ? t("settings.collapseProvider") : t("settings.expandProvider")}
                               className="btn btn-icon-only btn-quiet-action settings-preset-chevron-button"
                               onClick={() => {
                                 void Promise.resolve(
@@ -973,7 +1023,7 @@ export function SettingsDialogContent({
                                 className="settings-label type-field-label"
                                 htmlFor="preset-provider-kind"
                               >
-                                Provider
+                                {t("settings.provider")}
                               </Label.Root>
                               <Select.Root
                                 value={editingPreset.providerKind}
@@ -986,7 +1036,7 @@ export function SettingsDialogContent({
                               >
                                 <Select.Trigger
                                   className="select-trigger"
-                                  aria-label="Provider"
+                                  aria-label={t("settings.provider")}
                                   id="preset-provider-kind"
                                 >
                                   <span className="settings-provider-trigger-value">
@@ -1025,12 +1075,12 @@ export function SettingsDialogContent({
                             {editingPresetShowsBaseUrlField ? (
                               <div className="settings-item">
                                 <Label.Root className="settings-label type-field-label" htmlFor="preset-base-url">
-                                  Base URL
+                                  {t("settings.baseUrl")}
                                 </Label.Root>
                                 <input
                                   id="preset-base-url"
                                   className="input"
-                                  placeholder={`e.g. ${getDefaultBaseUrlForProvider(editingPreset.providerKind) ?? "https://api.example.com/v1"}`}
+                                  placeholder={t("settings.baseUrlPlaceholder", { url: getDefaultBaseUrlForProvider(editingPreset.providerKind) ?? "https://api.example.com/v1" })}
                                   value={editingPreset.baseUrl || ""}
                                   onChange={(event) =>
                                     onPresetChange({
@@ -1046,10 +1096,10 @@ export function SettingsDialogContent({
                               <div className="settings-item">
                                 <div className="settings-inline-row">
                                   <Label.Root className="settings-label type-field-label" htmlFor="preset-api-key">
-                                    API key
+                                    {t("settings.apiKey")}
                                   </Label.Root>
                                   {editingPreset.apiKeyConfigured && !editingPresetApiKeyInput.trim() ? (
-                                    <span className="settings-field-status status-ok">Saved</span>
+                                    <span className="settings-field-status status-ok">{t("settings.apiKeySaved")}</span>
                                   ) : null}
                                 </div>
                                 <input
@@ -1084,11 +1134,11 @@ export function SettingsDialogContent({
                                 <div className="settings-toggle-row" style={{ borderTop: 0, borderBottom: 0 }}>
                                   <div className="settings-toggle-copy">
                                     <div className="settings-toggle-title-row">
-                                      <span className="settings-toggle-title">Coding Plan</span>
+                                      <span className="settings-toggle-title">{t("settings.codingPlan")}</span>
                                       <Tooltip.Root>
                                         <Tooltip.Trigger asChild>
                                           <button
-                                            aria-label="About Coding Plan"
+                                            aria-label={t("settings.aboutCodingPlan")}
                                             className="btn btn-icon-only btn-quiet-action settings-help-button"
                                             type="button"
                                           >
@@ -1097,7 +1147,7 @@ export function SettingsDialogContent({
                                         </Tooltip.Trigger>
                                         <Tooltip.Portal>
                                           <Tooltip.Content className="tooltip-content settings-toggle-tooltip" side="top" sideOffset={6}>
-                                            Use a coding plan key for subscription-based billing.
+                                            {t("settings.codingPlanTooltip")}
                                             <Tooltip.Arrow className="tooltip-arrow" />
                                           </Tooltip.Content>
                                         </Tooltip.Portal>
@@ -1125,7 +1175,7 @@ export function SettingsDialogContent({
                             <div className="settings-item">
                               <div className="settings-inline-row">
                                 <Label.Root className="settings-label type-field-label" htmlFor="preset-model">
-                                  Model
+                                  {t("settings.model")}
                                 </Label.Root>
                                 {editingPresetCanLoadModels ? (
                                   <button
@@ -1136,7 +1186,7 @@ export function SettingsDialogContent({
                                     }}
                                     type="button"
                                   >
-                                    {presetModelsLoadingById[editingPreset.id] ? "Loading..." : editingPresetModels.length > 0 ? "Reload" : "Load models"}
+                                    {presetModelsLoadingById[editingPreset.id] ? t("settings.loadingModels") : editingPresetModels.length > 0 ? t("settings.reloadModels") : t("settings.loadModels")}
                                   </button>
                                 ) : (
                                   <span className="settings-inline-hint">{getModelLoadHint(editingPreset, editingPresetApiKeyInput)}</span>
@@ -1152,7 +1202,7 @@ export function SettingsDialogContent({
                                   })
                                 }
                                 options={editingPresetModels}
-                                placeholder={`e.g. ${getDefaultModelForProvider(editingPreset.providerKind)}`}
+                                placeholder={t("settings.modelPlaceholder", { model: getDefaultModelForProvider(editingPreset.providerKind) })}
                                 value={editingPreset.model}
                               />
                               {editingPresetModelMessage ? (
@@ -1165,7 +1215,7 @@ export function SettingsDialogContent({
                             {providerUsesThinking(editingPreset.providerKind) ? (
                               <div className="settings-item">
                                 <Label.Root className="settings-label type-field-label" htmlFor="preset-thinking">
-                                  Thinking
+                                  {t("settings.thinking")}
                                 </Label.Root>
                                 <Select.Root
                                   value={normalizeProviderReasoningMode(
@@ -1182,11 +1232,11 @@ export function SettingsDialogContent({
                                 >
                                   <Select.Trigger
                                     className="select-trigger"
-                                    aria-label="Thinking"
+                                    aria-label={t("settings.thinking")}
                                     id="preset-thinking"
                                   >
                                     <span>
-                                      {(editingPreset.providerKind === "siliconflow" || editingPreset.providerKind === "dashscope"
+                                      {(editingPreset.providerKind === "siliconflow-cn" || editingPreset.providerKind === "siliconflow-com" || editingPreset.providerKind === "dashscope"
                                         ? THINKING_TOGGLE_OPTIONS
                                         : DEEPSEEK_THINKING_OPTIONS
                                       ).find(
@@ -1196,7 +1246,7 @@ export function SettingsDialogContent({
                                             editingPreset.providerKind,
                                             editingPreset.thinking,
                                           ),
-                                      )?.label ?? "Off"}
+                                      )?.label ?? t("common.off")}
                                     </span>
                                     <Select.Icon asChild>
                                       <ChevronDownIcon />
@@ -1205,7 +1255,7 @@ export function SettingsDialogContent({
                                   <Select.Portal>
                                     <Select.Content className="select-content settings-select-content" position="popper">
                                       <Select.Viewport>
-                                        {(editingPreset.providerKind === "siliconflow" || editingPreset.providerKind === "dashscope"
+                                        {(editingPreset.providerKind === "siliconflow-cn" || editingPreset.providerKind === "siliconflow-com" || editingPreset.providerKind === "dashscope"
                                           ? THINKING_TOGGLE_OPTIONS
                                           : DEEPSEEK_THINKING_OPTIONS
                                         ).map((option) => (
@@ -1214,7 +1264,7 @@ export function SettingsDialogContent({
                                             value={option.value}
                                             className="select-item"
                                           >
-                                            <Select.ItemText>{option.label}</Select.ItemText>
+                                            <Select.ItemText>{option.value === "off" ? t("common.off") : option.value === "high" && option.label === "On" ? t("common.on") : option.label}</Select.ItemText>
                                           </Select.Item>
                                         ))}
                                       </Select.Viewport>
@@ -1227,7 +1277,7 @@ export function SettingsDialogContent({
                             {providerUsesReasoning(editingPreset.providerKind) ? (
                               <div className="settings-item">
                                 <Label.Root className="settings-label type-field-label" htmlFor="preset-reasoning">
-                                  Reasoning
+                                  {t("settings.reasoning")}
                                 </Label.Root>
                                 <Select.Root
                                   value={normalizeProviderReasoningMode(
@@ -1244,7 +1294,7 @@ export function SettingsDialogContent({
                                 >
                                   <Select.Trigger
                                     className="select-trigger"
-                                    aria-label="Reasoning"
+                                    aria-label={t("settings.reasoning")}
                                     id="preset-reasoning"
                                   >
                                     <span>
@@ -1255,7 +1305,7 @@ export function SettingsDialogContent({
                                             editingPreset.providerKind,
                                             editingPreset.reasoning,
                                           ),
-                                      )?.label ?? "Off"}
+                                      )?.label ?? t("common.off")}
                                     </span>
                                     <Select.Icon asChild>
                                       <ChevronDownIcon />
@@ -1270,7 +1320,7 @@ export function SettingsDialogContent({
                                             value={option.value}
                                             className="select-item"
                                           >
-                                            <Select.ItemText>{option.label}</Select.ItemText>
+                                            <Select.ItemText>{option.value === "off" ? t("common.off") : option.label}</Select.ItemText>
                                           </Select.Item>
                                         ))}
                                       </Select.Viewport>
@@ -1289,7 +1339,7 @@ export function SettingsDialogContent({
                                 }}
                                 type="button"
                               >
-                                {presetTestRunningId === editingPreset.id ? "Testing..." : "Test connection"}
+                                {presetTestRunningId === editingPreset.id ? t("common.testing") : t("settings.testConnection")}
                               </button>
                               <button
                                 className="btn btn-quiet-action btn-danger-quiet"
@@ -1297,7 +1347,7 @@ export function SettingsDialogContent({
                                 type="button"
                               >
                                 <TrashIcon />
-                                Delete
+                                {t("settings.deletePreset")}
                               </button>
                             </div>
 
@@ -1312,7 +1362,7 @@ export function SettingsDialogContent({
                             {editingPresetSaveStatus?.state === "error" ? (
                               <div className="settings-inline-error-row" aria-live="polite">
                                 <span className="status-message">
-                                  {editingPresetSaveStatus.detail ?? "Save failed."}
+                                  {editingPresetSaveStatus.detail ?? t("settings.saveFailedRetry")}
                                 </span>
                                 <button
                                   className="btn btn-small btn-quiet-action"
@@ -1321,7 +1371,7 @@ export function SettingsDialogContent({
                                   }}
                                   type="button"
                                 >
-                                  Retry save
+                                  {t("settings.retrySave")}
                                 </button>
                               </div>
                             ) : null}
@@ -1337,11 +1387,11 @@ export function SettingsDialogContent({
                 <div className="settings-toggle-row settings-toggle-row-first">
                 <div className="settings-toggle-copy">
                   <div className="settings-toggle-title-row">
-                    <span className="settings-toggle-title">Translate All slow mode</span>
+                    <span className="settings-toggle-title">{t("settings.translateAllSlowMode")}</span>
                     {translateAllSlowModeTooltip}
                   </div>
                   <span className="settings-toggle-detail">
-                    Pause during Translate All and retry automatically after rate-limit errors.
+                    {t("settings.slowModeDetail")}
                   </span>
                 </div>
                 <button
@@ -1365,11 +1415,11 @@ export function SettingsDialogContent({
                 <div className="settings-toggle-row settings-toggle-row-bottom">
                   <div className="settings-toggle-copy">
                     <div className="settings-toggle-title-row">
-                      <span className="settings-toggle-title">Automatic fallback</span>
-                      <span className="settings-experimental-badge">Experimental</span>
+                      <span className="settings-toggle-title">{t("settings.autoFallback")}</span>
+                      <span className="settings-experimental-badge">{t("settings.experimental")}</span>
                     </div>
                     <span className="settings-toggle-detail">
-                      Retry another usable preset after a failure or timeout.
+                      {t("settings.autoFallbackDetail")}
                     </span>
                   </div>
                   <button
@@ -1398,15 +1448,13 @@ export function SettingsDialogContent({
           <div className="settings-layout settings-cache-layout">
             <div className="settings-cache-summary-row">
               <div className="settings-cache-summary-copy">
-                <span className="settings-cache-summary-label type-meta">Total cache size</span>
+                <span className="settings-cache-summary-label type-meta">{t("cache.totalCacheSize")}</span>
                 <span className="settings-cache-summary-value type-pane-title">
                   {translationCacheLoading && translationCacheSummary === null
-                    ? "Loading..."
+                    ? t("common.loading")
                     : formatCacheSize(translationCacheSummary?.totalCacheSizeBytes ?? 0)}
                 </span>
-                <span className="settings-cache-summary-label type-meta">
-                  Books below share cache across models for the current language.
-                </span>
+
               </div>
               <button
                 className="btn btn-quiet-action btn-danger-quiet settings-cache-delete-all"
@@ -1421,53 +1469,64 @@ export function SettingsDialogContent({
                 type="button"
               >
                 <TrashIcon />
-                {translationCacheActionTarget === "all" ? "Deleting..." : "Delete All"}
+                {translationCacheActionTarget === "all" ? t("cache.deleting") : t("cache.deleteAll")}
               </button>
             </div>
 
             {translationCacheLoading && translationCacheSummary === null ? (
-              <div className="settings-cache-empty type-meta">Loading cache...</div>
+              <div className="settings-cache-empty type-meta">{t("cache.loading")}</div>
             ) : cacheBooks.length === 0 ? (
               <div className="settings-cache-empty type-meta">
-                No cached books yet.
+                {t("cache.noCachedBooks")}
               </div>
             ) : (
               <div className="settings-cache-list" role="list">
-                {cacheBooks.map((book) => {
-                  const isDeletingBook = translationCacheActionTarget === book.docId;
-                  return (
-                    <div
-                      key={book.docId}
-                      className="settings-cache-item"
-                      role="listitem"
-                    >
-                      <div className="settings-cache-item-copy">
-                        <span className="settings-cache-item-title type-pane-title" title={book.title}>
-                          {book.title}
-                        </span>
-                        <span className="settings-cache-item-detail type-meta">
-                          {book.cachedPageCount} {book.isLegacyOnly ? "legacy cached" : "cached"} page{book.cachedPageCount === 1 ? "" : "s"}
-                        </span>
-                      </div>
-                      <button
-                        aria-label={`Delete cached pages for ${book.title}`}
-                        className="btn btn-icon-only btn-quiet-action settings-icon-button settings-icon-button-danger"
-                        disabled={cacheActionInProgress}
-                        onClick={() => {
-                          if (cacheActionInProgress) {
-                            return;
-                          }
+                {cacheBooks.flatMap((book) =>
+                  book.languages.map((language) => {
+                    const actionKey = `${book.docId}:${language.languageCode}`;
+                    const isDeletingBook = translationCacheActionTarget === actionKey;
 
-                          setPendingDeleteCacheBookId(book.docId);
-                        }}
-                        title={isDeletingBook ? "Deleting..." : "Delete cached pages"}
-                        type="button"
+                    return (
+                      <div
+                        key={actionKey}
+                        className="settings-cache-item"
+                        role="listitem"
                       >
-                        <TrashIcon />
-                      </button>
-                    </div>
-                  );
-                })}
+                        <div className="settings-cache-item-copy">
+                          <span className="settings-cache-item-title type-pane-title" title={book.title}>
+                            {book.title}
+                          </span>
+                          <span className="settings-cache-item-detail type-meta">
+                            {getCacheLanguageLabel(language.languageCode)} · {" "}
+                            {language.isLegacyOnly
+                              ? t("cache.legacyCachedPages", { count: String(language.cachedPageCount) })
+                              : t("cache.cachedPages", { count: String(language.cachedPageCount) })}
+                          </span>
+                        </div>
+                        <button
+                          aria-label={t("settings.deleteCachedPagesFor", { title: book.title })}
+                          className="btn btn-icon-only btn-quiet-action settings-icon-button settings-icon-button-danger"
+                          disabled={cacheActionInProgress}
+                          onClick={() => {
+                            if (cacheActionInProgress) {
+                              return;
+                            }
+
+                            setPendingDeleteCacheBook({
+                              docId: book.docId,
+                              title: book.title,
+                              languageCode: language.languageCode,
+                            });
+                          }}
+                          title={isDeletingBook ? t("cache.deleting") : t("settings.deleteCachedPages")}
+                          type="button"
+                        >
+                          <TrashIcon />
+                        </button>
+                      </div>
+                    );
+                  }),
+                )}
               </div>
             )}
           </div>
@@ -1477,7 +1536,7 @@ export function SettingsDialogContent({
       <ConfirmationDialog
         actions={[
           {
-            label: "Delete",
+            label: t("common.delete"),
             variant: "danger",
             onSelect: () => {
               if (!pendingDeletePresetId) {
@@ -1489,10 +1548,10 @@ export function SettingsDialogContent({
             },
           },
         ]}
-        cancelLabel="Keep"
+        cancelLabel={t("common.keep")}
         description={
           pendingDeletePreset
-            ? `Remove ${pendingDeletePreset.label}? You can add it again later.`
+            ? t("dialog.deletePresetDescription", { label: pendingDeletePreset.label })
             : ""
         }
         onOpenChange={(open) => {
@@ -1501,13 +1560,13 @@ export function SettingsDialogContent({
           }
         }}
         open={Boolean(pendingDeletePreset)}
-        title="Delete preset"
+        title={t("dialog.deletePresetTitle")}
       />
 
       <ConfirmationDialog
         actions={[
           {
-            label: "Delete",
+            label: t("common.delete"),
             variant: "danger",
             onSelect: () => {
               if (!pendingDeleteCacheBook) {
@@ -1518,31 +1577,34 @@ export function SettingsDialogContent({
                 onDeleteCachedBook(
                   pendingDeleteCacheBook.docId,
                   pendingDeleteCacheBook.title,
+                  pendingDeleteCacheBook.languageCode,
                 ),
               ).catch(() => {});
-              setPendingDeleteCacheBookId(null);
+              setPendingDeleteCacheBook(null);
             },
           },
         ]}
-        cancelLabel="Keep"
+        cancelLabel={t("common.keep")}
         description={
           pendingDeleteCacheBook
-            ? `Delete cached pages for ${pendingDeleteCacheBook.title}? This can't be undone.`
+            ? t("cache.deleteBookCacheDescription", {
+                title: `${pendingDeleteCacheBook.title} (${getCacheLanguageLabel(pendingDeleteCacheBook.languageCode)})`,
+              })
             : ""
         }
         onOpenChange={(open) => {
           if (!open) {
-            setPendingDeleteCacheBookId(null);
+            setPendingDeleteCacheBook(null);
           }
         }}
         open={Boolean(pendingDeleteCacheBook)}
-        title="Delete book cache"
+        title={t("cache.deleteBookCacheTitle")}
       />
 
       <ConfirmationDialog
         actions={[
           {
-            label: "Delete all",
+            label: t("cache.deleteAll"),
             variant: "danger",
             onSelect: () => {
               void Promise.resolve(onDeleteAllTranslationCache()).catch(() => {});
@@ -1550,11 +1612,11 @@ export function SettingsDialogContent({
             },
           },
         ]}
-        cancelLabel="Keep"
-        description="Delete all cached translations? This also removes older cache data and can't be undone."
+        cancelLabel={t("common.keep")}
+        description={t("cache.deleteAllDescription")}
         onOpenChange={setPendingDeleteAllCache}
         open={pendingDeleteAllCache}
-        title="Delete all cache"
+        title={t("cache.deleteAllTitle")}
       />
     </Tooltip.Provider>
   );

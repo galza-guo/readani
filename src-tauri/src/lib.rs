@@ -61,6 +61,13 @@ struct CachedTranslations {
 struct TranslationCacheBookSummary {
     doc_id: String,
     title: String,
+    languages: Vec<TranslationCacheLanguageSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct TranslationCacheLanguageSummary {
+    language_code: String,
     cached_page_count: u32,
     is_legacy_only: bool,
 }
@@ -1124,24 +1131,28 @@ async fn test_openrouter_key(handle: tauri::AppHandle) -> Result<(), String> {
 async fn test_translation_preset(
     handle: tauri::AppHandle,
     preset: TranslationPreset,
+    target_language: Option<TargetLanguage>,
 ) -> Result<PresetTestResult, String> {
     let saved_settings = load_app_settings(&handle)?;
     let merged = merge_saved_preset_credentials(&saved_settings.presets, preset);
-    let target_language = settings_language_to_target_language(&saved_settings.default_language);
-    Ok(run_preset_test(merged, &target_language).await)
+    let resolved_target_language = target_language
+        .unwrap_or_else(|| settings_language_to_target_language(&saved_settings.default_language));
+    Ok(run_preset_test(merged, &resolved_target_language).await)
 }
 
 #[tauri::command(rename_all = "camelCase")]
 async fn test_all_translation_presets(
     handle: tauri::AppHandle,
     presets: Vec<TranslationPreset>,
+    target_language: Option<TargetLanguage>,
 ) -> Result<Vec<PresetTestResult>, String> {
     let saved_settings = load_app_settings(&handle)?;
-    let target_language = settings_language_to_target_language(&saved_settings.default_language);
+    let resolved_target_language = target_language
+        .unwrap_or_else(|| settings_language_to_target_language(&saved_settings.default_language));
     let mut results = Vec::with_capacity(presets.len());
     for preset in presets {
         let merged = merge_saved_preset_credentials(&saved_settings.presets, preset);
-        results.push(run_preset_test(merged, &target_language).await);
+        results.push(run_preset_test(merged, &resolved_target_language).await);
     }
     Ok(results)
 }
@@ -1638,8 +1649,6 @@ fn clear_document_page_translations(
 #[tauri::command(rename_all = "camelCase")]
 fn get_translation_cache_summary(
     handle: tauri::AppHandle,
-    _preset_id: Option<String>,
-    target_language: Option<TargetLanguage>,
 ) -> Result<TranslationCacheSummary, String> {
     let cache_path = cache_file_path(&handle)?;
     let page_cache_path = page_cache_file_path(&handle)?;
@@ -1673,102 +1682,43 @@ fn get_translation_cache_summary(
         .map(|(index, book)| (book.id.clone(), index))
         .collect();
 
-    let pages_by_doc_id = if let Some(target_language) = target_language.as_ref() {
-        collect_sentence_cached_pages_for_language(&cache, &target_language.code)
-    } else {
-        collect_sentence_cached_pages(&cache)
-    };
-    let mut legacy_pages_by_doc_id: HashMap<String, HashSet<u32>> = HashMap::new();
-    for (key, entry) in &legacy_page_cache.entries {
-        if let Some(doc_id) = extract_doc_id_from_cache_key(key) {
-            legacy_pages_by_doc_id
-                .entry(doc_id.to_string())
-                .or_default()
-                .insert(entry.page);
-        }
-    }
-
-    let mut books_with_sort_keys: Vec<(usize, String, TranslationCacheBookSummary)> =
-        pages_by_doc_id
-            .into_iter()
-            .map(|(doc_id, pages)| {
-                let title =
-                    resolve_cached_book_title(&doc_id, &recent_book_titles, &cached_book_titles);
-                let sort_index = recent_book_order
-                    .get(&doc_id)
-                    .copied()
-                    .unwrap_or(usize::MAX);
-                let sort_title = title.to_lowercase();
-
-                (
-                    sort_index,
-                    sort_title,
-                    TranslationCacheBookSummary {
-                        doc_id,
-                        title,
-                        cached_page_count: pages.len() as u32,
-                        is_legacy_only: false,
-                    },
-                )
-            })
-            .collect();
-
-    let live_doc_ids: HashSet<String> = books_with_sort_keys
-        .iter()
-        .map(|(_, _, summary)| summary.doc_id.clone())
-        .collect();
-    books_with_sort_keys.extend(
-        legacy_pages_by_doc_id
-            .into_iter()
-            .filter(|(doc_id, _)| !live_doc_ids.contains(doc_id))
-            .map(|(doc_id, pages)| {
-                let title =
-                    resolve_cached_book_title(&doc_id, &recent_book_titles, &cached_book_titles);
-                let sort_index = recent_book_order
-                    .get(&doc_id)
-                    .copied()
-                    .unwrap_or(usize::MAX);
-                let sort_title = title.to_lowercase();
-
-                (
-                    sort_index,
-                    sort_title,
-                    TranslationCacheBookSummary {
-                        doc_id,
-                        title,
-                        cached_page_count: pages.len() as u32,
-                        is_legacy_only: true,
-                    },
-                )
-            }),
+    let books = collect_translation_cache_book_summaries(
+        &cache,
+        &legacy_page_cache,
+        &recent_book_titles,
+        &cached_book_titles,
+        &recent_book_order,
     );
-
-    books_with_sort_keys.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
 
     Ok(TranslationCacheSummary {
         total_cache_size_bytes,
-        books: books_with_sort_keys
-            .into_iter()
-            .map(|(_, _, summary)| summary)
-            .collect(),
+        books,
     })
 }
 
 #[tauri::command(rename_all = "camelCase")]
-fn clear_cached_book_translations(handle: tauri::AppHandle, doc_id: String) -> Result<(), String> {
+fn clear_cached_book_language_translations(
+    handle: tauri::AppHandle,
+    doc_id: String,
+    language_code: String,
+) -> Result<(), String> {
     let mut sentence_cache = load_cache(&handle)?;
-    clear_cached_sentence_entries_for_document(&mut sentence_cache, &doc_id);
+    clear_cached_sentence_entries_for_document_and_language(
+        &mut sentence_cache,
+        &doc_id,
+        &language_code,
+    );
     save_cache_after_mutation(&handle, &sentence_cache)?;
 
     let mut page_cache = load_page_cache(&handle)?;
     page_cache
         .entries
-        .retain(|key, _| extract_doc_id_from_cache_key(key) != Some(doc_id.as_str()));
+        .retain(|key, entry| {
+            extract_doc_id_from_cache_key(key) != Some(doc_id.as_str())
+                || entry.language != language_code
+        });
     save_page_cache_after_mutation(&handle, &page_cache)?;
-
-    let mut metadata = load_cached_book_metadata(&handle)?;
-    metadata.books.remove(&doc_id);
-    save_cached_book_metadata(&handle, &metadata)
+    Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -2122,6 +2072,7 @@ fn sentence_cache_key_matches_language(key: &str, language: &str) -> bool {
     }
 }
 
+#[cfg(test)]
 fn collect_sentence_cached_pages(cache: &CachedTranslations) -> HashMap<String, HashSet<u32>> {
     let mut pages_by_doc_id: HashMap<String, HashSet<u32>> = HashMap::new();
 
@@ -2145,6 +2096,7 @@ fn collect_sentence_cached_pages(cache: &CachedTranslations) -> HashMap<String, 
     pages_by_doc_id
 }
 
+#[cfg(test)]
 fn collect_sentence_cached_pages_for_language(
     cache: &CachedTranslations,
     language: &str,
@@ -2175,6 +2127,142 @@ fn collect_sentence_cached_pages_for_language(
     pages_by_doc_id
 }
 
+fn extract_language_from_sentence_cache_key(key: &str) -> Option<&str> {
+    let parts: Vec<&str> = key.split('|').collect();
+
+    match parts.as_slice() {
+        [_, _, _, _, _, key_language, _] => Some(*key_language),
+        [_, _, _, key_language, _] => Some(*key_language),
+        _ => None,
+    }
+}
+
+fn collect_sentence_cached_pages_by_document_and_language(
+    cache: &CachedTranslations,
+) -> HashMap<(String, String), HashSet<u32>> {
+    let mut pages_by_scope: HashMap<(String, String), HashSet<u32>> = HashMap::new();
+
+    for key in cache.entries.keys() {
+        let Some(doc_id) = extract_doc_id_from_cache_key(key) else {
+            continue;
+        };
+        let Some(sid) = extract_sid_from_sentence_cache_key(key) else {
+            continue;
+        };
+        let Some(page) = extract_pdf_page_from_sid(sid) else {
+            continue;
+        };
+        let Some(language) = extract_language_from_sentence_cache_key(key) else {
+            continue;
+        };
+
+        pages_by_scope
+            .entry((doc_id.to_string(), language.to_string()))
+            .or_default()
+            .insert(page);
+    }
+
+    pages_by_scope
+}
+
+fn collect_page_cached_pages_by_document_and_language(
+    cache: &PageTranslationCache,
+) -> HashMap<(String, String), HashSet<u32>> {
+    let mut pages_by_scope: HashMap<(String, String), HashSet<u32>> = HashMap::new();
+
+    for (key, entry) in &cache.entries {
+        let Some(doc_id) = extract_doc_id_from_cache_key(key) else {
+            continue;
+        };
+
+        pages_by_scope
+            .entry((doc_id.to_string(), entry.language.clone()))
+            .or_default()
+            .insert(entry.page);
+    }
+
+    pages_by_scope
+}
+
+fn collect_translation_cache_book_summaries(
+    sentence_cache: &CachedTranslations,
+    page_cache: &PageTranslationCache,
+    recent_book_titles: &HashMap<String, String>,
+    cached_book_titles: &HashMap<String, String>,
+    recent_book_order: &HashMap<String, usize>,
+) -> Vec<TranslationCacheBookSummary> {
+    #[derive(Default)]
+    struct LanguageAccumulator {
+        pages: HashSet<u32>,
+        has_live_entries: bool,
+        has_legacy_entries: bool,
+    }
+
+    let mut by_doc: HashMap<String, HashMap<String, LanguageAccumulator>> = HashMap::new();
+
+    for ((doc_id, language), pages) in
+        collect_sentence_cached_pages_by_document_and_language(sentence_cache)
+    {
+        let entry = by_doc
+            .entry(doc_id)
+            .or_default()
+            .entry(language)
+            .or_default();
+        entry.pages.extend(pages);
+        entry.has_live_entries = true;
+    }
+
+    for ((doc_id, language), pages) in
+        collect_page_cached_pages_by_document_and_language(page_cache)
+    {
+        let entry = by_doc
+            .entry(doc_id)
+            .or_default()
+            .entry(language)
+            .or_default();
+        entry.pages.extend(pages);
+        entry.has_legacy_entries = true;
+    }
+
+    let mut books_with_sort_keys: Vec<(usize, String, TranslationCacheBookSummary)> = by_doc
+        .into_iter()
+        .map(|(doc_id, by_language)| {
+            let title = resolve_cached_book_title(&doc_id, recent_book_titles, cached_book_titles);
+            let sort_index = recent_book_order
+                .get(&doc_id)
+                .copied()
+                .unwrap_or(usize::MAX);
+            let sort_title = title.to_lowercase();
+            let mut languages: Vec<TranslationCacheLanguageSummary> = by_language
+                .into_iter()
+                .map(|(language_code, accumulator)| TranslationCacheLanguageSummary {
+                    language_code,
+                    cached_page_count: accumulator.pages.len() as u32,
+                    is_legacy_only: !accumulator.has_live_entries && accumulator.has_legacy_entries,
+                })
+                .collect();
+            languages.sort_by(|a, b| a.language_code.cmp(&b.language_code));
+
+            (
+                sort_index,
+                sort_title,
+                TranslationCacheBookSummary {
+                    doc_id,
+                    title,
+                    languages,
+                },
+            )
+        })
+        .collect();
+
+    books_with_sort_keys.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    books_with_sort_keys
+        .into_iter()
+        .map(|(_, _, summary)| summary)
+        .collect()
+}
+
+#[cfg(test)]
 fn clear_cached_sentence_entries_for_document(
     cache: &mut CachedTranslations,
     doc_id: &str,
@@ -2183,6 +2271,19 @@ fn clear_cached_sentence_entries_for_document(
     cache
         .entries
         .retain(|key, _| extract_doc_id_from_cache_key(key) != Some(doc_id));
+    before.saturating_sub(cache.entries.len())
+}
+
+fn clear_cached_sentence_entries_for_document_and_language(
+    cache: &mut CachedTranslations,
+    doc_id: &str,
+    language: &str,
+) -> usize {
+    let before = cache.entries.len();
+    cache.entries.retain(|key, _| {
+        extract_doc_id_from_cache_key(key) != Some(doc_id)
+            || !sentence_cache_key_matches_language(key, language)
+    });
     before.saturating_sub(cache.entries.len())
 }
 
@@ -2774,13 +2875,36 @@ fn recent_books_file_path(handle: &tauri::AppHandle) -> Result<PathBuf, String> 
     Ok(app_config_dir(handle)?.join("recent_books.json"))
 }
 
+fn normalize_recent_book_progress(last_page: u32, total_pages: u32) -> f32 {
+    if total_pages == 0 {
+        return 0.0;
+    }
+
+    let safe_page = last_page.clamp(1, total_pages);
+    ((safe_page as f32) / (total_pages as f32)) * 100.0
+}
+
 fn load_recent_books(handle: &tauri::AppHandle) -> Result<RecentBooksData, String> {
     let path = recent_books_file_path(handle)?;
     if !path.exists() {
         return Ok(RecentBooksData { books: Vec::new() });
     }
     let data = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&data).map_err(|e| e.to_string())
+    let mut parsed: RecentBooksData = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+
+    for book in parsed.books.iter_mut() {
+        if book.total_pages > 0 {
+            book.last_page = book.last_page.clamp(1, book.total_pages);
+        } else if book.last_page == 0 {
+            book.last_page = 1;
+        }
+
+        if !book.progress.is_finite() || book.progress < 0.0 || book.progress > 100.0 {
+            book.progress = normalize_recent_book_progress(book.last_page, book.total_pages);
+        }
+    }
+
+    Ok(parsed)
 }
 
 fn save_recent_books(handle: &tauri::AppHandle, data: &RecentBooksData) -> Result<(), String> {
@@ -2906,13 +3030,18 @@ fn update_book_progress(
     handle: tauri::AppHandle,
     id: String,
     last_page: u32,
-    progress: f32,
+    _progress: f32,
 ) -> Result<(), String> {
     let mut data = load_recent_books(&handle)?;
 
     if let Some(book) = data.books.iter_mut().find(|b| b.id == id) {
-        book.last_page = last_page;
-        book.progress = progress;
+        let safe_last_page = if book.total_pages > 0 {
+            last_page.clamp(1, book.total_pages)
+        } else {
+            last_page.max(1)
+        };
+        book.last_page = safe_last_page;
+        book.progress = normalize_recent_book_progress(safe_last_page, book.total_pages);
         book.last_opened_at = Utc::now();
     }
 
@@ -3111,7 +3240,7 @@ pub fn run() {
             clear_cached_page_translation,
             clear_document_page_translations,
             get_translation_cache_summary,
-            clear_cached_book_translations,
+            clear_cached_book_language_translations,
             clear_all_translation_cache,
             translate_selection_text,
             openrouter_translate,
@@ -3147,10 +3276,12 @@ mod tests {
         build_selection_translation_prompt, clear_cached_sentence_entries_for_document,
         cached_pdf_extraction_page_numbers,
         collect_sentence_cached_pages, collect_sentence_cached_pages_for_language,
+        collect_translation_cache_book_summaries,
         find_cached_sentence_translation_any_model, find_fully_cached_pdf_pages, hash_source_text,
         is_cached_pdf_extraction_complete, legacy_shared_sentence_cache_key,
         merge_saved_preset_credentials, sentence_cache_key, CachedPdfExtractionPageRecord,
-        CachedPdfPageLookupInput, CachedTranslations, PdfExtractionCache,
+        CachedPdfPageLookupInput, CachedPageTranslation, CachedTranslations, PageTranslationCache,
+        PdfExtractionCache,
         TargetLanguage, TranslateSentence, PRESET_TEST_SAMPLE_TEXT, SENTENCE_PROMPT_VERSION,
         resolve_cached_book_title,
     };
@@ -3658,6 +3789,85 @@ mod tests {
     }
 
     #[test]
+    fn cache_summary_groups_pages_by_document_and_language() {
+        let sentence_cache = CachedTranslations {
+            entries: HashMap::from([
+                (
+                    sentence_cache_key(
+                        "doc-1",
+                        "doc-1:p1:hash-1",
+                        "hash-1",
+                        "preset-a",
+                        "model-a",
+                        "en",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "English page 1".to_string(),
+                ),
+                (
+                    sentence_cache_key(
+                        "doc-1",
+                        "doc-1:p2:hash-2",
+                        "hash-2",
+                        "preset-a",
+                        "model-a",
+                        "en",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "English page 2".to_string(),
+                ),
+                (
+                    sentence_cache_key(
+                        "doc-1",
+                        "doc-1:p3:hash-3",
+                        "hash-3",
+                        "preset-a",
+                        "model-a",
+                        "zh-CN",
+                        SENTENCE_PROMPT_VERSION,
+                    ),
+                    "Chinese page 3".to_string(),
+                ),
+            ]),
+        };
+        let page_cache = PageTranslationCache {
+            entries: HashMap::from([(
+                "doc-1|4|hash-4|preset-b|model-b|zh-CN|page-v1".to_string(),
+                CachedPageTranslation {
+                    page: 4,
+                    translated_text: "Legacy page 4".to_string(),
+                    source_hash: "hash-4".to_string(),
+                    provider_id: "preset-b".to_string(),
+                    model: "model-b".to_string(),
+                    language: "zh-CN".to_string(),
+                    prompt_version: "page-v1".to_string(),
+                    cached_at: Utc::now(),
+                },
+            )]),
+        };
+        let recent_titles = HashMap::from([("doc-1".to_string(), "Book One".to_string())]);
+        let cached_titles = HashMap::new();
+        let recent_order = HashMap::from([("doc-1".to_string(), 0_usize)]);
+
+        let summaries = collect_translation_cache_book_summaries(
+            &sentence_cache,
+            &page_cache,
+            &recent_titles,
+            &cached_titles,
+            &recent_order,
+        );
+
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].doc_id, "doc-1");
+        assert_eq!(summaries[0].title, "Book One");
+        assert_eq!(summaries[0].languages.len(), 2);
+        assert_eq!(summaries[0].languages[0].language_code, "en");
+        assert_eq!(summaries[0].languages[0].cached_page_count, 2);
+        assert_eq!(summaries[0].languages[1].language_code, "zh-CN");
+        assert_eq!(summaries[0].languages[1].cached_page_count, 2);
+    }
+
+    #[test]
     fn rehydrates_cached_pdf_pages_across_multiple_models() {
         let mut cache = CachedTranslations {
             entries: HashMap::from([
@@ -3806,6 +4016,10 @@ mod tests {
     fn fallback_sequence_wraps_once_and_skips_unusable_presets() {
         let settings = AppSettings {
             theme: AppTheme::System,
+            app_language: SettingsLanguage {
+                code: "system".to_string(),
+                label: "Follow system".to_string(),
+            },
             default_language: SettingsLanguage::default(),
             active_preset_id: "custom".to_string(),
             auto_fallback_enabled: true,
@@ -3860,6 +4074,10 @@ mod tests {
     fn fallback_sequence_uses_only_requested_preset_when_disabled() {
         let settings = AppSettings {
             theme: AppTheme::System,
+            app_language: SettingsLanguage {
+                code: "system".to_string(),
+                label: "Follow system".to_string(),
+            },
             default_language: SettingsLanguage::default(),
             active_preset_id: "openrouter".to_string(),
             auto_fallback_enabled: false,

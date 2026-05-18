@@ -1,3 +1,4 @@
+import { t } from "../../lib/i18n";
 import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from "react";
 import ePub from "epubjs";
 import type { Book, NavItem, Rendition } from "epubjs";
@@ -357,7 +358,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
   return (
     <div className="epub-viewer">
       <div className="epub-content">
-        {loading && <div className="epub-loading">Loading EPUB...</div>}
+        {loading && <div className="epub-loading">{t("pdf.loading")}</div>}
         <div ref={containerRef} className="epub-container" />
       </div>
     </div>

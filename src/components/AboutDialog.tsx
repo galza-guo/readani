@@ -15,6 +15,7 @@ import {
   getReadaniRuntimeVersion,
 } from "../lib/release";
 import { ChangelogDialog } from "./ChangelogDialog";
+import { t } from "../lib/i18n";
 
 type AboutDialogProps = {
   open: boolean;
@@ -65,12 +66,12 @@ export function AboutDialog({
                 {READANI_PRODUCT_NAME}
               </Dialog.Title>
               <Dialog.Description className="about-dialog-description">
-                Immersive PDF and EPUB reading for desktop.
+                {t("about.description")}
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
               <button
-                aria-label="Close About"
+                aria-label={t("common.close")}
                 className="btn btn-ghost btn-icon-only about-dialog-close"
                 type="button"
               >
@@ -93,13 +94,13 @@ export function AboutDialog({
             <div className="about-dialog-metadata">
               <p className="about-dialog-metadata-item">
                 <span className="about-dialog-metadata-inline">
-                  <span>Version v{appVersion}</span>
+                  <span>{t("about.version", { appVersion })}</span>
                   <button
                     className="about-dialog-link-button"
                     onClick={() => setChangelogOpen(true)}
                     type="button"
                   >
-                    CHANGELOG
+                    {t("about.changelog")}
                   </button>
                 </span>
               </p>
@@ -160,7 +161,7 @@ export function AboutDialog({
 
             <div className="about-dialog-actions">
               <button className="btn btn-primary" onClick={onCheckForUpdates} type="button">
-                Check for update
+                {t("about.checkForUpdate")}
               </button>
               <button
                 className="btn"
@@ -168,7 +169,7 @@ export function AboutDialog({
                 title={READANI_RELEASES_URL}
                 type="button"
               >
-                Open latest release
+                {t("about.openLatestRelease")}
               </button>
             </div>
           </div>

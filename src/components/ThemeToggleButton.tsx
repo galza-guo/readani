@@ -1,5 +1,6 @@
 import type { ThemeMode } from "../types";
 import { ExpandableIconButton } from "./reader/ExpandableIconButton";
+import { t } from "../lib/i18n";
 
 type ThemeToggleButtonProps = {
   theme: ThemeMode;
@@ -50,12 +51,13 @@ export function ThemeToggleButton({
   className,
   showHoverLabel = false,
   labelDirection = "left",
-  hoverLabel = "Theme",
+  hoverLabel = void 0,
 }: ThemeToggleButtonProps) {
   const icon =
     theme === "light" ? <SunIcon /> : theme === "dark" ? <MoonIcon /> : <SystemIcon />;
+  const resolvedHoverLabel = hoverLabel ?? t("theme.switch");
   const label =
-    theme === "light" ? "Theme: Light" : theme === "dark" ? "Theme: Dark" : "Theme: System";
+    theme === "light" ? t("theme.light") : theme === "dark" ? t("theme.dark") : t("theme.system");
 
   if (showHoverLabel) {
     return (
@@ -63,7 +65,7 @@ export function ThemeToggleButton({
         className={className}
         onClick={onToggle}
         aria-label={label}
-        label={hoverLabel}
+        label={resolvedHoverLabel}
         labelDirection={labelDirection}
       >
         {icon}

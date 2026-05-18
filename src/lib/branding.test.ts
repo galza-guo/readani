@@ -31,7 +31,7 @@ describe("branding", () => {
     expect(homeView).toContain('className="home-logo-img home-logo-img--light"');
     expect(homeView).toContain('className="home-logo-img home-logo-img--dark"');
     expect(homeView).not.toContain('className="home-title"');
-    expect(homeView).toContain("Language barriers removed.");
+    expect(homeView).toContain('t("home.languageBarriersRemoved")');
     expect(homeView).not.toContain("PDFRead");
     expect(homeView.indexOf('className="home-dropzone"')).toBeLessThan(
       homeView.indexOf('className="home-disclaimer"')

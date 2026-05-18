@@ -2899,7 +2899,9 @@ body.is-resizing-split-y * {
 }
 
 .language-combobox-content {
-  width: min(360px, calc(100vw - 32px));
+  width: fit-content;
+  min-width: min(var(--radix-popover-trigger-width), calc(100vw - 32px));
+  max-width: min(360px, calc(100vw - 32px));
   max-height: min(360px, var(--radix-popover-content-available-height));
   padding: 10px;
   border: 1px solid var(--border);
@@ -2910,6 +2912,19 @@ body.is-resizing-split-y * {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow: hidden;
+}
+
+.language-combobox-content-shortlist {
+  max-height: min(480px, var(--radix-popover-content-available-height));
+}
+
+.language-combobox-content-shortlist {
+  max-height: min(480px, var(--radix-popover-content-available-height));
+}
+
+.language-combobox-content-common-list {
+  max-height: min(420px, var(--radix-popover-content-available-height));
 }
 
 .language-combobox-input {
@@ -2931,6 +2946,8 @@ body.is-resizing-split-y * {
 }
 
 .language-combobox-list {
+  flex: 1 1 auto;
+  min-height: 0;
   max-height: 280px;
   overflow-y: auto;
   display: flex;
@@ -3565,6 +3582,8 @@ body.is-resizing-split-y * {
   flex: 0 0 auto;
   width: 16px;
   height: 16px;
+  display: block;
+  object-fit: contain;
 }
 
 .settings-provider-option-label,
@@ -4781,7 +4800,7 @@ body.is-resizing-split-y * {
 .home-header {
   display: flex;
   justify-content: flex-end;
-  padding: 8px 12px;
+  padding: 22px 28px 0;
   -webkit-app-region: drag;
 }
 
@@ -4794,7 +4813,7 @@ body.is-resizing-split-y * {
 
 .home-header-actions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
   -webkit-app-region: no-drag;
 }

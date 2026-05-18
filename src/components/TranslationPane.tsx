@@ -13,6 +13,7 @@ import * as Popover from "@radix-ui/react-popover";
 import {
   buildLanguagePickerSections,
   getCustomLanguageOption,
+  getLanguageDisplayLabel,
 } from "../lib/languageOptions";
 import {
   getPdfAlignmentState,
@@ -20,6 +21,7 @@ import {
 } from "../lib/pdfSegments";
 import { getFriendlyProviderError } from "../lib/providerErrors";
 import type { PageProgressStatus } from "../lib/pageTranslationScheduler";
+import { t } from "../lib/i18n";
 import { useToast } from "./toast/ToastProvider";
 import type {
   PageDoc,
@@ -171,7 +173,7 @@ function getFallbackAttemptSummary(pageTranslation?: PageTranslationState) {
     return undefined;
   }
 
-  return `Tried ${attemptCount} presets.`;
+  return t("translation.triedPresets", { count: String(attemptCount) });
 }
 
 function TranslateIcon() {
@@ -401,7 +403,7 @@ function TranslationLanguageControl({
   };
 
   let optionIndex = -1;
-  const label = enabled ? targetLanguage.label : "Off";
+  const label = enabled ? getLanguageDisplayLabel(targetLanguage) : t("common.off");
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -409,9 +411,9 @@ function TranslationLanguageControl({
         <button
           className="translation-language-trigger"
           type="button"
-          aria-label="Change translation language"
+          aria-label={t("translation.changeLanguage")}
           aria-expanded={open}
-          title="Change translation language"
+          title={t("translation.changeLanguage")}
         >
           {label}
         </button>
@@ -433,17 +435,17 @@ function TranslationLanguageControl({
             }}
             type="button"
           >
-            <span>Off</span>
+            <span>{t("common.off")}</span>
             {!enabled ? <CheckSmallIcon /> : null}
           </button>
           <div className="translation-language-divider" />
           <input
             ref={inputRef}
-            aria-label="Search languages"
+            aria-label={t("languages.search")}
             className="language-combobox-input"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleInputKeyDown}
-            placeholder="Search languages"
+            placeholder={t("languages.search")}
             type="text"
             value={query}
           />
@@ -475,7 +477,7 @@ function TranslationLanguageControl({
                       role="option"
                       type="button"
                     >
-                      <span>{language.label}</span>
+                      <span>{getLanguageDisplayLabel(language)}</span>
                       {isSelected ? <CheckSmallIcon /> : null}
                     </button>
                   );
@@ -499,11 +501,11 @@ function TranslationLanguageControl({
                 role="option"
                 type="button"
               >
-                Use custom language: {customOption.label}
+                {t("languages.useCustom", { label: customOption.label })}
               </button>
             ) : null}
             {flattenedOptions.length === 0 ? (
-              <div className="language-combobox-empty">No languages found.</div>
+              <div className="language-combobox-empty">{t("languages.noResults")}</div>
             ) : null}
           </div>
         </Popover.Content>
@@ -616,8 +618,8 @@ function TranslationPaneHeaderMenu({
         <button
           className="translation-pane-menu-trigger"
           type="button"
-          aria-label="Translation options"
-          title="Translation options"
+          aria-label={t("translation.options")}
+          title={t("translation.options")}
         >
           <MoreIcon />
         </button>
@@ -638,15 +640,15 @@ function TranslationPaneHeaderMenu({
           <div className="translation-pane-menu-row is-end-aligned">
             <div
               className="translation-text-size-control"
-              aria-label="Translation text size"
+              aria-label={t("translation.textSize")}
             >
               <button
                 className="translation-text-size-btn"
                 type="button"
                 onClick={() => onTextSizeIndexChange(textSizeIndex - 1)}
                 disabled={!canShrink}
-                aria-label="Shrink translation text"
-                title="Shrink translation text"
+                aria-label={t("translation.shrinkText")}
+                title={t("translation.shrinkText")}
               >
                 A-
               </button>
@@ -658,8 +660,8 @@ function TranslationPaneHeaderMenu({
                 type="button"
                 onClick={() => onTextSizeIndexChange(textSizeIndex + 1)}
                 disabled={!canEnlarge}
-                aria-label="Enlarge translation text"
-                title="Enlarge translation text"
+                aria-label={t("translation.enlargeText")}
+                title={t("translation.enlargeText")}
               >
                 A+
               </button>
@@ -678,7 +680,7 @@ function TranslationPaneHeaderMenu({
               disabled={redoPageDisabled}
             >
               <RetryIcon />
-              <span className="translation-pane-menu-item-text">Redo page</span>
+              <span className="translation-pane-menu-item-text">{t("translation.redoPage")}</span>
             </button>
           ) : null}
           <Popover.Arrow className="popover-arrow" />
@@ -736,7 +738,7 @@ async function copyTextToClipboard(text: string) {
     }
   }
 
-  throw new Error("Clipboard access is unavailable.");
+  throw new Error(t("translation.clipboardUnavailable"));
 }
 
 type SelectedCopyMode = "translation" | "original" | "both";
@@ -781,13 +783,13 @@ function TranslationSetupPrompt({
 }) {
   return (
     <div className="translation-setup-prompt">
-      <p className="translation-setup-title">Translation is not set up yet.</p>
+      <p className="translation-setup-title">{t("translation.translationNotSetUp")}</p>
       <button
         className="btn btn-quiet-action"
         onClick={onOpenSettings}
         type="button"
       >
-        Open Settings to add a provider.
+        {t("translation.openSettingsToAddProvider")}
       </button>
     </div>
   );
@@ -827,7 +829,7 @@ function AnnotationCommentRow({
             onEditingChange(annotation.id);
           }}
         >
-          {hasNote ? annotation.note : "Comment"}
+          {hasNote ? annotation.note : t("translation.comment")}
         </button>
         <span className="pdf-segment-note-spacer" aria-hidden="true" />
       </div>
@@ -844,7 +846,7 @@ function AnnotationCommentRow({
         type="text"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        placeholder="Comment"
+        placeholder={t("translation.comment")}
         autoFocus
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
@@ -867,8 +869,8 @@ function AnnotationCommentRow({
             event.stopPropagation();
             handleSave();
           }}
-          title="Save comment"
-          aria-label="Save comment"
+          title={t("translation.saveComment")}
+          aria-label={t("translation.saveComment")}
         >
           <CheckSmallIcon />
         </button>
@@ -924,17 +926,16 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
   const canCopyTranslation =
     para.status === "done" && Boolean(para.translation?.trim());
   const canCopySource = Boolean(para.source.trim());
-  const annotateLabel = isAnnotated ? "Remove highlight" : "Highlight sentence";
+  const annotateLabel = isAnnotated ? t("translation.removeHighlight") : t("translation.highlightSentence");
 
   let translationText = para.translation?.trim() ?? "";
   if (translationEnabled) {
     if (para.status === "loading") {
-      translationText = "Translating this passage...";
+      translationText = t("translation.translating");
     } else if (para.status === "error") {
-      translationText = "Translation failed for this passage.";
+      translationText = t("translation.translationFailedForPage");
     } else if (!translationText) {
-      translationText =
-        "Translation will appear here when this passage is ready.";
+      translationText = t("translation.translationsWillAppear");
     }
   }
 
@@ -1017,8 +1018,8 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
                   event.stopPropagation();
                   onCopyText(para.translation?.trim() ?? "", "Translation");
                 }}
-                title="Copy translation"
-                aria-label="Copy translation"
+                title={t("translation.copyTranslation")}
+                aria-label={t("translation.copyTranslation")}
               >
                 <CopyIcon />
               </button>
@@ -1069,8 +1070,8 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
                     event.stopPropagation();
                     onCopyText(para.source, "Original text");
                   }}
-                  title="Copy original text"
-                  aria-label="Copy original text"
+                  title={t("translation.copyOriginalText")}
+                  aria-label={t("translation.copyOriginalText")}
                 >
                   <CopyIcon />
                 </button>
@@ -1164,12 +1165,12 @@ const ParagraphBlock = memo(function ParagraphBlock({
   const canCopyTranslation =
     para.status === "done" && Boolean(para.translation?.trim());
   const canCopySource = Boolean(para.source.trim());
-  const annotateLabel = isAnnotated ? "Remove highlight" : "Highlight sentence";
+  const annotateLabel = isAnnotated ? t("translation.removeHighlight") : t("translation.highlightSentence");
   const translationText =
     para.status === "loading"
-      ? "Translating..."
+      ? t("translation.translating")
       : para.status === "error"
-        ? "Translation failed."
+        ? t("translation.translationFailed")
         : para.translation || "";
 
   return (
@@ -1243,8 +1244,8 @@ const ParagraphBlock = memo(function ParagraphBlock({
               event.stopPropagation();
               onCopyText(para.source, "Original text");
             }}
-            title="Copy original text"
-            aria-label="Copy original text"
+            title={t("translation.copyOriginalText")}
+            aria-label={t("translation.copyOriginalText")}
           >
             <CopyIcon />
           </button>
@@ -1256,8 +1257,8 @@ const ParagraphBlock = memo(function ParagraphBlock({
               event.stopPropagation();
               onLocatePid(para.pid, pageNum);
             }}
-            title="Locate in document"
-            aria-label="Locate in document"
+            title={t("translation.locateInDocument")}
+            aria-label={t("translation.locateInDocument")}
           >
             <LocateIcon />
           </button>
@@ -1270,8 +1271,8 @@ const ParagraphBlock = memo(function ParagraphBlock({
                 event.stopPropagation();
                 onTranslatePid(para.pid);
               }}
-              title="Translate paragraph"
-              aria-label="Translate paragraph"
+              title={t("translation.translateParagraph")}
+              aria-label={t("translation.translateParagraph")}
             >
               <TranslateIcon />
             </button>
@@ -1291,17 +1292,17 @@ const ParagraphBlock = memo(function ParagraphBlock({
           }
         >
           <div className="paragraph-translation paragraph-error">
-            <span>Translation failed.</span>
+            <span>{t("translation.translationFailed")}</span>
             <button
               className="retry-btn"
               onClick={(event) => {
                 event.stopPropagation();
                 onTranslatePid(para.pid);
               }}
-              title="Retry translation"
+              title={t("common.retry")}
             >
               <RetryIcon />
-              <span>Retry</span>
+              <span>{t("common.retry")}</span>
             </button>
           </div>
           <div className="pdf-segment-row-actions">
@@ -1356,8 +1357,8 @@ const ParagraphBlock = memo(function ParagraphBlock({
                 event.stopPropagation();
                 onCopyText(para.translation?.trim() ?? "", "Translation");
               }}
-              title="Copy translation"
-              aria-label="Copy translation"
+              title={t("translation.copyTranslation")}
+              aria-label={t("translation.copyTranslation")}
             >
               <CopyIcon />
             </button>
@@ -1415,7 +1416,7 @@ const EpubPageTranslation = memo(function EpubPageTranslation({
   noteEditingAnnotationId?: string | null;
   onNoteEditingChange?: (annotationId: string | null) => void;
 }) {
-  const pageTitle = page.title || `Page ${page.page}`;
+  const pageTitle = page.title || t("annotations.page", { page: String(page.page) });
   const annotationByPid = useMemo(() => {
     const map = new Map<string, ResolvedSentenceAnnotation>();
     if (annotations) {
@@ -1442,9 +1443,10 @@ const EpubPageTranslation = memo(function EpubPageTranslation({
         <div className="annotation-review-banner">
           <WarningIcon />
           <span>
-            {needsReviewAnnotations.length} annotation
-            {needsReviewAnnotations.length > 1 ? "s" : ""} need review on this
-            page.
+            {t("translation.annotationNeedsReview", {
+              count: String(needsReviewAnnotations.length),
+              plural: needsReviewAnnotations.length > 1 ? "s" : "",
+            })}
           </span>
           <div className="annotation-review-banner-actions">
             {needsReviewAnnotations.map((ann) => (
@@ -1454,7 +1456,7 @@ const EpubPageTranslation = memo(function EpubPageTranslation({
                 type="button"
                 onClick={() => onDeleteAnnotation?.(ann.id)}
               >
-                Delete
+                {t("translation.annotationDelete")}
               </button>
             ))}
           </div>
@@ -1889,15 +1891,15 @@ function PdfTranslationPane({
       void copyTextToClipboard(trimmedText)
         .then(() => {
           showToast({
-            message: `${label} copied.`,
+            message: t("toast.copied", { label }),
             tone: "success",
             durationMs: 1800,
           });
         })
         .catch(() => {
           showToast({
-            message: `Couldn't copy ${label.toLowerCase()}.`,
-            detail: "Clipboard access is unavailable right now.",
+            message: t("toast.couldNotCopy", { label: label.toLowerCase() }),
+            detail: t("toast.clipboardUnavailable"),
             tone: "error",
           });
         });
@@ -1970,10 +1972,10 @@ function PdfTranslationPane({
         showToast({
           message:
             mode === "translation"
-              ? "The selected translation is not ready yet."
+              ? t("translation.selectionNotReady")
               : mode === "original"
-                ? "There is no original text to copy."
-                : "There is nothing ready to copy in this selection.",
+                ? t("translation.noOriginalText")
+                : t("translation.nothingReadyToCopy"),
           tone: "neutral",
           durationMs: 2200,
         });
@@ -1982,10 +1984,10 @@ function PdfTranslationPane({
 
       const label =
         mode === "translation"
-          ? "Selected translation"
+          ? t("translation.selectedTranslation")
           : mode === "original"
-            ? "Selected original text"
-            : "Selected text";
+            ? t("translation.selectedOriginalText")
+            : t("translation.selectedText");
 
       handleCopyText(text, label);
     },
@@ -1997,12 +1999,12 @@ function PdfTranslationPane({
       <div className="translation-pane-header rail-pane-header">
         <div className="rail-pane-header-copy">
           <div className="rail-pane-title-row">
-            <span className="rail-pane-title">Translation</span>
+            <span className="rail-pane-title">{t("translation.title")}</span>
             {pageTranslation?.isCached ? (
               <span
                 className="page-translation-cached-indicator"
-                aria-label="Cached"
-                title="Cached"
+                aria-label={t("translation.cached")}
+                title={t("translation.cached")}
               >
                 <svg
                   width="14"
@@ -2025,9 +2027,9 @@ function PdfTranslationPane({
           <div
             className="translation-pane-selection-overlay"
             role="toolbar"
-            aria-label="Copy selected passages"
+            aria-label={t("translation.copySelectedPassages")}
           >
-            <span className="pdf-selection-toolbar-label">Copy selected</span>
+            <span className="pdf-selection-toolbar-label">{t("translation.copySelected")}</span>
             <button
               className="pdf-selection-toolbar-btn"
               type="button"
@@ -2063,10 +2065,10 @@ function PdfTranslationPane({
               }
             }}
             title={
-              selectedPids.length > 0 ? "Highlight selected" : "Annotation mode"
+              selectedPids.length > 0 ? "Highlight selected" : t("translation.annotationMode")
             }
             aria-label={
-              selectedPids.length > 0 ? "Highlight selected" : "Annotation mode"
+              selectedPids.length > 0 ? "Highlight selected" : t("translation.annotationMode")
             }
           >
             <AnnotateIcon />
@@ -2121,7 +2123,7 @@ function PdfTranslationPane({
               </div>
             ) : (
               <div className="page-translation-empty">
-                This page does not contain any usable text yet.
+                {t("translation.noUsableText")}
               </div>
             )
           ) : pageTranslation?.status === "setup-required" || setupRequired ? (
@@ -2130,12 +2132,12 @@ function PdfTranslationPane({
             <div className="page-translation-error">
               {fallbackAttemptSummary ? <p>{fallbackAttemptSummary}</p> : null}
               <p>
-                {resolvedErrorMessage || "Translation failed for this page."}
+                {resolvedErrorMessage || t("translation.translationFailedForPage")}
               </p>
               {pageTranslation.errorChecks?.length ? (
                 <div className="page-translation-error-checks-wrap">
                   <div className="page-translation-error-checks-label">
-                    Possible checks
+                    {t("translation.possibleChecks")}
                   </div>
                   <ul className="page-translation-error-checks">
                     {pageTranslation.errorChecks.map((item) => (
@@ -2148,7 +2150,7 @@ function PdfTranslationPane({
                 className="btn btn-primary"
                 onClick={() => onRetryPage(currentPage)}
               >
-                Retry page
+                {t("translation.retryPage")}
               </button>
             </div>
           ) : showSegmentCards ? (
@@ -2165,9 +2167,10 @@ function PdfTranslationPane({
                   <div className="annotation-review-banner">
                     <WarningIcon />
                     <span>
-                      {needsReviewAnnotations.length} annotation
-                      {needsReviewAnnotations.length > 1 ? "s" : ""} need review
-                      on this page.
+                      {t("translation.annotationNeedsReview", {
+                        count: String(needsReviewAnnotations.length),
+                        plural: needsReviewAnnotations.length > 1 ? "s" : "",
+                      })}
                     </span>
                     <div className="annotation-review-banner-actions">
                       {needsReviewAnnotations.map((ann) => (
@@ -2177,7 +2180,7 @@ function PdfTranslationPane({
                           type="button"
                           onClick={() => onDeleteAnnotation?.(ann.id)}
                         >
-                          Delete
+                          {t("translation.annotationDelete")}
                         </button>
                       ))}
                     </div>
@@ -2186,7 +2189,7 @@ function PdfTranslationPane({
               })()}
               {alignmentState === "coarse" ? (
                 <div className="pdf-segment-alignment-note">
-                  Highlights may be approximate on this page.
+                  {t("translation.highlightsMayBeApproximate")}
                 </div>
               ) : null}
               {translatableParagraphs.map((para, index) => (
@@ -2219,7 +2222,7 @@ function PdfTranslationPane({
             </div>
           ) : (
             <div className="page-translation-empty">
-              Translation will appear here when this page is ready.
+              {t("translation.translationsWillAppear")}
             </div>
           )}
         </div>
@@ -2265,7 +2268,7 @@ function PdfTranslationPane({
               </div>
               <div className="selection-popover-divider" />
               {selectionTranslation.isLoading ? (
-                <div className="selection-popover-loading">Translating...</div>
+                <div className="selection-popover-loading">{t("translation.translating")}</div>
               ) : selectionTranslation.error ? (
                 <div className="selection-popover-error">
                   {selectionTranslation.error}
@@ -2346,15 +2349,15 @@ function EpubTranslationPane({
       void copyTextToClipboard(trimmedText)
         .then(() => {
           showToast({
-            message: `${label} copied.`,
+            message: t("toast.copied", { label }),
             tone: "success",
             durationMs: 1800,
           });
         })
         .catch(() => {
           showToast({
-            message: `Couldn't copy ${label.toLowerCase()}.`,
-            detail: "Clipboard access is unavailable right now.",
+            message: t("toast.couldNotCopy", { label: label.toLowerCase() }),
+            detail: t("toast.clipboardUnavailable"),
             tone: "error",
           });
         });
@@ -2429,7 +2432,7 @@ function EpubTranslationPane({
       <div className="translation-pane-header rail-pane-header">
         <div className="rail-pane-header-copy">
           <div className="rail-pane-title-row">
-            <span className="rail-pane-title">Translation</span>
+            <span className="rail-pane-title">{t("translation.title")}</span>
           </div>
         </div>
         <div className="page-translation-actions rail-pane-header-actions">
@@ -2437,8 +2440,8 @@ function EpubTranslationPane({
             className={`annotation-mode-btn ${annotationModeEnabled ? "is-active" : ""}`}
             type="button"
             onClick={() => onToggleAnnotationMode?.()}
-            title="Annotation mode"
-            aria-label="Annotation mode"
+            title={t("translation.annotationMode")}
+            aria-label={t("translation.annotationMode")}
           >
             <AnnotateIcon />
           </button>
@@ -2511,14 +2514,14 @@ function EpubTranslationPane({
               </div>
               {wordTranslation.phonetic ? (
                 <div className="word-popover-phonetic">
-                  <span className="phonetic-label">UK</span>
+                  <span className="phonetic-label">{t("translation.phoneticUK")}</span>
                   <span className="phonetic-text">
                     {wordTranslation.phonetic}
                   </span>
                 </div>
               ) : null}
               {wordTranslation.isLoading ? (
-                <div className="word-popover-loading">Looking up...</div>
+                <div className="word-popover-loading">{t("translation.lookingUp")}</div>
               ) : (
                 <div className="word-popover-definitions">
                   {wordTranslation.definitions.map((definition, index) => (

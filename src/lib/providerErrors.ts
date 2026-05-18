@@ -1,7 +1,7 @@
-export const TRANSLATION_SETUP_REQUIRED_MESSAGE =
-  "Translation is not set up yet.";
-export const TRANSLATION_SETUP_REQUIRED_DETAIL =
-  "Open Settings to add a provider.";
+import { t } from "./i18n";
+
+export const TRANSLATION_SETUP_REQUIRED_MESSAGE = t("error.translationNotSetUp");
+export const TRANSLATION_SETUP_REQUIRED_DETAIL = t("home.openSettings");
 
 export type FriendlyProviderError = {
   kind:
@@ -35,7 +35,7 @@ function normalizeErrorMessage(error: unknown) {
   try {
     return JSON.stringify(error);
   } catch {
-    return "Unknown error";
+    return t("error.unknown");
   }
 }
 
@@ -53,7 +53,7 @@ export function getFriendlyProviderError(
   ) {
     return {
       kind: "setup-required",
-      message: TRANSLATION_SETUP_REQUIRED_MESSAGE,
+      message: t("error.translationNotSetUp"),
       rawMessage,
     };
   }
@@ -67,7 +67,7 @@ export function getFriendlyProviderError(
   ) {
     return {
       kind: "invalid-api-key",
-      message: "This API key was not accepted. Check it and try again.",
+      message: t("error.invalidApiKey"),
       rawMessage,
     };
   }
@@ -79,8 +79,7 @@ export function getFriendlyProviderError(
   ) {
     return {
       kind: "model",
-      message:
-        "This model is not available for the selected provider. Check the model name in Settings.",
+      message: t("error.modelNotAvailable"),
       rawMessage,
     };
   }
@@ -95,8 +94,7 @@ export function getFriendlyProviderError(
   ) {
     return {
       kind: "base-url",
-      message:
-        "This provider address looks wrong. Check the Base URL and try again.",
+      message: t("error.baseUrl"),
       rawMessage,
     };
   }
@@ -114,13 +112,13 @@ export function getFriendlyProviderError(
   ) {
     return {
       kind: "network-request",
-      message: "Could not reach the translation service.",
+      message: t("error.networkRequest"),
       rawMessage,
       checks: [
-        "Check your network connection.",
-        "If you use a VPN or proxy, make sure it allows this request.",
-        "Check the Base URL in Settings.",
-        "The service may be temporarily unavailable.",
+        t("error.checkNetworkConnection"),
+        t("error.checkVpnOrProxy"),
+        t("error.checkBaseUrlInSettings"),
+        t("error.serviceTemporarilyUnavailable"),
       ],
     };
   }
@@ -132,8 +130,7 @@ export function getFriendlyProviderError(
   ) {
     return {
       kind: "rate-limit",
-      message:
-        "Too many requests right now. Please wait a moment and try again.",
+      message: t("error.rateLimit"),
       rawMessage,
     };
   }
@@ -148,7 +145,7 @@ export function getFriendlyProviderError(
   ) {
     return {
       kind: "usage-limit",
-      message: "This account may be out of credits or usage.",
+      message: t("error.usageLimit"),
       rawMessage,
     };
   }
@@ -163,8 +160,7 @@ export function getFriendlyProviderError(
   ) {
     return {
       kind: "context-limit",
-      message:
-        "This page is too large for the current model to translate in one go. Try again with a larger model or cleaner OCR text.",
+      message: t("error.contextLimit"),
       rawMessage,
     };
   }
@@ -179,8 +175,7 @@ export function getFriendlyProviderError(
   ) {
     return {
       kind: "provider-unavailable",
-      message:
-        "The translation service is temporarily unavailable. Please try again shortly.",
+      message: t("error.providerTemporarilyUnavailable"),
       rawMessage,
     };
   }
@@ -192,8 +187,7 @@ export function getFriendlyProviderError(
   ) {
     return {
       kind: "local-cache",
-      message:
-        "The translation finished, but readani could not update its local cache. You may need to translate this page again later.",
+      message: t("error.localCache"),
       rawMessage,
     };
   }
@@ -208,8 +202,7 @@ export function getFriendlyProviderError(
   ) {
     return {
       kind: "provider-response",
-      message:
-        "The translation service replied, but the result could not be understood. Please try again.",
+      message: t("error.providerResponse"),
       rawMessage,
     };
   }
@@ -224,14 +217,14 @@ export function getFriendlyProviderError(
   ) {
     return {
       kind: "timeout",
-      message: "The provider took too long to respond. Please try again.",
+      message: t("error.providerTimedOut"),
       rawMessage,
     };
   }
 
   return {
     kind: "unknown",
-    message: rawMessage || "Translation failed.",
+    message: rawMessage || t("error.translationFailed"),
     rawMessage,
   };
 }

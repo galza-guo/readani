@@ -101,22 +101,35 @@ describe("HomeView layout", () => {
     expect(homeViewSource).toContain("UpdateActionButton");
     expect(homeViewSource).toContain("showUpdateAction");
     expect(homeViewSource).toContain("onInstallUpdate");
-    expect(homeViewSource).toContain('label="About"');
+    expect(homeViewSource).toContain('label={t("common.about")}');
     expect(homeViewSource).toContain("onOpenAbout");
     expect(homeViewSource).toContain("onClick={onOpenAbout}");
-    expect(homeViewSource).toContain('label="Settings"');
+    expect(homeViewSource).toContain('label={t("common.settings")}');
     expect(homeViewSource).toContain("showTranslationSetupCallout");
     expect(homeViewSource).toContain('className="home-setup-callout"');
     expect(homeViewSource).not.toContain('className="home-settings-btn"');
   });
 
   test("places the About button to the left of the theme toggle in the home header", () => {
-    const aboutIndex = homeViewSource.indexOf('label="About"');
+    const aboutIndex = homeViewSource.indexOf('label={t("common.about")}');
     const themeIndex = homeViewSource.indexOf("<ThemeToggleButton");
 
     expect(aboutIndex).toBeGreaterThan(-1);
     expect(themeIndex).toBeGreaterThan(-1);
     expect(aboutIndex).toBeLessThan(themeIndex);
+  });
+
+  test("shares the reader header's top-right anchor spacing so the icon row does not jump between views", () => {
+    const appHeaderRule = appCss.match(/\.app-header\s*\{([^}]*)\}/)?.[1] ?? "";
+    const headerRightRule = appCss.match(/\.header-right\s*\{([^}]*)\}/)?.[1] ?? "";
+    const homeHeaderRule = appCss.match(/\.home-header\s*\{([^}]*)\}/)?.[1] ?? "";
+    const homeHeaderActionsRule =
+      appCss.match(/\.home-header-actions\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(appHeaderRule).toContain("padding: 10px 16px");
+    expect(headerRightRule).toContain("gap: 10px");
+    expect(homeHeaderRule).toContain("padding: 22px 28px 0");
+    expect(homeHeaderActionsRule).toContain("gap: 10px");
   });
 
   test("delegates settings dialog ownership to app and only renders the trigger on home", () => {

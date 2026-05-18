@@ -5,6 +5,7 @@ import {
   groupSentenceAnnotations,
   sortSentenceAnnotations,
 } from "../lib/annotations";
+import { t } from "../lib/i18n";
 
 type AnnotationsPanelProps = {
   annotations: ResolvedSentenceAnnotation[];
@@ -80,11 +81,11 @@ export function AnnotationsPanel({
   return (
     <div className="annotations-panel" ref={panelRef}>
       <div className="annotations-panel-header">
-        <span className="annotations-panel-title">Annotations</span>
+        <span className="annotations-panel-title">{t("annotations.title")}</span>
         <button
           className="annotations-panel-close"
           onClick={onClose}
-          aria-label="Close annotations panel"
+          aria-label={t("annotations.closePanel")}
         >
           <svg
             width="18"
@@ -104,7 +105,7 @@ export function AnnotationsPanel({
       <div className="annotations-panel-body">
         {groups.length === 0 ? (
           <div className="annotations-panel-empty">
-            No annotations yet. Select text in the document to add annotations.
+            {t("annotations.empty")}
           </div>
         ) : (
           groups.map((group) => (
@@ -114,7 +115,7 @@ export function AnnotationsPanel({
               onClick={() => handleGroupClick(group)}
             >
               <div className="annotations-panel-group-page">
-                Page {group.page}
+                {t("annotations.page", { page: String(group.page) })}
               </div>
               <div className="annotations-panel-group-excerpt">
                 {group.excerpt}
@@ -122,12 +123,14 @@ export function AnnotationsPanel({
               <div className="annotations-panel-group-meta">
                 {group.noteCount > 0 && (
                   <span className="annotations-panel-badge annotations-panel-badge--notes">
-                    {group.noteCount} {group.noteCount === 1 ? "note" : "notes"}
+                    {group.noteCount === 1
+                      ? t("annotations.note", { n: String(group.noteCount) })
+                      : t("annotations.notes", { n: String(group.noteCount) })}
                   </span>
                 )}
                 {group.hasNeedsReview && (
                   <span className="annotations-panel-badge annotations-panel-badge--review">
-                    Needs review
+                    {t("annotations.needsReview")}
                   </span>
                 )}
               </div>

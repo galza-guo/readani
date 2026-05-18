@@ -18,6 +18,7 @@ function buildProps(
     activePresetId: "preset-1",
     autoFallbackEnabled: false,
     autoTranslateNextPages: 1,
+    appLanguage: { code: "system", label: "Follow system" },
     translateAllSlowMode: false,
     defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
     presets: [
@@ -54,7 +55,16 @@ function buildProps(
         {
           docId: "doc-1",
           title: "A Very Long Book Title for Testing Cache Rows",
-          cachedPageCount: 12,
+          languages: [
+            {
+              languageCode: "en",
+              cachedPageCount: 12,
+            },
+            {
+              languageCode: "zh-CN",
+              cachedPageCount: 5,
+            },
+          ],
         },
       ],
     },
@@ -89,11 +99,25 @@ describe("SettingsDialogContent", () => {
     expect(settingsDialogSource).toContain("settings-tabs-list");
   });
 
-  test("renders one default language label and no helper note", () => {
+  test("renders app language and translate-to labels without helper copy", () => {
     const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
 
-    expect(html.match(/Default language/g)?.length ?? 0).toBe(1);
+    expect(html.match(/App language/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
+    expect(html.match(/Translate to/g)?.length ?? 0).toBe(1);
     expect(html).not.toContain("New translations use this language by default.");
+  });
+
+  test("uses distinct search placeholders for app language and translate-to", () => {
+    expect(settingsDialogSource).toContain('searchPlaceholder={appLanguageSearchPlaceholder}');
+    expect(settingsDialogSource).toContain('searchPlaceholder={translateToSearchPlaceholder}');
+    expect(
+      settingsDialogSource.match(/getOptionLabel=\{getLanguageSelfLabel\}/g)?.length ?? 0
+    ).toBe(2);
+    expect(settingsDialogSource).toContain("searchable={false}");
+    expect(settingsDialogSource).toContain('contentClassName="language-combobox-content-shortlist"');
+    expect(settingsDialogSource).toContain('contentClassName="language-combobox-content-common-list"');
+    expect(settingsDialogSource).toContain('t("languages.searchSupported"');
+    expect(settingsDialogSource).toContain('t("languages.searchOrCustom")');
   });
 
   test("renders a general setting for following-page auto-translation", () => {
@@ -130,13 +154,16 @@ describe("SettingsDialogContent", () => {
     expect(settingsDialogSource).toContain("settings-provider-option-icon");
   });
 
-  test("renders a simple cache summary with a delete-all action and book rows", () => {
+  test("renders cache rows grouped by book language instead of one combined row", () => {
     const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
 
     expect(html).toContain("Total cache size");
     expect(html).toContain("24.0 KB");
     expect(html).toContain("Delete All");
     expect(html).toContain("12 cached pages");
+    expect(html).toContain("5 cached pages");
+    expect(html).toContain("English");
+    expect(html).toContain("Chinese (Simplified)");
     expect(settingsDialogSource).toContain("settings-cache-list");
     expect(settingsStylesSource).toContain(".settings-cache-item-title");
   });
@@ -150,6 +177,7 @@ describe("SettingsDialogContent", () => {
             activePresetId: "",
             autoFallbackEnabled: false,
             autoTranslateNextPages: 1,
+            appLanguage: { code: "system", label: "Follow system" },
             translateAllSlowMode: false,
             defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
             presets: [],
@@ -178,6 +206,7 @@ describe("SettingsDialogContent", () => {
             activePresetId: "preset-live",
             autoFallbackEnabled: false,
             autoTranslateNextPages: 1,
+            appLanguage: { code: "system", label: "Follow system" },
             translateAllSlowMode: false,
             defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
             presets: [
@@ -291,6 +320,7 @@ describe("SettingsDialogContent", () => {
             activePresetId: "preset-1",
             autoFallbackEnabled: false,
             autoTranslateNextPages: 1,
+            appLanguage: { code: "system", label: "Follow system" },
             translateAllSlowMode: false,
             defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
             presets: [
@@ -330,6 +360,7 @@ describe("SettingsDialogContent", () => {
             activePresetId: "preset-1",
             autoFallbackEnabled: false,
             autoTranslateNextPages: 1,
+            appLanguage: { code: "system", label: "Follow system" },
             translateAllSlowMode: false,
             defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
             presets: [
@@ -376,6 +407,7 @@ describe("SettingsDialogContent", () => {
             activePresetId: "preset-1",
             autoFallbackEnabled: true,
             autoTranslateNextPages: 1,
+            appLanguage: { code: "system", label: "Follow system" },
             translateAllSlowMode: false,
             defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
             presets: [

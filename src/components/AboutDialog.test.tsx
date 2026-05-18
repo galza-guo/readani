@@ -8,7 +8,7 @@ describe("AboutDialog", () => {
     expect(aboutDialogSource).not.toContain('import appIcon');
     expect(aboutDialogSource).not.toContain('about-dialog-app-icon');
     expect(aboutDialogSource).toContain('className="about-dialog-hero-copy"');
-    expect(aboutDialogSource).toContain("Immersive PDF and EPUB reading for desktop.");
+    expect(aboutDialogSource).toContain('t("about.description")');
   });
 
   test("uses a plain stacked metadata layout without the old labeled left column or separator lines", () => {
@@ -33,7 +33,7 @@ describe("AboutDialog", () => {
   });
 
   test("adds a changelog reader link beside the version and replaces the old contact row with a mail icon beside the author", () => {
-    expect(aboutDialogSource).toContain("CHANGELOG");
+    expect(aboutDialogSource).toContain('t("about.changelog")');
     expect(aboutDialogSource).toContain("setChangelogOpen(true)");
     expect(aboutDialogSource).toContain("about-dialog-icon-link");
     expect(aboutDialogSource).toContain("mailto:");
@@ -49,8 +49,8 @@ describe("AboutDialog", () => {
     expect(aboutDialogSource).toContain("onCheckForUpdates");
     expect(aboutDialogSource).toContain("onOpenLatestRelease");
     expect(aboutDialogSource).toContain('className="about-dialog-actions"');
-    expect(aboutDialogSource).toContain("Check for update");
-    expect(aboutDialogSource).toContain("Open latest release");
+    expect(aboutDialogSource).toContain('t("about.checkForUpdate")');
+    expect(aboutDialogSource).toContain('t("about.openLatestRelease")');
     expect(releaseSource).toContain("READANI_RELEASES_URL");
     expect(actionsRule).toContain("justify-content: center");
   });
@@ -61,7 +61,7 @@ describe("AboutDialog", () => {
     expect(releaseSource).toContain("return READANI_VERSION");
     expect(aboutDialogSource).toContain("const [appVersion, setAppVersion] = useState(READANI_VERSION);");
     expect(aboutDialogSource).toContain("void getReadaniRuntimeVersion().then");
-    expect(aboutDialogSource).toContain("Version v{appVersion}");
+    expect(aboutDialogSource).toContain('t("about.version", { appVersion })');
   });
 
   test("styles the changelog as a wider scrollable reader instead of dumping raw markdown", () => {

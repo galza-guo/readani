@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -46,6 +47,7 @@ import {
   createDefaultSettings,
   createPresetDraft,
   getActivePreset,
+  resolveTargetLanguage,
   getDefaultModelForProvider,
   getPresetMissingRequirement,
   getPresetSaveStatus,
@@ -60,6 +62,15 @@ import {
   serializePresetForCommand,
   serializeSettingsForCommand,
 } from "./lib/appSettings";
+import {
+  resolveBookTranslationPreference,
+} from "./lib/bookTranslationPreferences";
+import {
+  getDocumentFileName,
+  getDocumentTitleFromPath,
+  resolveLoadedDocumentIdentity,
+  type LoadDocumentIdentity,
+} from "./lib/documentIdentity";
 import { extractPageParagraphs } from "./lib/textExtraction";
 import { resolveAnnotations } from "./lib/annotationMatching";
 import type { ResolvedSentenceAnnotation } from "./lib/annotationMatching";
@@ -82,6 +93,7 @@ import {
   savePdfNavigationPrefs,
 } from "./lib/pdfNavigationPrefs";
 import { canListModels } from "./lib/providerForm";
+import { getDocumentProgressSnapshot } from "./lib/readingProgress";
 import { clampPdfManualScale, type PdfZoomMode } from "./lib/readerLayout";
 import { getReaderStatusLabel } from "./lib/readerStatus";
 import {
@@ -177,6 +189,8 @@ import type {
   WordLookupResult,
   WordTranslation,
 } from "./types";
+import { setLocale, t } from "./lib/i18n";
+import "./lib/locales/index";
 import "./App.css";
 
 pdfjsLib.GlobalWorkerOptions.workerPort = getPdfJsWorkerPort();
@@ -202,11 +216,6 @@ type DocumentInspection = {
   chapterCount?: number;
 };
 
-type LoadDocumentIdentity = {
-  docId: string;
-  title?: string;
-};
-
 type CachedPdfExtractionStatus = {
   cachedPageCount: number;
   isComplete: boolean;
@@ -218,12 +227,12 @@ type PendingReconnectResolution = {
   candidate: DocumentInspection;
 };
 
-function getDocumentFileName(filePath: string) {
-  return filePath.split(/[/\\]/).pop() || "Untitled";
-}
+function getSystemLocalePreference() {
+  if (typeof navigator === "undefined") {
+    return "en";
+  }
 
-function getDocumentTitleFromPath(filePath: string) {
-  return getDocumentFileName(filePath).replace(/\.[^.]+$/, "");
+  return navigator.languages?.[0] ?? navigator.language ?? "en";
 }
 
 function getDocumentFileType(filePath: string): FileType {
@@ -588,12 +597,16 @@ function AppContent() {
   const [resolvedPdfScale, setResolvedPdfScale] = useState<number>(1);
   const [settings, setSettings] =
     useState<TranslationSettings>(DEFAULT_SETTINGS);
+  const [systemLocale, setSystemLocale] = useState(() =>
+    getSystemLocalePreference(),
+  );
   const [bookTranslationPreferences, setBookTranslationPreferences] =
     useState<Record<string, BookTranslationPreference>>(() =>
       loadBookTranslationPreferences(),
     );
   const [settingsDraft, setSettingsDraft] =
     useState<TranslationSettings | null>(null);
+  const [, forceLocaleRender] = useState(0);
   const [sessionFallbackPresetId, setSessionFallbackPresetId] = useState<
     string | null
   >(null);
@@ -710,7 +723,13 @@ function AppContent() {
   const pageTranslationsRef = useRef<Record<number, PageTranslationState>>({});
   const textTranslationCacheRef = useRef(new LRUCache<string, string>(100));
   const settingsRef = useRef(settings);
-  const currentTargetLanguageRef = useRef(DEFAULT_SETTINGS.defaultLanguage);
+  const currentTargetLanguageRef = useRef(
+    resolveTargetLanguage(
+      DEFAULT_SETTINGS.defaultLanguage,
+      DEFAULT_SETTINGS.appLanguage,
+      systemLocale,
+    ),
+  );
   const translationEnabledRef = useRef(true);
   const settingsDraftRef = useRef<TranslationSettings | null>(settingsDraft);
   const sessionFallbackPresetIdRef = useRef<string | null>(
@@ -800,6 +819,17 @@ function AppContent() {
   const previousReaderPanelsRef = useRef(readerPanels);
   const resolvedAnnotationsRef = useRef<ResolvedSentenceAnnotation[]>([]);
 
+  useEffect(() => {
+    const handleLanguageChange = () => {
+      setSystemLocale(getSystemLocalePreference());
+    };
+
+    window.addEventListener("languagechange", handleLanguageChange);
+    return () => {
+      window.removeEventListener("languagechange", handleLanguageChange);
+    };
+  }, []);
+
   const resolvedAnnotations = useMemo(
     () => resolveAnnotations(annotations, pages),
     [annotations, pages],
@@ -850,10 +880,10 @@ function AppContent() {
         currentEffectivePresetId !== trace.finalPresetId;
 
       showToast({
-        message: `Retried with ${finalPreset?.label ?? trace.finalPresetId}.`,
+        message: t("toast.retriedWithPreset", { preset: finalPreset?.label ?? trace.finalPresetId }),
         tone: "success",
         durationMs: 4600,
-        actionLabel: canUseForSession ? "Use for this session" : undefined,
+        actionLabel: canUseForSession ? t("toast.useForThisSession") : undefined,
         onAction: canUseForSession
           ? () => setSessionFallbackPresetId(trace.finalPresetId)
           : undefined,
@@ -1108,7 +1138,7 @@ function AppContent() {
 
       if (updateState.phase === "downloading") {
         if (source === "manual") {
-          showToast({ message: "Update is already downloading." });
+          showToast({ message: t("update.alreadyDownloading") });
         }
         return;
       }
@@ -1116,7 +1146,7 @@ function AppContent() {
       if (updateState.phase === "ready") {
         if (source === "manual") {
           showToast({
-            message: "Update is ready to install.",
+            message: t("update.readyToInstall"),
             tone: "success",
           });
         }
@@ -1138,7 +1168,7 @@ function AppContent() {
 
           if (source === "manual") {
             showToast({
-              message: "You're running the latest version.",
+              message: t("update.latestVersion"),
               tone: "success",
             });
           }
@@ -1147,7 +1177,7 @@ function AppContent() {
 
         storePendingUpdate(update);
         setUpdateState({ phase: "downloading", version: update.version });
-        showToast({ message: "Found an update. Downloading now." });
+        showToast({ message: t("update.foundUpdate") });
         await update.download();
         setUpdateState({ phase: "ready", version: update.version });
       } catch (error) {
@@ -1157,7 +1187,7 @@ function AppContent() {
 
         if (source === "manual") {
           showToast({
-            message: `Update failed: ${message}`,
+            message: t("update.failedMessage", { message }),
             tone: "error",
             durationMs: 5200,
           });
@@ -1185,7 +1215,7 @@ function AppContent() {
       const message = getUpdateErrorMessage(error);
       setUpdateState({ phase: "ready", version: update.version });
       showToast({
-        message: `Update failed: ${message}`,
+        message: t("update.failedMessage", { message }),
         tone: "error",
         durationMs: 5200,
       });
@@ -1197,7 +1227,7 @@ function AppContent() {
       await openUrl(READANI_RELEASES_URL);
     } catch (error) {
       showToast({
-        message: `Update failed: ${getUpdateErrorMessage(error)}`,
+        message: t("update.failedMessage", { message: getUpdateErrorMessage(error) }),
         tone: "error",
         durationMs: 5200,
       });
@@ -1323,22 +1353,55 @@ function AppContent() {
     [clearTranslateAllResumeTimer],
   );
 
-  const currentBookTranslationPreference = useMemo<BookTranslationPreference>(
+  const currentBookTranslationResolution = useMemo(
     () =>
-      docId && bookTranslationPreferences[docId]
-        ? bookTranslationPreferences[docId]
-        : {
-            enabled: true,
-            targetLanguage: settings.defaultLanguage,
-          },
+      resolveBookTranslationPreference({
+        docId,
+        preferences: bookTranslationPreferences,
+        defaultLanguage: settings.defaultLanguage,
+      }),
     [bookTranslationPreferences, docId, settings.defaultLanguage],
   );
+  const currentBookTranslationPreference =
+    currentBookTranslationResolution.preference;
   const translationEnabled = currentBookTranslationPreference.enabled;
   const currentTargetLanguage = currentBookTranslationPreference.targetLanguage;
+  const resolvedCurrentTargetLanguage = useMemo(
+    () =>
+      resolveTargetLanguage(
+        currentTargetLanguage,
+        settings.appLanguage,
+        systemLocale,
+      ),
+    [currentTargetLanguage, settings.appLanguage, systemLocale],
+  );
 
   useEffect(() => {
-    currentTargetLanguageRef.current = currentTargetLanguage;
-  }, [currentTargetLanguage]);
+    if (!docId || !currentBookTranslationResolution.shouldPersist) {
+      return;
+    }
+
+    setBookTranslationPreferences((prev) => {
+      if (prev[docId]) {
+        return prev;
+      }
+
+      const next = {
+        ...prev,
+        [docId]: currentBookTranslationPreference,
+      };
+      saveBookTranslationPreferences(next);
+      return next;
+    });
+  }, [
+    currentBookTranslationPreference,
+    currentBookTranslationResolution.shouldPersist,
+    docId,
+  ]);
+
+  useEffect(() => {
+    currentTargetLanguageRef.current = resolvedCurrentTargetLanguage;
+  }, [resolvedCurrentTargetLanguage]);
 
   useEffect(() => {
     translationEnabledRef.current = translationEnabled;
@@ -1586,13 +1649,13 @@ function AppContent() {
   const aboutUpdateStatusMessage = useMemo(() => {
     switch (updateState.phase) {
       case "checking":
-        return "Checking for updates.";
+        return t("update.checking");
       case "downloading":
-        return `Downloading v${updateState.version} in the background.`;
+        return t("update.downloadingVersion", { version: updateState.version });
       case "ready":
-        return `Update v${updateState.version} is ready. Use Update in the toolbar.`;
+        return t("update.updateReady", { version: updateState.version });
       case "installing":
-        return `Installing v${updateState.version}.`;
+        return t("update.installingVersion", { version: updateState.version });
       case "error":
         return `Last update error: ${updateState.message}`;
       default:
@@ -2018,7 +2081,10 @@ function AppContent() {
   useEffect(() => {
     invoke<TranslationSettings>("get_app_settings")
       .then((loadedSettings) => {
-        const normalizedSettings = normalizeSettingsFromStorage(loadedSettings);
+        const normalizedSettings = normalizeSettingsFromStorage(
+          loadedSettings,
+          getSystemLocalePreference(),
+        );
         setSettings(normalizedSettings);
         setSettingsLoaded(true);
       })
@@ -2027,6 +2093,20 @@ function AppContent() {
         setSettingsLoaded(true);
       });
   }, []);
+
+  const effectiveAppLanguage = settingsDraft?.appLanguage ?? settings.appLanguage;
+
+  // Sync appLanguage → i18n locale, including live preview while Settings is open.
+  useLayoutEffect(() => {
+    const appCode = effectiveAppLanguage.code;
+    if (appCode === "system" || appCode === "app-language") {
+      setLocale(systemLocale || "en");
+    } else {
+      setLocale(appCode);
+    }
+
+    forceLocaleRender((version) => version + 1);
+  }, [effectiveAppLanguage.code, systemLocale]);
 
   useEffect(() => {
     if (
@@ -2154,7 +2234,10 @@ function AppContent() {
         const saved = (await invoke("save_app_settings", {
           settings: buildPersistableSettings(nextSettings),
         })) as TranslationSettings;
-        const normalizedSettings = normalizeSettingsFromStorage(saved);
+        const normalizedSettings = normalizeSettingsFromStorage(
+          saved,
+          systemLocale,
+        );
         setSettings(normalizedSettings);
         return normalizedSettings;
       };
@@ -2251,7 +2334,12 @@ function AppContent() {
         const bytes = await readDocumentBytes(filePath);
         const buffer = bytes.buffer.slice(0);
         const hash = await hashBuffer(buffer);
-        const nextDocId = identity?.docId ?? hash.slice(0, 12);
+        const resolvedIdentity = resolveLoadedDocumentIdentity({
+          hash,
+          filePath,
+          identity,
+        });
+        const nextDocId = resolvedIdentity.docId;
 
         if (isStaleLoad()) {
           return;
@@ -2291,7 +2379,7 @@ function AppContent() {
 
         // Extract filename and title from path
         const fileName = getDocumentFileName(filePath);
-        const title = identity?.title ?? getDocumentTitleFromPath(filePath);
+        const title = resolvedIdentity.title;
         setCurrentBookTitle(title);
 
         // Add to recent books
@@ -2556,11 +2644,16 @@ function AppContent() {
         const bytes = await readDocumentBytes(filePath);
         const buffer = bytes.buffer.slice(0);
         const hash = await hashBuffer(buffer);
-        const nextDocId = identity?.docId ?? hash.slice(0, 12);
+        const resolvedIdentity = resolveLoadedDocumentIdentity({
+          hash,
+          filePath,
+          identity,
+        });
+        const nextDocId = resolvedIdentity.docId;
 
         // Extract filename and title from path
         const fileName = getDocumentFileName(filePath);
-        const title = identity?.title ?? getDocumentTitleFromPath(filePath);
+        const title = resolvedIdentity.title;
         setCurrentBookTitle(title);
 
         setEpubData(bytes);
@@ -2781,7 +2874,7 @@ function AppContent() {
       } catch (error) {
         console.error("Failed to inspect located document:", error);
         showToast({
-          message: "Could not open that document.",
+          message: t("toast.couldNotOpenDocument"),
           tone: "error",
           durationMs: 4200,
         });
@@ -2807,7 +2900,7 @@ function AppContent() {
     } catch (error) {
       console.error("Failed to reconnect recent book:", error);
       showToast({
-        message: "Could not reconnect that book.",
+        message: t("toast.couldNotReconnectBook"),
         tone: "error",
         durationMs: 4200,
       });
@@ -2844,14 +2937,24 @@ function AppContent() {
   const handleOpenBook = useCallback(
     async (book: RecentBook) => {
       try {
-        const candidate = await inspectDocument(book.filePath);
-        await resolveRecentBookCandidate(book, candidate);
+        if (book.fileType === "epub") {
+          await loadEpubFromPath(book.filePath, book.lastPage, {
+            docId: book.id,
+            title: book.title,
+          });
+          return;
+        }
+
+        await loadPdfFromPath(book.filePath, book.lastPage, {
+          docId: book.id,
+          title: book.title,
+        });
       } catch (error) {
         console.warn("Recent book path could not be opened:", error);
         setMissingRecentBook(book);
       }
     },
-    [resolveRecentBookCandidate],
+    [loadEpubFromPath, loadPdfFromPath],
   );
 
   const handleBackToHome = useCallback(() => {
@@ -3011,15 +3114,13 @@ function AppContent() {
     try {
       const summary = (await invoke(
         "get_translation_cache_summary",
-        {
-          targetLanguage: currentTargetLanguageRef.current,
-        },
+        {},
       )) as TranslationCacheSummary;
       setTranslationCacheSummary(summary);
     } catch (error) {
       console.error("Failed to load translation cache summary:", error);
       showToast({
-        message: "Could not load the translation cache.",
+        message: t("toast.couldNotLoadTranslationCache"),
         tone: "error",
         durationMs: 4200,
       });
@@ -3031,7 +3132,6 @@ function AppContent() {
   const handleOpenSettings = useCallback(() => {
     clearPendingPresetAutosave();
     updateSettingsDraftState(settings);
-    void refreshTranslationCacheSummary();
     setEditingPresetId(null);
     setApiKeyEditingPresetId(null);
     setPresetApiKeyDrafts({});
@@ -3050,10 +3150,17 @@ function AppContent() {
   }, [
     buildInitialPresetSaveStatuses,
     clearPendingPresetAutosave,
-    refreshTranslationCacheSummary,
     settings,
     updateSettingsDraftState,
   ]);
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      return;
+    }
+
+    void refreshTranslationCacheSummary();
+  }, [refreshTranslationCacheSummary, settingsOpen]);
 
   const showTranslationSetupToast = useCallback(() => {
     showToast({
@@ -3440,7 +3547,7 @@ function AppContent() {
       } catch (error) {
         console.error("Failed to activate preset:", error);
         showToast({
-          message: "Could not switch the active provider.",
+          message: t("toast.couldNotSwitchActiveProvider"),
           tone: "error",
           durationMs: 4200,
         });
@@ -3540,7 +3647,7 @@ function AppContent() {
       } catch (error) {
         console.error("Failed to delete preset:", error);
         showToast({
-          message: "Could not delete that provider right now.",
+          message: t("toast.couldNotDeleteProvider"),
           tone: "error",
           durationMs: 4200,
         });
@@ -3715,6 +3822,10 @@ function AppContent() {
     async (nextSettings: TranslationSettings) => {
       updateSettingsDraftState(nextSettings);
       const previousSettings = settingsRef.current;
+      const changedAppLanguage =
+        previousSettings.appLanguage.code !== nextSettings.appLanguage.code;
+      const changedDefaultLanguage =
+        previousSettings.defaultLanguage.code !== nextSettings.defaultLanguage.code;
       const changedFallback =
         previousSettings.autoFallbackEnabled !==
         nextSettings.autoFallbackEnabled;
@@ -3724,10 +3835,27 @@ function AppContent() {
       const changedSlowMode =
         previousSettings.translateAllSlowMode !==
         nextSettings.translateAllSlowMode;
+      const activeDocId = docIdRef.current;
+      const currentBookPreference = activeDocId
+        ? bookTranslationPreferences[activeDocId]
+        : undefined;
+      const shouldResetForDefaultLanguageChange =
+        !currentBookPreference &&
+        resolveTargetLanguage(
+          previousSettings.defaultLanguage,
+          previousSettings.appLanguage,
+          systemLocale,
+        ).code !==
+          resolveTargetLanguage(
+            nextSettings.defaultLanguage,
+            nextSettings.appLanguage,
+            systemLocale,
+          ).code;
 
       try {
         const savedSettings = await persistSettings({
           ...settingsRef.current,
+          appLanguage: nextSettings.appLanguage,
           defaultLanguage: nextSettings.defaultLanguage,
           autoFallbackEnabled: nextSettings.autoFallbackEnabled,
           autoTranslateNextPages: nextSettings.autoTranslateNextPages,
@@ -3738,6 +3866,7 @@ function AppContent() {
           settingsDraftRef.current
             ? {
                 ...settingsDraftRef.current,
+                appLanguage: savedSettings.appLanguage,
                 defaultLanguage: savedSettings.defaultLanguage,
                 autoFallbackEnabled: savedSettings.autoFallbackEnabled,
                 autoTranslateNextPages: savedSettings.autoTranslateNextPages,
@@ -3745,22 +3874,66 @@ function AppContent() {
               }
             : settingsDraftRef.current,
         );
+
+        if (shouldResetForDefaultLanguageChange) {
+          textTranslationCacheRef.current.clear();
+          translateQueueRef.current = [];
+          foregroundPageTranslateQueueRef.current = [];
+          backgroundPageTranslateQueueRef.current = [];
+          forceFreshSentenceTranslationIdsRef.current.clear();
+          pageTranslationRequestVersionsRef.current = {};
+          pageTranslationInFlightRef.current = null;
+          pageTranslatingRef.current = false;
+          setPageTranslationInFlightPage(null);
+          setSelectionTranslation(null);
+          setWordTranslation(null);
+          setTranslationStatusMessage(null);
+          resetTranslateAllSlowModeRuntime();
+          isTranslateAllRunningRef.current = false;
+          setIsTranslateAllRunning(false);
+          setIsTranslateAllStopRequested(false);
+          translateAllErrorToastShownRef.current = false;
+          pdfTranslationSessionRef.current += 1;
+          translationRequestId.current += 1;
+          translatingRef.current = false;
+          if (debounceRef.current) {
+            window.clearTimeout(debounceRef.current);
+          }
+          setPageTranslations({});
+          setPages((prev) => clearPageTranslationsForTargetLanguageChange(prev));
+          currentTargetLanguageRef.current = resolveTargetLanguage(
+            savedSettings.defaultLanguage,
+            savedSettings.appLanguage,
+            systemLocale,
+          );
+        }
       } catch (error) {
         console.error("Failed to save translation settings:", error);
         showToast({
-          message: changedFallback
-            ? "Could not save automatic fallback."
+          message: changedAppLanguage
+            ? t("toast.couldNotSaveAppLanguage")
+            : changedDefaultLanguage
+              ? t("toast.couldNotSaveTranslateTo")
+              : changedFallback
+            ? t("toast.couldNotSaveAutoFallback")
             : changedAutoTranslateNextPages
-              ? "Could not save auto-translate ahead."
+              ? t("toast.couldNotSaveAutoTranslate")
               : changedSlowMode
-                ? "Could not save Translate All slow mode."
-                : "Could not save the default language.",
+                ? t("toast.couldNotSaveSlowMode")
+                : t("toast.couldNotSaveTranslationSettings"),
           tone: "error",
           durationMs: 4200,
         });
       }
     },
-    [persistSettings, showToast, updateSettingsDraftState],
+    [
+      bookTranslationPreferences,
+      persistSettings,
+      resetTranslateAllSlowModeRuntime,
+      showToast,
+      systemLocale,
+      updateSettingsDraftState,
+    ],
   );
 
   const handleClearAllTranslationCache = useCallback(async () => {
@@ -3771,13 +3944,13 @@ function AppContent() {
       textTranslationCacheRef.current.clear();
       await refreshTranslationCacheSummary();
       showToast({
-        message: "Cleared cached translations.",
+        message: t("toast.cacheCleared"),
         durationMs: 3200,
       });
     } catch (error) {
       console.error("Failed to clear all translation cache:", error);
       showToast({
-        message: "Could not clear the translation cache.",
+        message: t("toast.couldNotClearCache"),
         tone: "error",
         durationMs: 4200,
       });
@@ -3789,26 +3962,30 @@ function AppContent() {
   }, [refreshTranslationCacheSummary, showToast]);
 
   const handleClearCachedBookTranslations = useCallback(
-    async (docId: string, title: string) => {
-      setTranslationCacheActionTarget(docId);
+    async (docId: string, title: string, languageCode: string) => {
+      const actionTarget = `${docId}:${languageCode}`;
+      setTranslationCacheActionTarget(actionTarget);
 
       try {
-        await invoke("clear_cached_book_translations", { docId });
+        await invoke("clear_cached_book_language_translations", {
+          docId,
+          languageCode,
+        });
         await refreshTranslationCacheSummary();
         showToast({
-          message: `Deleted cached pages for ${title}.`,
+          message: t("toast.deletedCachedPagesFor", { title }),
           durationMs: 3200,
         });
       } catch (error) {
         console.error("Failed to clear cached book translations:", error);
         showToast({
-          message: "Could not delete that book's cached pages.",
+          message: t("toast.couldNotDeleteCachedPages"),
           tone: "error",
           durationMs: 4200,
         });
       } finally {
         setTranslationCacheActionTarget((current) =>
-          current === docId ? null : current,
+          current === actionTarget ? null : current,
         );
       }
     },
@@ -3821,6 +3998,12 @@ function AppContent() {
       if (!draftPreset) {
         return;
       }
+      const sourceSettings = settingsDraftRef.current ?? settingsRef.current;
+      const targetLanguage = resolveTargetLanguage(
+        sourceSettings.defaultLanguage,
+        sourceSettings.appLanguage,
+        systemLocale,
+      );
 
       setPresetTestRunningId(presetId);
       setPresetStatuses((prev) => ({
@@ -3831,6 +4014,7 @@ function AppContent() {
       try {
         const result = (await invoke("test_translation_preset", {
           preset: getPresetDraft(draftPreset),
+          targetLanguage,
         })) as PresetTestResult;
         const friendlyResult = getFriendlyPresetTestResult(result);
         setPresetStatuses((prev) => ({
@@ -3871,16 +4055,22 @@ function AppContent() {
         );
       }
     },
-    [getPresetDraft, getDraftPresetById, showToast],
+    [getPresetDraft, getDraftPresetById, showToast, systemLocale],
   );
 
   const handleTestAllPresets = useCallback(async () => {
     const sourceSettings = settingsDraftRef.current ?? settingsRef.current;
+    const targetLanguage = resolveTargetLanguage(
+      sourceSettings.defaultLanguage,
+      sourceSettings.appLanguage,
+      systemLocale,
+    );
     setTestAllPresetsRunning(true);
 
     try {
       const results = (await invoke("test_all_translation_presets", {
         presets: sourceSettings.presets.map((preset) => getPresetDraft(preset)),
+        targetLanguage,
       })) as PresetTestResult[];
       const friendlyResults = results.map(getFriendlyPresetTestResult);
 
@@ -3900,9 +4090,8 @@ function AppContent() {
         });
       } else if (failedResults.length > 1) {
         showToast({
-          message: `${failedResults.length} preset tests failed.`,
-          detail:
-            "Hover the warning icon beside each provider to see the exact error.",
+          message: t("toast.presetTestsFailed", { count: String(failedResults.length) }),
+          detail: t("toast.hoverWarningForDetails"),
           tone: "error",
           durationMs: 5600,
         });
@@ -3910,7 +4099,7 @@ function AppContent() {
     } catch (error) {
       console.error("Failed to test all presets:", error);
       showToast({
-        message: "Could not test all presets.",
+        message: t("toast.couldNotTestAllPresets"),
         detail: getProviderErrorDetail(error),
         tone: "error",
         durationMs: 5200,
@@ -3918,7 +4107,7 @@ function AppContent() {
     } finally {
       setTestAllPresetsRunning(false);
     }
-  }, [getPresetDraft, showToast]);
+  }, [getPresetDraft, showToast, systemLocale]);
 
   const discardUnsavedSettingsAndClose = useCallback(() => {
     setSettingsOpen(false);
@@ -3991,7 +4180,7 @@ function AppContent() {
     currentFileType,
     docId,
     resetTranslateAllSlowModeRuntime,
-    currentTargetLanguage.code,
+    resolvedCurrentTargetLanguage.code,
     translationEnabled,
   ]);
 
@@ -4424,7 +4613,7 @@ function AppContent() {
               },
             }));
             showToast({
-              message: `Skipped page ${nextPage} after repeated errors.`,
+              message: t("toast.skippedPageAfterRepeatedErrors", { page: String(nextPage) }),
               tone: "neutral",
               durationMs: 4000,
             });
@@ -4475,7 +4664,7 @@ function AppContent() {
           });
           setTranslationStatusMessage(null);
           showToast({
-            message: "Translation paused — account may be out of credits.",
+            message: t("toast.pausedOutOfCredits"),
             detail: friendlyError.message,
             tone: "error",
             durationMs: 6000,
@@ -4496,7 +4685,7 @@ function AppContent() {
             },
           }));
           showToast({
-            message: `Skipped page ${nextPage} — too large for this model.`,
+            message: t("toast.skippedPageTooLarge", { page: String(nextPage) }),
             tone: "neutral",
             durationMs: 4000,
           });
@@ -4519,7 +4708,7 @@ function AppContent() {
           // action === "stop"
           if (!translateAllErrorToastShownRef.current) {
             showToast({
-              message: `Translate All hit an error on page ${nextPage}.`,
+              message: t("toast.translateAllErrorOnPage", { page: String(nextPage) }),
               detail: getFallbackFailureStatusMessage(failureTrace, error),
               tone: "error",
               durationMs: 5200,
@@ -4927,7 +5116,7 @@ function AppContent() {
     void invoke("get_cached_pdf_page_translations", {
       presetId: effectivePreset.id,
       model: effectivePreset.model,
-      targetLanguage: currentTargetLanguage,
+      targetLanguage: resolvedCurrentTargetLanguage,
       pages: lookupPages,
     })
       .then((cachedPages) => {
@@ -4966,7 +5155,7 @@ function AppContent() {
     currentFileType,
     docId,
     effectivePreset,
-    currentTargetLanguage,
+    resolvedCurrentTargetLanguage,
     translationEnabled,
     settingsLoaded,
   ]);
@@ -5173,10 +5362,14 @@ function AppContent() {
         );
         setPages((prev) => sanitizeEpubPagesForPresetChange(prev));
       }
-      currentTargetLanguageRef.current = preference.targetLanguage;
+      currentTargetLanguageRef.current = resolveTargetLanguage(
+        preference.targetLanguage,
+        settingsRef.current.appLanguage,
+        systemLocale,
+      );
       translationEnabledRef.current = preference.enabled;
     },
-    [resetTranslateAllSlowModeRuntime],
+    [resetTranslateAllSlowModeRuntime, systemLocale],
   );
 
   const handleRedoPageTranslation = useCallback(
@@ -5637,7 +5830,7 @@ function AppContent() {
               })),
             );
             showToast({
-              message: `Skipped page ${activePageNumber} after repeated errors.`,
+              message: t("toast.skippedPageAfterRepeatedErrors", { page: String(activePageNumber) }),
               tone: "neutral",
               durationMs: 4000,
             });
@@ -5666,7 +5859,7 @@ function AppContent() {
           });
           setTranslationStatusMessage(null);
           showToast({
-            message: "Translation paused — account may be out of credits.",
+            message: t("toast.pausedOutOfCredits"),
             detail: friendlyError.message,
             tone: "error",
             durationMs: 6000,
@@ -5684,7 +5877,7 @@ function AppContent() {
             })),
           );
           showToast({
-            message: `Skipped page ${activePageNumber} — too large for this model.`,
+            message: t("toast.skippedPageTooLarge", { page: String(activePageNumber) }),
             tone: "neutral",
             durationMs: 4000,
           });
@@ -6263,7 +6456,18 @@ function AppContent() {
     ],
   );
 
-  const totalPages = pages.length;
+  const readingProgress = useMemo(
+    () =>
+      getDocumentProgressSnapshot({
+        currentFileType,
+        currentPage,
+        pdfPageCount: currentFileType === "pdf" ? pdfDoc?.numPages ?? null : null,
+        pagesLength: pages.length,
+        epubTotalPages,
+      }),
+    [currentFileType, currentPage, epubTotalPages, pages.length, pdfDoc],
+  );
+  const totalPages = readingProgress.totalPages;
 
   useEffect(() => {
     if (currentFileType !== "epub" || !pendingEpubScroll) return;
@@ -6310,14 +6514,13 @@ function AppContent() {
   // Save progress when page changes (works for both PDF and EPUB)
   useEffect(() => {
     if (docId && currentPage > 0 && totalPages > 0) {
-      const progress = (currentPage / totalPages) * 100;
       invoke("update_book_progress", {
         id: docId,
         lastPage: currentPage,
-        progress: progress,
+        progress: readingProgress.percent,
       }).catch(() => {});
     }
-  }, [docId, currentPage, totalPages]);
+  }, [currentPage, docId, readingProgress.percent, totalPages]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -6511,24 +6714,24 @@ function AppContent() {
         {
           label:
             blockingUnsavedPresetIds.length > 1
-              ? "Discard drafts"
-              : "Discard draft",
+              ? t("dialog.discardDrafts")
+              : t("dialog.discardDraft"),
           variant: "danger",
           onSelect: discardUnsavedSettingsAndClose,
         },
       ]}
-      cancelLabel="Keep editing"
-      description="Some provider changes are not saved yet. If you close now, those unfinished edits will be lost."
+      cancelLabel={t("dialog.keepEditing")}
+      description={t("dialog.discardUnsavedChangesDescription")}
       onOpenChange={setSettingsCloseConfirmOpen}
       open={settingsCloseConfirmOpen}
-      title="Discard unsaved changes?"
+      title={t("dialog.discardUnsavedChangesTitle")}
     />
   );
   const missingRecentBookDialog = (
     <ConfirmationDialog
       actions={[
         {
-          label: "Locate Document",
+          label: t("dialog.locateDocument"),
           variant: "primary",
           onSelect: () => {
             if (!missingRecentBook) {
@@ -6541,7 +6744,7 @@ function AppContent() {
       ]}
       description={
         missingRecentBook
-          ? "We couldn't find this recent book. Locate it to reconnect your progress and cached translations."
+          ? t("dialog.bookNotFoundDescription")
           : ""
       }
       onOpenChange={(open) => {
@@ -6550,7 +6753,7 @@ function AppContent() {
         }
       }}
       open={Boolean(missingRecentBook)}
-      title="Book not found"
+      title={t("dialog.bookNotFoundTitle")}
     />
   );
   const reconnectResolutionDialog = (
@@ -6559,24 +6762,23 @@ function AppContent() {
         pendingReconnectResolution?.mode === "similar"
           ? [
               {
-                label:
-                  "Yes, it's the Same Book. Keep progress, annotations, and cached translations.",
+                label: t("dialog.sameBook"),
                 variant: "primary",
                 onSelect: reconnectAsSameBook,
               },
               {
-                label: "This is a different book, open as a New Book.",
+                label: t("dialog.differentBookOpenAsNew"),
                 onSelect: openReconnectCandidateAsNewBook,
               },
             ]
           : [
               {
-                label: "Open as New Book",
+                label: t("dialog.openAsNewBook"),
                 variant: "primary",
                 onSelect: openReconnectCandidateAsNewBook,
               },
               {
-                label: "Choose Another File",
+                label: t("dialog.chooseAnotherFile"),
                 onSelect: () => {
                   if (!pendingReconnectResolution) {
                     return;
@@ -6589,11 +6791,11 @@ function AppContent() {
               },
             ]
       }
-      cancelLabel="Cancel"
+      cancelLabel={t("common.cancel")}
       description={
         pendingReconnectResolution?.mode === "similar"
-          ? "This file is not an exact match, but it looks similar to the existing one. Are you sure it's the same book?"
-          : "This file doesn't look like the same book."
+          ? t("dialog.fileNotExactMatch")
+          : t("dialog.fileDifferentDocument")
       }
       onOpenChange={(open) => {
         if (!open) {
@@ -6603,8 +6805,8 @@ function AppContent() {
       open={Boolean(pendingReconnectResolution)}
       title={
         pendingReconnectResolution?.mode === "similar"
-          ? "Reconnect book?"
-          : "Different document"
+          ? t("dialog.reconnectBook")
+          : t("dialog.differentDocument")
       }
     />
   );
@@ -6612,7 +6814,7 @@ function AppContent() {
     <ConfirmationDialog
       actions={[
         {
-          label: "Delete highlight",
+          label: t("dialog.deleteHighlight"),
           variant: "danger",
           onSelect: () => {
             if (!pendingAnnotationDeletion) {
@@ -6625,15 +6827,15 @@ function AppContent() {
           },
         },
       ]}
-      cancelLabel="Keep highlight"
-      description="This highlight has a note attached. Deleting the highlight will also delete that note."
+      cancelLabel={t("dialog.keepHighlight")}
+      description={t("dialog.deleteHighlightDescription")}
       onOpenChange={(open) => {
         if (!open) {
           setPendingAnnotationDeletion(null);
         }
       }}
       open={pendingAnnotationDeletion !== null}
-      title="Delete highlight and note?"
+      title={t("dialog.deleteHighlightAndNoteTitle")}
     />
   );
   const sharedAboutDialog = (
@@ -6690,13 +6892,13 @@ function AppContent() {
           <Toolbar.Root
             ref={readerHeaderRef}
             className="app-header"
-            aria-label="Toolbar"
+            aria-label={t("reader.toolbar")}
           >
             <div className="header-left">
               <ExpandableIconButton
                 onClick={handleBackToHome}
-                aria-label="Home"
-                label="Home"
+                aria-label={t("common.home")}
+                label={t("common.home")}
                 labelDirection="right"
               >
                 <svg
@@ -6737,8 +6939,8 @@ function AppContent() {
                 />
               ) : null}
               <ExpandableIconButton
-                aria-label="Annotations"
-                label="Annotations"
+                aria-label={t("annotations.title")}
+                label={t("annotations.title")}
                 labelDirection="left"
                 onClick={() => setAnnotationsPanelOpen((prev) => !prev)}
               >
@@ -6762,11 +6964,11 @@ function AppContent() {
                 onToggle={handleThemeToggle}
                 showHoverLabel={true}
                 labelDirection="left"
-                hoverLabel="Theme"
+                hoverLabel={t("theme.switch")}
               />
               <ExpandableIconButton
-                aria-label="Settings"
-                label="Settings"
+                aria-label={t("common.settings")}
+                label={t("common.settings")}
                 labelDirection="left"
                 onClick={handleOpenSettings}
               >
@@ -6811,7 +7013,7 @@ function AppContent() {
                     />
                   ) : (
                     <div className="empty-state">
-                      Navigation will appear here.
+                      {t("nav.noContents")}
                     </div>
                   )
                 ) : epubData ? (
@@ -6860,15 +7062,15 @@ function AppContent() {
                     className={`epub-original-host ${readerPanels.original ? "" : "is-detached"}`}
                   >
                     <PageNavigationToolbar
-                      previousLabel="Previous page"
-                      nextLabel="Next page"
+                      previousLabel={t("reader.previousPage")}
+                      nextLabel={t("reader.nextPage")}
                       previousDisabled={currentPage <= 1}
                       nextDisabled={currentPage >= epubTotalPages}
                       onPrevious={() => handleEpubPageStep("prev")}
                       onNext={() => handleEpubPageStep("next")}
                     >
                       <div className="document-page-label">
-                        Page {currentPage} of {epubTotalPages || "-"}
+                        {t("reader.page")} {currentPage} {t("reader.pageOf", { count: String(epubTotalPages || "-") })}
                       </div>
                     </PageNavigationToolbar>
                     <div className="document-viewer-shell">
@@ -6890,8 +7092,8 @@ function AppContent() {
                             className="btn btn-ghost btn-icon-only"
                             onClick={() => handleScaleStep("out")}
                             disabled={currentScaleIndex <= 0}
-                            aria-label="Zoom out"
-                            title="Zoom out"
+                            aria-label={t("reader.zoomOut")}
+                            title={t("reader.zoomOut")}
                           >
                             -
                           </Toolbar.Button>
@@ -6904,8 +7106,8 @@ function AppContent() {
                             disabled={
                               currentScaleIndex >= ZOOM_LEVELS.length - 1
                             }
-                            aria-label="Zoom in"
-                            title="Zoom in"
+                            aria-label={t("reader.zoomIn")}
+                            title={t("reader.zoomIn")}
                           >
                             +
                           </Toolbar.Button>
@@ -6946,7 +7148,7 @@ function AppContent() {
                     variant="blocking"
                   />
                 ) : (
-                  <div className="empty-state">No document loaded.</div>
+                  <div className="empty-state">{t("reader.noDocumentLoaded")}</div>
                 )}
               </div>
             </section>
@@ -6956,7 +7158,7 @@ function AppContent() {
                 className="split-resize-handle"
                 role="separator"
                 aria-orientation="vertical"
-                aria-label="Resize original and right rail panels"
+                aria-label={t("reader.resizePanels")}
                 data-dragging={
                   activeColumnResizeKey === "original:rail" ? "true" : undefined
                 }
@@ -7145,7 +7347,7 @@ function AppContent() {
                   className="rail-resize-handle"
                   role="separator"
                   aria-orientation="horizontal"
-                  aria-label="Resize translation and AI chat sections"
+                  aria-label={t("reader.resizeTranslateChat")}
                   data-dragging={
                     activeRailResizeKey === "translation:chat"
                       ? "true"

@@ -3,6 +3,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as Progress from "@radix-ui/react-progress";
 import type { RecentBook } from "../../types";
+import { t } from "../../lib/i18n";
 
 type BookListItemProps = {
   book: RecentBook;
@@ -49,10 +50,10 @@ function formatRelativeTime(dateString: string): string {
   const diffHours = Math.floor(diffMins / 60);
   const diffDays = Math.floor(diffHours / 24);
 
-  if (diffSecs < 60) return "Just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffSecs < 60) return t("home.justNow");
+  if (diffMins < 60) return t("home.minutesAgo", { count: String(diffMins) });
+  if (diffHours < 24) return t("home.hoursAgo", { count: String(diffHours) });
+  if (diffDays < 7) return t("home.daysAgo", { count: String(diffDays) });
 
   return date.toLocaleDateString(undefined, {
     month: 'short',
@@ -109,7 +110,7 @@ export function BookCard({ book, onOpen, onRemove }: BookListItemProps) {
         <ContextMenu.Content className="context-menu">
           <ContextMenu.Item className="context-menu-item context-menu-item-danger" onSelect={handleRemove}>
             <TrashIcon />
-            <span>Remove from Library</span>
+            <span>{t("home.removeFromRecent")}</span>
           </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>

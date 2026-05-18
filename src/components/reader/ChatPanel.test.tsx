@@ -30,8 +30,8 @@ describe("ChatPanel", () => {
     expect(chatPanelSource).toContain('className="rail-pane-title"');
     expect(chatPanelSource).not.toContain('className="rail-pane-title-icon"');
     expect(chatPanelSource).not.toContain("function SparkleIcon()");
-    expect(chatPanelSource).toContain('aria-label="Clear chat"');
-    expect(chatPanelSource).toContain('title="Clear chat"');
+    expect(chatPanelSource).toContain('aria-label={t("chat.clearChat")}');
+    expect(chatPanelSource).toContain('title={t("chat.clearChat")}');
     expect(chatPanelSource).toContain('className="btn btn-ghost btn-icon-only"');
   });
 

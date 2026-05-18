@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import changelogMarkdown from "../../CHANGELOG.md?raw";
+import { t } from "../lib/i18n";
 
 type ChangelogDialogProps = {
   open: boolean;
@@ -102,7 +103,7 @@ function parseChangelog(markdown: string): ParsedChangelog {
 
       if (currentSection === null) {
         currentSection = {
-          title: "Notes",
+          title: t("changelog.notes"),
           items: [],
         };
         currentRelease.sections.push(currentSection);
@@ -193,12 +194,12 @@ export function ChangelogDialog({ open, onOpenChange }: ChangelogDialogProps) {
           <div className="changelog-dialog-header">
             <div className="changelog-dialog-hero-copy">
               <Dialog.Title className="dialog-title type-title-large">
-                CHANGELOG
+                {t("changelog.title")}
               </Dialog.Title>
             </div>
             <Dialog.Close asChild>
               <button
-                aria-label="Close changelog"
+                aria-label={t("changelog.close")}
                 className="btn btn-ghost btn-icon-only changelog-dialog-close"
                 type="button"
               >

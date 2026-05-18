@@ -19,6 +19,7 @@ import {
   hasUsableLiveTranslationSetup,
   isPresetUnchangedFromSavedState,
   normalizeProviderKind,
+  normalizeAppLanguage,
   normalizeDefaultLanguage,
   normalizePresetDraft,
   normalizeSettingsFromStorage,
@@ -28,6 +29,7 @@ import {
   normalizeProviderReasoningMode,
   detectCodingPlanKey,
   getCodingPlanBaseUrl,
+  buildTranslateToLanguagePickerSections,
 } from "./appSettings";
 
 describe("app settings helpers", () => {
@@ -85,6 +87,24 @@ describe("app settings helpers", () => {
     });
   });
 
+  test("normalizes the app language setting and preserves Follow system", () => {
+    expect(normalizeAppLanguage(undefined)).toEqual({
+      code: "system",
+      label: "Follow system",
+    });
+    expect(normalizeAppLanguage({ code: "fr", label: "" })).toEqual({
+      code: "fr",
+      label: "French",
+    });
+  });
+
+  test("falls back to Follow system when the saved app language is no longer in the UI shortlist", () => {
+    expect(normalizeAppLanguage({ code: "de", label: "German" })).toEqual({
+      code: "system",
+      label: "Follow system",
+    });
+  });
+
   test("cycles themes in system, light, dark order", () => {
     expect(getNextThemeMode("system")).toBe("light");
     expect(getNextThemeMode("light")).toBe("dark");
@@ -96,6 +116,10 @@ describe("app settings helpers", () => {
       activePresetId: "",
       autoFallbackEnabled: false,
       autoTranslateNextPages: 1,
+      appLanguage: {
+        code: "system",
+        label: "Follow system",
+      },
       translateAllSlowMode: false,
       defaultLanguage: {
         code: "zh-CN",
@@ -154,6 +178,10 @@ describe("app settings helpers", () => {
       activePresetId: "preset-1",
       autoFallbackEnabled: false,
       autoTranslateNextPages: 1,
+      appLanguage: {
+        code: "system",
+        label: "Follow system",
+      },
       translateAllSlowMode: false,
       defaultLanguage: {
         code: "zh-CN",
@@ -189,6 +217,10 @@ describe("app settings helpers", () => {
       activePresetId: "preset-1",
       autoFallbackEnabled: false,
       autoTranslateNextPages: 1,
+      appLanguage: {
+        code: "system",
+        label: "Follow system",
+      },
       translateAllSlowMode: false,
       defaultLanguage: {
         code: "zh-CN",
@@ -238,6 +270,10 @@ describe("app settings helpers", () => {
   test("defaults automatic fallback to false when older saved settings do not include it", () => {
     const normalized = normalizeSettingsFromStorage({
       activePresetId: "preset-1",
+      appLanguage: {
+        code: "system",
+        label: "Follow system",
+      },
       defaultLanguage: {
         code: "zh-CN",
         label: "Chinese (Simplified)",
@@ -261,6 +297,10 @@ describe("app settings helpers", () => {
     const normalized = normalizeSettingsFromStorage({
       activePresetId: "preset-1",
       autoFallbackEnabled: false,
+      appLanguage: {
+        code: "system",
+        label: "Follow system",
+      },
       translateAllSlowMode: false,
       defaultLanguage: {
         code: "zh-CN",
@@ -279,6 +319,34 @@ describe("app settings helpers", () => {
     } as TranslationSettings);
 
     expect(normalized.autoTranslateNextPages).toBe(1);
+  });
+
+  test("offers app language as a translate-to choice", () => {
+    const sections = buildTranslateToLanguagePickerSections("");
+    const codes = sections.flatMap((section) => section.items.map((item) => item.code));
+
+    expect(codes).toContain("app-language");
+  });
+
+  test("preserves translate-to app language in saved settings", () => {
+    const normalized = normalizeSettingsFromStorage(
+      {
+        activePresetId: "preset-1",
+        autoFallbackEnabled: false,
+        autoTranslateNextPages: 1,
+        appLanguage: { code: "fr", label: "French" },
+        defaultLanguage: { code: "app-language", label: "App language" },
+        theme: "system",
+        translateAllSlowMode: false,
+        presets: [],
+      } as TranslationSettings,
+      "en-US",
+    );
+
+    expect(normalized.defaultLanguage).toEqual({
+      code: "app-language",
+      label: "App language",
+    });
   });
 
   test("keeps model empty while editing instead of backfilling a default model", () => {
@@ -536,6 +604,10 @@ describe("app settings helpers", () => {
         activePresetId: "preset-1",
         autoFallbackEnabled: false,
         autoTranslateNextPages: 1,
+        appLanguage: {
+          code: "system",
+          label: "Follow system",
+        },
         translateAllSlowMode: false,
         defaultLanguage: {
           code: "zh-CN",
@@ -557,6 +629,10 @@ describe("app settings helpers", () => {
         activePresetId: "preset-1",
         autoFallbackEnabled: false,
         autoTranslateNextPages: 1,
+        appLanguage: {
+          code: "system",
+          label: "Follow system",
+        },
         translateAllSlowMode: false,
         defaultLanguage: {
           code: "zh-CN",
@@ -595,6 +671,10 @@ describe("app settings helpers", () => {
         activePresetId: "preset-2",
         autoFallbackEnabled: false,
         autoTranslateNextPages: 1,
+        appLanguage: {
+          code: "system",
+          label: "Follow system",
+        },
         translateAllSlowMode: false,
         defaultLanguage: {
           code: "zh-CN",
@@ -621,6 +701,10 @@ describe("app settings helpers", () => {
         activePresetId: "preset-1",
         autoFallbackEnabled: false,
         autoTranslateNextPages: 1,
+        appLanguage: {
+          code: "system",
+          label: "Follow system",
+        },
         translateAllSlowMode: false,
         defaultLanguage: {
           code: "zh-CN",
@@ -717,6 +801,7 @@ describe("app settings helpers", () => {
       activePresetId: "preset-1",
       autoFallbackEnabled: false,
       autoTranslateNextPages: 1,
+      appLanguage: { code: "system", label: "Follow system" },
       translateAllSlowMode: false,
       defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
       theme: "system",
@@ -747,6 +832,7 @@ describe("app settings helpers", () => {
       activePresetId: "preset-1",
       autoFallbackEnabled: false,
       autoTranslateNextPages: 1,
+      appLanguage: { code: "system", label: "Follow system" },
       translateAllSlowMode: false,
       defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
       theme: "system",

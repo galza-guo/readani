@@ -1,4 +1,5 @@
 import type { TargetLanguage } from "../types";
+import { t } from "./i18n";
 
 export type LanguagePickerSection = {
   id: string;
@@ -9,6 +10,16 @@ export type LanguagePickerSection = {
 export const DEFAULT_LANGUAGE: TargetLanguage = {
   code: "zh-CN",
   label: "Chinese (Simplified)",
+};
+
+export const FOLLOW_SYSTEM_LANGUAGE: TargetLanguage = {
+  code: "system",
+  label: "Follow system",
+};
+
+export const APP_LANGUAGE_TARGET: TargetLanguage = {
+  code: "app-language",
+  label: "App language",
 };
 
 export const LANGUAGE_PRESETS: TargetLanguage[] = [
@@ -120,6 +131,16 @@ const COMMON_LANGUAGE_CODES = [
   "fr",
 ];
 
+export const APP_UI_LANGUAGE_CODES = [
+  "zh-CN",
+  "zh-TW",
+  "en",
+  "ja",
+  "ko",
+  "es",
+  "fr",
+] as const;
+
 const LANGUAGE_LABELS = new Map(
   LANGUAGE_PRESETS.map((preset) => [preset.code, preset.label])
 );
@@ -130,6 +151,20 @@ export const COMMON_LANGUAGE_PRESETS: TargetLanguage[] = COMMON_LANGUAGE_CODES.f
     return label ? [{ code, label }] : [];
   }
 );
+
+export const APP_UI_LANGUAGE_PRESETS: TargetLanguage[] = APP_UI_LANGUAGE_CODES.flatMap(
+  (code) => {
+    const label = LANGUAGE_LABELS.get(code);
+    return label ? [{ code, label }] : [];
+  }
+);
+
+export const SUPPORTED_LANGUAGE_COUNT = LANGUAGE_PRESETS.length;
+
+const LANGUAGE_SELF_LABEL_OVERRIDES: Record<string, string> = {
+  "zh-CN": "简体中文",
+  "zh-TW": "繁體中文",
+};
 
 function collapseWhitespace(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -149,20 +184,83 @@ function slugifyLanguageText(value: string) {
   return normalized.replace(/\s+/g, "-");
 }
 
+function getLanguageSearchTerms(language: TargetLanguage) {
+  const terms = [language.label, language.code, getLanguageSelfLabel(language)];
+  return terms.filter(Boolean);
+}
+
 function matchesLanguageQuery(language: TargetLanguage, normalizedQuery: string, rawQuery: string) {
   if (!normalizedQuery) {
     return true;
   }
 
-  return (
-    normalizeLanguageText(language.label).includes(normalizedQuery) ||
-    language.code.toLowerCase().includes(rawQuery.toLowerCase()) ||
-    normalizeLanguageText(language.code).includes(normalizedQuery)
+  return getLanguageSearchTerms(language).some(
+    (term) =>
+      normalizeLanguageText(term).includes(normalizedQuery) ||
+      term.toLowerCase().includes(rawQuery.toLowerCase())
   );
 }
 
 export function getLanguageLabel(code: string) {
   return LANGUAGE_LABELS.get(code);
+}
+
+export function buildFollowSystemLanguage(): TargetLanguage {
+  return {
+    code: FOLLOW_SYSTEM_LANGUAGE.code,
+    label: t("languages.followSystem"),
+  };
+}
+
+export function buildAppLanguageTarget(): TargetLanguage {
+  return {
+    code: APP_LANGUAGE_TARGET.code,
+    label: t("languages.app"),
+  };
+}
+
+export function getLanguageDisplayLabel(language: TargetLanguage) {
+  if (isFollowSystemLanguage(language)) {
+    return t("languages.followSystem");
+  }
+
+  if (isAppLanguageTarget(language)) {
+    return t("languages.app");
+  }
+
+  return language.label;
+}
+
+export function getLanguageSelfLabel(language: TargetLanguage) {
+  if (isFollowSystemLanguage(language)) {
+    return t("languages.followSystem");
+  }
+
+  if (isAppLanguageTarget(language) || isCustomLanguage(language)) {
+    return language.label;
+  }
+
+  const overrideLabel = LANGUAGE_SELF_LABEL_OVERRIDES[language.code];
+  if (overrideLabel) {
+    return overrideLabel;
+  }
+
+  try {
+    const displayNames = new Intl.DisplayNames([language.code], {
+      type: "language",
+    });
+    return displayNames.of(language.code) ?? language.label;
+  } catch {
+    return language.label;
+  }
+}
+
+export function isFollowSystemLanguage(language?: { code?: string }) {
+  return language?.code === FOLLOW_SYSTEM_LANGUAGE.code;
+}
+
+export function isAppLanguageTarget(language?: { code?: string }) {
+  return language?.code === APP_LANGUAGE_TARGET.code;
 }
 
 export function isCustomLanguage(language?: Pick<TargetLanguage, "code">) {
@@ -206,16 +304,135 @@ export function getCustomLanguageOption(
 export function buildLanguagePickerSections(
   query: string
 ): LanguagePickerSection[] {
+  return buildLanguagePickerSectionsWithLeadingOptions(query, []);
+}
+
+export function buildAppLanguagePickerSections(
+  query: string
+): LanguagePickerSection[] {
   const rawQuery = collapseWhitespace(query);
   const normalizedQuery = normalizeLanguageText(rawQuery);
-  const sections: LanguagePickerSection[] = [];
+  const systemOption = buildFollowSystemLanguage();
 
-  const commonItems = COMMON_LANGUAGE_PRESETS.filter((language) =>
-    matchesLanguageQuery(language, normalizedQuery, rawQuery)
+  if (rawQuery) {
+    const results = APP_UI_LANGUAGE_PRESETS.filter((language) =>
+      matchesLanguageQuery(language, normalizedQuery, rawQuery)
+    );
+    const systemMatches = matchesLanguageQuery(systemOption, normalizedQuery, rawQuery);
+
+    return [
+      {
+        id: "app-search",
+        items: systemMatches ? [systemOption, ...results] : results,
+      },
+    ].filter((section) => section.items.length > 0);
+  }
+
+  return [
+    {
+      id: "leading",
+      items: [systemOption],
+    },
+    {
+      id: "common",
+      items: APP_UI_LANGUAGE_PRESETS,
+    },
+  ];
+}
+
+export function buildTranslateToLanguagePickerSections(
+  query: string
+): LanguagePickerSection[] {
+  return buildLanguagePickerSectionsWithLeadingOptions(query, [
+    buildAppLanguageTarget(),
+  ]);
+}
+
+export function resolveLanguageFromLocale(locale?: string | null) {
+  const normalizedLocale = collapseWhitespace(locale ?? "");
+  if (!normalizedLocale) {
+    return DEFAULT_LANGUAGE;
+  }
+
+  const exactMatch = LANGUAGE_PRESETS.find(
+    (language) => language.code.toLowerCase() === normalizedLocale.toLowerCase()
   );
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const canonicalLocale = normalizedLocale.replace(/_/g, "-");
+  const lowerCanonical = canonicalLocale.toLowerCase();
+
+  if (lowerCanonical.startsWith("zh")) {
+    if (
+      lowerCanonical.includes("hant")
+      || lowerCanonical.endsWith("-tw")
+      || lowerCanonical.endsWith("-hk")
+      || lowerCanonical.endsWith("-mo")
+    ) {
+      return getLanguageByCode("zh-TW");
+    }
+
+    return getLanguageByCode("zh-CN");
+  }
+
+  const baseLanguageCode = canonicalLocale.split("-")[0]?.toLowerCase();
+  if (baseLanguageCode) {
+    const baseMatch = LANGUAGE_PRESETS.find(
+      (language) => language.code.toLowerCase() === baseLanguageCode
+    );
+    if (baseMatch) {
+      return baseMatch;
+    }
+  }
+
+  return getLanguageByCode("en");
+}
+
+export function isSupportedAppUiLanguageCode(code?: string | null) {
+  if (!code) {
+    return false;
+  }
+
+  return APP_UI_LANGUAGE_CODES.includes(code as (typeof APP_UI_LANGUAGE_CODES)[number]);
+}
+
+function buildLanguagePickerSectionsWithLeadingOptions(
+  query: string,
+  leadingOptions: TargetLanguage[]
+): LanguagePickerSection[] {
+  const rawQuery = collapseWhitespace(query);
+  const normalizedQuery = normalizeLanguageText(rawQuery);
   const allItems = LANGUAGE_PRESETS.filter(
     (language) => matchesLanguageQuery(language, normalizedQuery, rawQuery)
   );
+
+  if (rawQuery) {
+    return allItems.length > 0
+      ? [
+          {
+            id: "all",
+            items: allItems,
+          },
+        ]
+      : [];
+  }
+
+  const sections: LanguagePickerSection[] = [];
+  const leadingItems = leadingOptions.filter((language) =>
+    matchesLanguageQuery(language, normalizedQuery, rawQuery)
+  );
+  const commonItems = COMMON_LANGUAGE_PRESETS.filter((language) =>
+    matchesLanguageQuery(language, normalizedQuery, rawQuery)
+  );
+
+  if (leadingItems.length > 0) {
+    sections.push({
+      id: "leading",
+      items: leadingItems,
+    });
+  }
 
   if (commonItems.length > 0) {
     sections.push({
@@ -227,10 +444,14 @@ export function buildLanguagePickerSections(
   if (allItems.length > 0) {
     sections.push({
       id: "all",
-      title: "All languages",
+      title: t("languages.all"),
       items: allItems,
     });
   }
 
   return sections;
+}
+
+function getLanguageByCode(code: string) {
+  return LANGUAGE_PRESETS.find((language) => language.code === code) ?? DEFAULT_LANGUAGE;
 }

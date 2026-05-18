@@ -5,12 +5,22 @@ import type { TargetLanguage } from "../../types";
 import {
   buildLanguagePickerSections,
   getCustomLanguageOption,
+  getLanguageDisplayLabel,
+  type LanguagePickerSection,
 } from "../../lib/languageOptions";
+import { t, type MessageKey } from "../../lib/i18n";
 
 type LanguageComboboxProps = {
   id: string;
   value: TargetLanguage;
   onChange: (language: TargetLanguage) => void;
+  allowCustom?: boolean;
+  buildSections?: (query: string) => LanguagePickerSection[];
+  contentClassName?: string;
+  getOptionLabel?: (language: TargetLanguage) => string;
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  searchPlaceholderKey?: MessageKey;
 };
 
 function ChevronDownIcon() {
@@ -30,23 +40,32 @@ function CheckIcon() {
 }
 
 export function LanguageCombobox({
+  allowCustom = true,
+  buildSections = buildLanguagePickerSections,
+  contentClassName,
+  getOptionLabel = getLanguageDisplayLabel,
   id,
   value,
   onChange,
+  searchable = true,
+  searchPlaceholder,
+  searchPlaceholderKey = "languages.search",
 }: LanguageComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const shouldAutoScrollRef = useRef(false);
 
   const sections = useMemo(
-    () => buildLanguagePickerSections(query),
-    [query]
+    () => buildSections(query),
+    [buildSections, query]
   );
   const customOption = useMemo(
-    () => getCustomLanguageOption(query, value),
-    [query, value]
+    () => (allowCustom ? getCustomLanguageOption(query, value) : undefined),
+    [allowCustom, query, value]
   );
   const flattenedOptions = useMemo(() => {
     const builtIn = sections.flatMap((section) =>
@@ -77,20 +96,30 @@ export function LanguageCombobox({
     setHighlightedIndex(0);
 
     const frame = window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
+      if (searchable) {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+        return;
+      }
+
+      contentRef.current?.focus();
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [open]);
+  }, [open, searchable]);
 
   useEffect(() => {
     setHighlightedIndex(0);
   }, [query]);
 
   useEffect(() => {
+    if (!shouldAutoScrollRef.current) {
+      return;
+    }
+
     const nextOption = optionRefs.current[highlightedIndex];
     nextOption?.scrollIntoView({ block: "nearest" });
+    shouldAutoScrollRef.current = false;
   }, [highlightedIndex]);
 
   const handleSelect = (language: TargetLanguage) => {
@@ -99,9 +128,10 @@ export function LanguageCombobox({
     setQuery("");
   };
 
-  const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleInputKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
+      shouldAutoScrollRef.current = true;
       setHighlightedIndex((current) =>
         flattenedOptions.length === 0
           ? 0
@@ -112,6 +142,7 @@ export function LanguageCombobox({
 
     if (event.key === "ArrowUp") {
       event.preventDefault();
+      shouldAutoScrollRef.current = true;
       setHighlightedIndex((current) =>
         flattenedOptions.length === 0 ? 0 : Math.max(current - 1, 0)
       );
@@ -129,6 +160,8 @@ export function LanguageCombobox({
   };
 
   let optionIndex = -1;
+  const resolvedSearchPlaceholder =
+    searchPlaceholder ?? t(searchPlaceholderKey);
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -140,7 +173,9 @@ export function LanguageCombobox({
           className="language-combobox-trigger"
           type="button"
         >
-          <span className="language-combobox-trigger-text">{value.label}</span>
+          <span className="language-combobox-trigger-text">
+            {getOptionLabel(value)}
+          </span>
           <ChevronDownIcon />
         </button>
       </Popover.Trigger>
@@ -148,19 +183,24 @@ export function LanguageCombobox({
       <Popover.Portal>
         <Popover.Content
           align="start"
-          className="language-combobox-content"
+          className={`language-combobox-content ${contentClassName ?? ""}`.trim()}
+          onKeyDown={!searchable ? handleInputKeyDown : undefined}
+          ref={contentRef}
           sideOffset={8}
+          tabIndex={searchable ? undefined : -1}
         >
-          <input
-            ref={inputRef}
-            aria-label="Search languages"
-            className="language-combobox-input"
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={handleInputKeyDown}
-            placeholder="Search languages"
-            type="text"
-            value={query}
-          />
+          {searchable ? (
+            <input
+              ref={inputRef}
+              aria-label={resolvedSearchPlaceholder}
+              className="language-combobox-input"
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={handleInputKeyDown}
+              placeholder={resolvedSearchPlaceholder}
+              type="text"
+              value={query}
+            />
+          ) : null}
 
           <div className="language-combobox-list" role="listbox">
             {sections.map((section) => (
@@ -185,11 +225,14 @@ export function LanguageCombobox({
                         isHighlighted ? "is-highlighted" : ""
                       } ${isSelected ? "is-selected" : ""}`}
                       onClick={() => handleSelect(language)}
-                      onMouseEnter={() => setHighlightedIndex(currentIndex)}
+                      onMouseEnter={() => {
+                        shouldAutoScrollRef.current = false;
+                        setHighlightedIndex(currentIndex);
+                      }}
                       role="option"
                       type="button"
                     >
-                      <span>{language.label}</span>
+                      <span>{getOptionLabel(language)}</span>
                       {isSelected ? <CheckIcon /> : null}
                     </button>
                   );
@@ -208,17 +251,20 @@ export function LanguageCombobox({
                     : ""
                 }`}
                 onClick={() => handleSelect(customOption)}
-                onMouseEnter={() => setHighlightedIndex(flattenedOptions.length - 1)}
+                onMouseEnter={() => {
+                  shouldAutoScrollRef.current = false;
+                  setHighlightedIndex(flattenedOptions.length - 1);
+                }}
                 role="option"
                 type="button"
               >
-                Use custom language: {customOption.label}
+                {t("languages.useCustom", { label: customOption.label })}
               </button>
             ) : null}
 
             {flattenedOptions.length === 0 ? (
               <div className="language-combobox-empty">
-                No languages found.
+                {t("languages.noResults")}
               </div>
             ) : null}
           </div>

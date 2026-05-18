@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import type { ChatMessage } from "../../types";
+import { t, type MessageKey } from "../../lib/i18n";
 
 type ChatPanelProps = {
   isVisible: boolean;
@@ -10,11 +11,11 @@ type ChatPanelProps = {
   getSurroundingPagesText: () => string;
 };
 
-const PRESET_QUESTIONS = [
-  { label: "Summarize this page", prompt: "Please summarize the main points of this page in a clear and concise manner." },
-  { label: "Key concepts", prompt: "What are the key concepts and important terms mentioned on this page? Please explain them briefly." },
-  { label: "Summary of nearby pages", prompt: "Please provide a summary of the content across these pages, highlighting the main themes and how they connect." },
-  { label: "Explain terms", prompt: "Please identify and explain any technical terms, jargon, or complex concepts found in this text." },
+const PRESET_QUESTIONS: Array<{ labelKey: MessageKey; promptKey: MessageKey }> = [
+  { labelKey: "chat.summarizePage", promptKey: "chat.summarizePrompt" },
+  { labelKey: "chat.keyConcepts", promptKey: "chat.keyConceptsPrompt" },
+  { labelKey: "chat.summaryNearbyPages", promptKey: "chat.summaryNearbyPrompt" },
+  { labelKey: "chat.explainTerms", promptKey: "chat.explainTermsPrompt" },
 ];
 
 function SendIcon() {
@@ -93,7 +94,7 @@ export function ChatPanel({
       const errorMsg: ChatMessage = {
         id: `error-${Date.now()}`,
         role: "assistant",
-        content: `Error: ${String(error)}`,
+        content: t("chat.error", { error: String(error) }),
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, errorMsg]);
@@ -103,10 +104,11 @@ export function ChatPanel({
   }, [model]);
 
   const handlePresetQuestion = useCallback((preset: typeof PRESET_QUESTIONS[0]) => {
-    const context = preset.label.includes("nearby")
+    const isNearby = preset.labelKey === "chat.summaryNearbyPages";
+    const context = isNearby
       ? getSurroundingPagesText()
       : getCurrentPageText();
-    sendMessage(preset.prompt, context);
+    sendMessage(t(preset.promptKey), context);
   }, [getCurrentPageText, getSurroundingPagesText, sendMessage]);
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
@@ -131,15 +133,15 @@ export function ChatPanel({
     <div className="chat-panel">
       <div className="chat-header rail-pane-header">
         <div className="chat-title rail-pane-title-row">
-          <span className="rail-pane-title">AI Assistant</span>
+          <span className="rail-pane-title">{t("chat.title")}</span>
         </div>
         <div className="chat-header-actions rail-pane-header-actions">
           {messages.length > 0 && (
             <button
               type="button"
               className="btn btn-ghost btn-icon-only"
-              aria-label="Clear chat"
-              title="Clear chat"
+              aria-label={t("chat.clearChat")}
+              title={t("chat.clearChat")}
               onClick={handleClearChat}
             >
               <TrashIcon />
@@ -152,7 +154,7 @@ export function ChatPanel({
         <ScrollArea.Viewport ref={scrollRef} className="chat-messages">
           {messages.length === 0 ? (
             <div className="chat-empty">
-              <p>Ask about this page or pick a prompt.</p>
+              <p>{t("chat.empty")}</p>
               <div className="chat-presets">
                 {PRESET_QUESTIONS.map((preset, index) => (
                   <button
@@ -161,7 +163,7 @@ export function ChatPanel({
                     onClick={() => handlePresetQuestion(preset)}
                     disabled={isLoading}
                   >
-                    {preset.label}
+                    {t(preset.labelKey)}
                   </button>
                 ))}
               </div>
@@ -178,7 +180,7 @@ export function ChatPanel({
           )}
           {isLoading && (
             <div className="chat-message is-assistant">
-              <div className="chat-message-content chat-loading">Thinking...</div>
+              <div className="chat-message-content chat-loading">{t("chat.thinking")}</div>
             </div>
           )}
         </ScrollArea.Viewport>
@@ -191,7 +193,7 @@ export function ChatPanel({
         <textarea
           ref={inputRef}
           className="chat-input"
-          placeholder="Ask about this page..."
+          placeholder={t("chat.placeholder")}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
