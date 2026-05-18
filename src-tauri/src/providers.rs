@@ -15,8 +15,10 @@ pub enum ProviderKind {
     OpenAi,
     #[serde(rename = "google-gemini")]
     GoogleGemini,
-    #[serde(rename = "siliconflow")]
-    SiliconFlow,
+    #[serde(rename = "siliconflow-cn")]
+    SiliconFlowCn,
+    #[serde(rename = "siliconflow-com")]
+    SiliconFlowCom,
     #[serde(rename = "dashscope")]
     DashScope,
     #[serde(rename = "modelscope")]
@@ -127,7 +129,8 @@ struct ModelRecord {
 const OLLAMA_BASE_URL: &str = "http://localhost:11434/v1";
 const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai";
-const SILICONFLOW_BASE_URL: &str = "https://api.siliconflow.cn/v1";
+const SILICONFLOW_CN_BASE_URL: &str = "https://api.siliconflow.cn/v1";
+const SILICONFLOW_COM_BASE_URL: &str = "https://api.siliconflow.com/v1";
 const DASHSCOPE_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const MODELSCOPE_BASE_URL: &str = "https://api-inference.modelscope.cn/v1";
 const MINIMAX_BASE_URL: &str = "https://api.minimax.io/v1";
@@ -204,7 +207,8 @@ impl ProviderConfig {
             | ProviderKind::OpenAiCompatible
             | ProviderKind::OpenAi
             | ProviderKind::GoogleGemini
-            | ProviderKind::SiliconFlow
+            | ProviderKind::SiliconFlowCn
+            | ProviderKind::SiliconFlowCom
             | ProviderKind::DashScope
             | ProviderKind::ModelScope
             | ProviderKind::MiniMaxIo
@@ -226,7 +230,8 @@ impl ProviderConfig {
             | ProviderKind::OpenAiCompatible
             | ProviderKind::OpenAi
             | ProviderKind::GoogleGemini
-            | ProviderKind::SiliconFlow
+            | ProviderKind::SiliconFlowCn
+            | ProviderKind::SiliconFlowCom
             | ProviderKind::DashScope
             | ProviderKind::ModelScope
             | ProviderKind::MiniMaxIo
@@ -326,12 +331,20 @@ impl ProviderConfig {
                 .unwrap_or(GEMINI_BASE_URL)
                 .trim_end_matches('/')
                 .to_string()),
-            ProviderKind::SiliconFlow => Ok(self
+            ProviderKind::SiliconFlowCn => Ok(self
                 .base_url
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .unwrap_or(SILICONFLOW_BASE_URL)
+                .unwrap_or(SILICONFLOW_CN_BASE_URL)
+                .trim_end_matches('/')
+                .to_string()),
+            ProviderKind::SiliconFlowCom => Ok(self
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(SILICONFLOW_COM_BASE_URL)
                 .trim_end_matches('/')
                 .to_string()),
             ProviderKind::DashScope => Ok(self
@@ -413,7 +426,8 @@ impl ProviderConfig {
             }
             ProviderKind::OpenAi
             | ProviderKind::GoogleGemini
-            | ProviderKind::SiliconFlow
+            | ProviderKind::SiliconFlowCn
+            | ProviderKind::SiliconFlowCom
             | ProviderKind::DashScope
             | ProviderKind::ModelScope
             | ProviderKind::MiniMaxIo
@@ -641,7 +655,7 @@ fn build_chat_completion_payload(
                 payload["reasoning_effort"] = serde_json::json!(mode.as_standard_effort());
             }
         }
-        ProviderKind::SiliconFlow => {
+        ProviderKind::SiliconFlowCn | ProviderKind::SiliconFlowCom => {
             if let Some(mode) = reasoning {
                 payload["enable_thinking"] = serde_json::json!(*mode != ProviderReasoningMode::Off);
             }

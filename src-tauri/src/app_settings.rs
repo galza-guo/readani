@@ -4,6 +4,11 @@ use serde::{Deserialize, Serialize};
 const DEFAULT_MODEL: &str = "openrouter/free";
 const DEFAULT_LANGUAGE_CODE: &str = "zh-CN";
 const DEFAULT_LANGUAGE_LABEL: &str = "Chinese (Simplified)";
+const FOLLOW_SYSTEM_LANGUAGE_CODE: &str = "system";
+const FOLLOW_SYSTEM_LANGUAGE_LABEL: &str = "Follow system";
+const APP_LANGUAGE_TARGET_CODE: &str = "app-language";
+const APP_LANGUAGE_TARGET_LABEL: &str = "App language";
+const SUPPORTED_APP_LANGUAGE_CODES: [&str; 7] = ["zh-CN", "zh-TW", "en", "ja", "ko", "es", "fr"];
 const DEFAULT_AUTO_TRANSLATE_NEXT_PAGES: u32 = 1;
 const MAX_AUTO_TRANSLATE_NEXT_PAGES: u32 = 20;
 const DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
@@ -48,6 +53,8 @@ pub struct TranslationPreset {
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub theme: AppTheme,
+    #[serde(default = "default_app_language")]
+    pub app_language: SettingsLanguage,
     pub default_language: SettingsLanguage,
     pub active_preset_id: String,
     #[serde(default)]
@@ -136,7 +143,8 @@ pub fn preset_reasoning_mode(preset: &TranslationPreset) -> Option<&ProviderReas
         | ProviderKind::MiniMaxi
         | ProviderKind::Zai
         | ProviderKind::BigModel => preset.reasoning.as_ref(),
-        ProviderKind::SiliconFlow
+        ProviderKind::SiliconFlowCn
+        | ProviderKind::SiliconFlowCom
         | ProviderKind::DashScope => preset.thinking.as_ref(),
         ProviderKind::OpenAiCompatible | ProviderKind::ModelScope => None,
     }
@@ -153,6 +161,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             theme: AppTheme::System,
+            app_language: default_app_language(),
             default_language: SettingsLanguage::default(),
             active_preset_id: String::new(),
             auto_fallback_enabled: false,
@@ -166,6 +175,7 @@ impl Default for AppSettings {
 impl AppSettings {
     pub fn normalized(&self) -> Self {
         let mut normalized = self.clone();
+        normalized.app_language = normalize_app_language(Some(&self.app_language));
         normalized.default_language = normalize_language(Some(&self.default_language));
         normalized.auto_translate_next_pages =
             normalize_auto_translate_next_pages(self.auto_translate_next_pages);
@@ -226,6 +236,13 @@ impl AppSettings {
 
 fn default_auto_translate_next_pages() -> u32 {
     DEFAULT_AUTO_TRANSLATE_NEXT_PAGES
+}
+
+fn default_app_language() -> SettingsLanguage {
+    SettingsLanguage {
+        code: FOLLOW_SYSTEM_LANGUAGE_CODE.to_string(),
+        label: FOLLOW_SYSTEM_LANGUAGE_LABEL.to_string(),
+    }
 }
 
 fn normalize_auto_translate_next_pages(value: u32) -> u32 {
@@ -320,6 +337,7 @@ pub fn migrate_legacy_translation_providers(
 
     AppSettings {
         theme: theme.unwrap_or_default(),
+        app_language: default_app_language(),
         default_language: normalize_language(default_language.as_ref()),
         active_preset_id,
         auto_fallback_enabled: false,
@@ -338,7 +356,8 @@ pub fn build_preset_label(provider_kind: &ProviderKind, model: &str) -> String {
         ProviderKind::OpenAiCompatible => "Custom",
         ProviderKind::OpenAi => "OpenAI",
         ProviderKind::GoogleGemini => "Gemini",
-        ProviderKind::SiliconFlow => "SiliconFlow",
+        ProviderKind::SiliconFlowCn => "SiliconFlow.cn",
+        ProviderKind::SiliconFlowCom => "SiliconFlow.com",
         ProviderKind::DashScope => "DashScope",
         ProviderKind::ModelScope => "ModelScope",
         ProviderKind::MiniMaxIo => "MiniMax.io",
@@ -389,16 +408,37 @@ fn normalize_language(language: Option<&SettingsLanguage>) -> SettingsLanguage {
     SettingsLanguage { code, label }
 }
 
+fn normalize_app_language(language: Option<&SettingsLanguage>) -> SettingsLanguage {
+    let original_code = normalize_required_string(language.map(|value| value.code.as_str()))
+        .unwrap_or_else(|| FOLLOW_SYSTEM_LANGUAGE_CODE.to_string());
+    let mut code = original_code.clone();
+    if code != FOLLOW_SYSTEM_LANGUAGE_CODE
+        && !SUPPORTED_APP_LANGUAGE_CODES
+            .iter()
+            .any(|supported| supported.eq_ignore_ascii_case(&code))
+    {
+        code = FOLLOW_SYSTEM_LANGUAGE_CODE.to_string();
+    }
+    let label = if code != original_code {
+        default_language_label(&code).to_string()
+    } else {
+        normalize_required_string(language.map(|value| value.label.as_str()))
+            .unwrap_or_else(|| default_language_label(&code).to_string())
+    };
+
+    SettingsLanguage { code, label }
+}
+
 fn default_language_label(code: &str) -> &str {
     match code {
+        FOLLOW_SYSTEM_LANGUAGE_CODE => FOLLOW_SYSTEM_LANGUAGE_LABEL,
+        APP_LANGUAGE_TARGET_CODE => APP_LANGUAGE_TARGET_LABEL,
         "zh-CN" => "Chinese (Simplified)",
         "zh-TW" => "Chinese (Traditional)",
         "ja" => "Japanese",
         "ko" => "Korean",
         "es" => "Spanish",
         "fr" => "French",
-        "de" => "German",
-        "it" => "Italian",
         _ => code,
     }
 }
@@ -442,7 +482,7 @@ fn normalize_thinking(
         (ProviderKind::DeepSeek, Some(ProviderReasoningMode::Max)) => {
             Some(ProviderReasoningMode::Max)
         }
-        (ProviderKind::SiliconFlow | ProviderKind::DashScope, Some(ProviderReasoningMode::High)) => {
+        (ProviderKind::SiliconFlowCn | ProviderKind::SiliconFlowCom | ProviderKind::DashScope, Some(ProviderReasoningMode::High)) => {
             Some(ProviderReasoningMode::High)
         }
         _ => None,
@@ -503,7 +543,8 @@ fn build_preset_id_seed(provider_kind: &ProviderKind, model: &str) -> String {
         ProviderKind::OpenAiCompatible => "openai-compatible",
         ProviderKind::OpenAi => "openai",
         ProviderKind::GoogleGemini => "google-gemini",
-        ProviderKind::SiliconFlow => "siliconflow",
+        ProviderKind::SiliconFlowCn => "siliconflow-cn",
+        ProviderKind::SiliconFlowCom => "siliconflow-com",
         ProviderKind::DashScope => "dashscope",
         ProviderKind::ModelScope => "modelscope",
         ProviderKind::MiniMaxIo => "minimax-io",
@@ -578,7 +619,8 @@ fn matches_legacy_active_provider(
         ProviderKind::OpenAiCompatible => legacy_active_provider_id == "openai-compatible",
         ProviderKind::OpenAi
         | ProviderKind::GoogleGemini
-        | ProviderKind::SiliconFlow
+        | ProviderKind::SiliconFlowCn
+        | ProviderKind::SiliconFlowCom
         | ProviderKind::DashScope
         | ProviderKind::ModelScope
         | ProviderKind::MiniMaxIo
@@ -596,7 +638,8 @@ fn default_model_for_provider_kind(provider_kind: &ProviderKind) -> &'static str
         ProviderKind::OpenAiCompatible => "gpt-4o-mini",
         ProviderKind::OpenAi => "gpt-5.4-mini",
         ProviderKind::GoogleGemini => "gemini-2.5-flash",
-        ProviderKind::SiliconFlow => "Qwen/Qwen3-235B-A22B",
+        ProviderKind::SiliconFlowCn => "Qwen/Qwen3-235B-A22B",
+        ProviderKind::SiliconFlowCom => "Qwen/Qwen3-235B-A22B",
         ProviderKind::DashScope => "qwen-plus",
         ProviderKind::ModelScope => "Qwen/Qwen3-30B-A3B",
         ProviderKind::MiniMaxIo => "MiniMax-M2.7",
@@ -616,7 +659,8 @@ fn is_seeded_legacy_placeholder_preset(preset: &TranslationPreset) -> bool {
         | ProviderKind::OpenAiCompatible
         | ProviderKind::OpenAi
         | ProviderKind::GoogleGemini
-        | ProviderKind::SiliconFlow
+        | ProviderKind::SiliconFlowCn
+        | ProviderKind::SiliconFlowCom
         | ProviderKind::DashScope
         | ProviderKind::ModelScope
         | ProviderKind::MiniMaxIo
@@ -635,8 +679,8 @@ fn is_seeded_legacy_placeholder_preset(preset: &TranslationPreset) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        migrate_legacy_translation_providers, AppSettings, AppTheme, SettingsLanguage,
-        TranslationPreset,
+        default_app_language, migrate_legacy_translation_providers, AppSettings, AppTheme,
+        SettingsLanguage, TranslationPreset,
     };
     use crate::providers::{ProviderConfig, ProviderKind, TranslationProviders};
 
@@ -645,6 +689,7 @@ mod tests {
         let settings = AppSettings::default();
 
         assert_eq!(settings.theme, AppTheme::System);
+        assert_eq!(settings.app_language, default_app_language());
         assert_eq!(
             settings.default_language,
             SettingsLanguage {
@@ -711,6 +756,7 @@ mod tests {
     fn normalization_preserves_saved_api_keys_and_marks_them_configured() {
         let settings = AppSettings {
             theme: AppTheme::System,
+            app_language: default_app_language(),
             default_language: SettingsLanguage {
                 code: "".to_string(),
                 label: "".to_string(),
@@ -744,9 +790,31 @@ mod tests {
     }
 
     #[test]
+    fn normalization_falls_back_to_follow_system_when_saved_app_language_is_unsupported() {
+        let settings = AppSettings {
+            theme: AppTheme::System,
+            app_language: SettingsLanguage {
+                code: "de".to_string(),
+                label: "German".to_string(),
+            },
+            default_language: SettingsLanguage::default(),
+            active_preset_id: "".to_string(),
+            auto_fallback_enabled: false,
+            auto_translate_next_pages: 1,
+            translate_all_slow_mode: false,
+            presets: vec![],
+        };
+
+        let normalized = settings.normalized();
+
+        assert_eq!(normalized.app_language, default_app_language());
+    }
+
+    #[test]
     fn normalization_gives_ollama_a_default_base_url_and_discards_api_keys() {
         let settings = AppSettings {
             theme: AppTheme::System,
+            app_language: default_app_language(),
             default_language: SettingsLanguage::default(),
             active_preset_id: "ollama".to_string(),
             auto_fallback_enabled: false,
@@ -781,6 +849,7 @@ mod tests {
     fn normalization_keeps_empty_preset_state() {
         let settings = AppSettings {
             theme: AppTheme::System,
+            app_language: default_app_language(),
             default_language: SettingsLanguage {
                 code: "zh-CN".to_string(),
                 label: "Chinese (Simplified)".to_string(),
@@ -827,6 +896,7 @@ mod tests {
     fn normalization_drops_seeded_legacy_placeholder_presets_from_saved_settings() {
         let settings = AppSettings {
             theme: AppTheme::System,
+            app_language: default_app_language(),
             default_language: SettingsLanguage::default(),
             active_preset_id: "openrouter-openrouter-free".to_string(),
             auto_fallback_enabled: false,
@@ -894,6 +964,7 @@ mod tests {
     fn normalization_keeps_user_created_blank_preset_drafts() {
         let settings = AppSettings {
             theme: AppTheme::System,
+            app_language: default_app_language(),
             default_language: SettingsLanguage::default(),
             active_preset_id: "preset-123".to_string(),
             auto_fallback_enabled: false,

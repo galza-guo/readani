@@ -1,5 +1,5 @@
 type ProviderFormLike = {
-  kind: "openrouter" | "deepseek" | "ollama" | "openai-compatible" | "openai" | "google-gemini" | "siliconflow" | "dashscope" | "modelscope" | "minimax-io" | "minimaxi" | "zai" | "bigmodel";
+  kind: "openrouter" | "deepseek" | "ollama" | "openai-compatible" | "openai" | "google-gemini" | "siliconflow-cn" | "siliconflow-com" | "dashscope" | "modelscope" | "minimax-io" | "minimaxi" | "zai" | "bigmodel";
   baseUrl?: string;
   apiKey?: string;
   apiKeyConfigured?: boolean;
@@ -17,7 +17,8 @@ export function canListModels(provider: ProviderFormLike) {
   if (
     provider.kind === "openai"
     || provider.kind === "google-gemini"
-    || provider.kind === "siliconflow"
+    ||     provider.kind === "siliconflow-cn"
+    || provider.kind === "siliconflow-com"
     || provider.kind === "dashscope"
     || provider.kind === "modelscope"
     || provider.kind === "minimax-io"

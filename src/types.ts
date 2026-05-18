@@ -30,6 +30,8 @@ export type TargetLanguage = {
   code: string;
 };
 
+export type AppLanguageSetting = TargetLanguage;
+
 export type BookTranslationPreference = {
   enabled: boolean;
   targetLanguage: TargetLanguage;
@@ -44,7 +46,8 @@ export type TranslationProviderKind =
   | "openai-compatible"
   | "openai"
   | "google-gemini"
-  | "siliconflow"
+  | "siliconflow-cn"
+  | "siliconflow-com"
   | "dashscope"
   | "modelscope"
   | "minimax-io"
@@ -79,6 +82,7 @@ export type TranslationSettings = {
   autoFallbackEnabled: boolean;
   autoTranslateNextPages: number;
   translateAllSlowMode: boolean;
+  appLanguage: AppLanguageSetting;
   defaultLanguage: TargetLanguage;
   theme: ThemeMode;
   presets: TranslationPreset[];
@@ -87,6 +91,11 @@ export type TranslationSettings = {
 export type TranslationCacheBookSummary = {
   docId: string;
   title: string;
+  languages: TranslationCacheLanguageSummary[];
+};
+
+export type TranslationCacheLanguageSummary = {
+  languageCode: string;
   cachedPageCount: number;
   isLegacyOnly?: boolean;
 };

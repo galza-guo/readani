@@ -9,17 +9,30 @@ import type {
 } from "../types";
 import {
   DEFAULT_LANGUAGE,
+  buildAppLanguageTarget,
+  buildFollowSystemLanguage,
   getLanguageLabel,
+  isAppLanguageTarget,
+  isFollowSystemLanguage,
+  isSupportedAppUiLanguageCode,
+  resolveLanguageFromLocale,
 } from "./languageOptions";
 
 export {
   buildCustomLanguage,
+  buildAppLanguagePickerSections,
+  buildAppLanguageTarget,
   buildLanguagePickerSections,
+  buildFollowSystemLanguage,
+  buildTranslateToLanguagePickerSections,
   COMMON_LANGUAGE_PRESETS,
   DEFAULT_LANGUAGE,
   getCustomLanguageOption,
   isCustomLanguage,
+  isAppLanguageTarget,
+  isFollowSystemLanguage,
   LANGUAGE_PRESETS,
+  resolveLanguageFromLocale,
 } from "./languageOptions";
 
 export const DEFAULT_THEME: ThemeMode = "system";
@@ -35,7 +48,8 @@ export const PRESET_PROVIDER_OPTIONS: Array<{
   { value: "ollama", label: "Ollama" },
   { value: "openai", label: "OpenAI" },
   { value: "google-gemini", label: "Google Gemini" },
-  { value: "siliconflow", label: "SiliconFlow" },
+  { value: "siliconflow-cn", label: "SiliconFlow.cn" },
+  { value: "siliconflow-com", label: "SiliconFlow.com" },
   { value: "dashscope", label: "DashScope" },
   { value: "modelscope", label: "ModelScope" },
   { value: "minimax-io", label: "MiniMax.io" },
@@ -54,7 +68,8 @@ const PROVIDER_LABELS: Record<TranslationProviderKind, string> = {
   "openai-compatible": "Custom",
   openai: "OpenAI",
   "google-gemini": "Gemini",
-  siliconflow: "SiliconFlow",
+  "siliconflow-cn": "SiliconFlow.cn",
+  "siliconflow-com": "SiliconFlow.com",
   dashscope: "DashScope",
   modelscope: "ModelScope",
   "minimax-io": "MiniMax.io",
@@ -70,7 +85,8 @@ const DEFAULT_MODELS: Record<TranslationProviderKind, string> = {
   "openai-compatible": "gpt-4o-mini",
   openai: "gpt-5.4-mini",
   "google-gemini": "gemini-2.5-flash",
-  siliconflow: "Qwen/Qwen3-235B-A22B",
+  "siliconflow-cn": "Qwen/Qwen3-235B-A22B",
+  "siliconflow-com": "Qwen/Qwen3-235B-A22B",
   dashscope: "qwen-plus",
   modelscope: "Qwen/Qwen3-30B-A3B",
   "minimax-io": "MiniMax-M2.7",
@@ -84,7 +100,8 @@ const DEFAULT_BASE_URLS: Partial<Record<TranslationProviderKind, string>> = {
   ollama: "http://localhost:11434/v1",
   openai: "https://api.openai.com/v1",
   "google-gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
-  siliconflow: "https://api.siliconflow.cn/v1",
+  "siliconflow-cn": "https://api.siliconflow.cn/v1",
+  "siliconflow-com": "https://api.siliconflow.com/v1",
   dashscope: "https://dashscope.aliyuncs.com/compatible-mode/v1",
   modelscope: "https://api-inference.modelscope.cn/v1",
   "minimax-io": "https://api.minimax.io/v1",
@@ -114,7 +131,8 @@ const LEGACY_PROVIDER_KIND_BY_CANONICAL: Record<TranslationProviderKind, string>
   "openai-compatible": "open-ai-compatible",
   openai: "openai",
   "google-gemini": "google-gemini",
-  siliconflow: "siliconflow",
+  "siliconflow-cn": "siliconflow-cn",
+  "siliconflow-com": "siliconflow-com",
   dashscope: "dashscope",
   modelscope: "modelscope",
   "minimax-io": "minimax-io",
@@ -133,7 +151,8 @@ const CANONICAL_PROVIDER_KIND_BY_VARIANT: Record<string, TranslationProviderKind
   "open-ai-compatible": "openai-compatible",
   openai: "openai",
   "google-gemini": "google-gemini",
-  siliconflow: "siliconflow",
+  "siliconflow-cn": "siliconflow-cn",
+  "siliconflow-com": "siliconflow-com",
   dashscope: "dashscope",
   modelscope: "modelscope",
   "minimax-io": "minimax-io",
@@ -148,7 +167,8 @@ const PROVIDERS_WITH_API_KEYS = new Set<TranslationProviderKind>([
   "openai-compatible",
   "openai",
   "google-gemini",
-  "siliconflow",
+  "siliconflow-cn",
+  "siliconflow-com",
   "dashscope",
   "modelscope",
   "minimax-io",
@@ -214,7 +234,8 @@ export function normalizePresetFromStorage(preset: TranslationPreset): Translati
 
   if (
     providerKind === "deepseek"
-    || providerKind === "siliconflow"
+    || providerKind === "siliconflow-cn"
+    || providerKind === "siliconflow-com"
     || providerKind === "dashscope"
   ) {
     normalizedPreset.thinking = normalizeProviderReasoningMode(providerKind, preset.thinking);
@@ -237,14 +258,21 @@ export function normalizePresetFromStorage(preset: TranslationPreset): Translati
 }
 
 export function normalizeSettingsFromStorage(
-  settings: TranslationSettings
+  settings: TranslationSettings,
+  _systemLocale?: string | null,
 ): TranslationSettings {
+  const normalizedAppLanguage = normalizeAppLanguage(
+    (settings as Partial<TranslationSettings>).appLanguage
+  );
+
   return {
     ...settings,
     autoFallbackEnabled: Boolean(settings.autoFallbackEnabled),
     autoTranslateNextPages: normalizeAutoTranslateNextPages(
       (settings as Partial<TranslationSettings>).autoTranslateNextPages
     ),
+    appLanguage: normalizedAppLanguage,
+    defaultLanguage: normalizeDefaultLanguage(settings.defaultLanguage),
     translateAllSlowMode: Boolean(settings.translateAllSlowMode),
     presets: settings.presets.map(normalizePresetFromStorage),
   };
@@ -310,7 +338,55 @@ export function getActivePreset<TPreset extends PresetLike>(
 }
 
 export function normalizeDefaultLanguage(language?: LanguageLike): TargetLanguage {
-  const code = language?.code?.trim() || DEFAULT_LANGUAGE.code;
+  if (isAppLanguageTarget(language)) {
+    return buildAppLanguageTarget();
+  }
+
+  return normalizeConcreteLanguage(language, DEFAULT_LANGUAGE);
+}
+
+export function normalizeAppLanguage(language?: LanguageLike): TargetLanguage {
+  if (!language?.code || isFollowSystemLanguage(language)) {
+    return buildFollowSystemLanguage();
+  }
+
+  if (!isSupportedAppUiLanguageCode(language.code)) {
+    return buildFollowSystemLanguage();
+  }
+
+  return normalizeConcreteLanguage(language, buildFollowSystemLanguage());
+}
+
+export function resolveAppLanguage(
+  appLanguage: LanguageLike | undefined,
+  systemLocale?: string | null
+) {
+  const normalizedAppLanguage = normalizeAppLanguage(appLanguage);
+  if (!isFollowSystemLanguage(normalizedAppLanguage)) {
+    return normalizedAppLanguage;
+  }
+
+  return resolveLanguageFromLocale(systemLocale);
+}
+
+export function resolveTargetLanguage(
+  targetLanguage: LanguageLike | undefined,
+  appLanguage: LanguageLike | undefined,
+  systemLocale?: string | null
+) {
+  const normalizedTargetLanguage = normalizeDefaultLanguage(targetLanguage);
+  if (!isAppLanguageTarget(normalizedTargetLanguage)) {
+    return normalizedTargetLanguage;
+  }
+
+  return resolveAppLanguage(appLanguage, systemLocale);
+}
+
+function normalizeConcreteLanguage(
+  language: LanguageLike | undefined,
+  fallbackLanguage: TargetLanguage
+) {
+  const code = language?.code?.trim() || fallbackLanguage.code;
   const fallbackLabel = getLanguageLabel(code) ?? code;
   const label = language?.label?.trim() || fallbackLabel;
 
@@ -376,7 +452,8 @@ export function getProviderOptionLabel(providerKind: TranslationProviderKind) {
 export function providerUsesThinking(providerKind: TranslationProviderKind | string) {
   const normalizedProviderKind = normalizeProviderKind(providerKind);
   return normalizedProviderKind === "deepseek"
-    || normalizedProviderKind === "siliconflow"
+    || normalizedProviderKind === "siliconflow-cn"
+    || normalizedProviderKind === "siliconflow-com"
     || normalizedProviderKind === "dashscope";
 }
 
@@ -407,7 +484,7 @@ export function normalizeProviderReasoningMode(
   }
 
   // SiliconFlow, DashScope: boolean thinking (off/high only)
-  if (normalizedProviderKind === "siliconflow" || normalizedProviderKind === "dashscope") {
+  if (normalizedProviderKind === "siliconflow-cn" || normalizedProviderKind === "siliconflow-com" || normalizedProviderKind === "dashscope") {
     return normalizedValue === "high" || normalizedValue === "max" ? "high" : "off";
   }
 
@@ -634,7 +711,8 @@ export function normalizePresetDraft(
         providerKind === "deepseek"
         || providerKind === "openai"
         || providerKind === "google-gemini"
-        || providerKind === "siliconflow"
+        || providerKind === "siliconflow-cn"
+        || providerKind === "siliconflow-com"
         || providerKind === "dashscope"
         || providerKind === "modelscope"
         || providerKind === "minimax-io"
@@ -654,7 +732,8 @@ export function normalizePresetDraft(
 
   if (
     providerKind === "deepseek"
-    || providerKind === "siliconflow"
+    || providerKind === "siliconflow-cn"
+    || providerKind === "siliconflow-com"
     || providerKind === "dashscope"
   ) {
     normalizedPreset.thinking = normalizeProviderReasoningMode(providerKind, preset.thinking);
@@ -726,6 +805,7 @@ export function createDefaultSettings(): TranslationSettings {
     activePresetId: "",
     autoFallbackEnabled: false,
     autoTranslateNextPages: DEFAULT_AUTO_TRANSLATE_NEXT_PAGES,
+    appLanguage: buildFollowSystemLanguage(),
     translateAllSlowMode: false,
     defaultLanguage: DEFAULT_LANGUAGE,
     theme: DEFAULT_THEME,
