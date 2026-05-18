@@ -123,7 +123,7 @@ describe("SettingsDialogContent", () => {
   test("renders a general setting for following-page auto-translation", () => {
     const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
 
-    expect(html).toContain("Auto-translate ahead");
+    expect(html).toContain("Pages to translate ahead");
     expect(html).toContain('id="auto-translate-next-pages"');
     expect(html).toContain('role="combobox"');
     expect(html).not.toContain('type="number"');
