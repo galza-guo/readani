@@ -1,6 +1,32 @@
 # Changelog
 
-All notable changes to **readani** since forking from upstream (v0.1.8).
+All notable changes to **readani** since fork
+
+## [1.4.0] — 2026-05-20
+
+### Added
+
+- **i18n system** — full localization engine with locale fallback and 7-language support (English, Chinese Simplified, Chinese Traditional, Japanese, Korean, Spanish, French). All UI strings now use the i18n system with locale data in `src/lib/locales/shortlist.ts`.
+- **Accent color picker** — new appearance section in General settings with 7 swatch options (blue, purple, pink, red, orange, green, teal). Accent color is persisted in app settings and applied to `--accent`, `--accent-hover`, `--accent-strong`, `--accent-muted`, `--highlight`, `--highlight-strong`, and `--sentence-active` CSS variables, respecting light/dark theme.
+- **`customLabel` field on presets** — optional custom label on `TranslationPreset` cleared automatically when the provider or model changes.
+- **`FileIcon` component** — shared `FileIcon` component with `kind` (pdf/epub) and `size` props, replacing inline `PdfIcon`/`EpubIcon` SVGs in `BookCard` and `HomeView`.
+
+### Changed
+
+- **SiliconFlow provider split** — `SiliconFlow` provider split into `SiliconFlow.cn` (api.siliconflow.cn) and `SiliconFlow.com` (api.siliconflow.com) with separate Rust backend enum variants and TypeScript provider configs.
+- **All inline SVG icons replaced with Phosphor Icons** — removed all inline SVG icon code, replaced throughout with `@phosphor-icons/react` components.
+- **Settings layout refactored with gap-based design** — CSS border separators between settings items replaced with `gap`-based Flexbox layouts in settings panels.
+- **Preset editor refactored with inline label+input rows** — `settings-editor-row` and `settings-editor-row--toggle` CSS classes replace the older item/field pattern with a compact horizontal label+control layout.
+- **Preset action buttons converted to icon buttons** — preset editor actions (Fetch models, Test connection, Delete preset) replaced with `ExpandableIconButton` with icon + label and auto-expand feedback.
+- **Preset test and fetch buttons show transient Connected/Fetched state** — after a successful test, the button stays expanded showing "Connected" in green for 2 seconds; after loading models, shows "Fetched/Reloading" before collapsing.
+- **Preset label shows model name without provider prefix** — `buildPresetLabel` now strips the provider prefix from model IDs (e.g. `openai/gpt-4o-mini` shows as `gpt-4o-mini`).
+- **`settings.apiKeySavedPlaceholder` simplified** — removed `***` wrapping from all locale variants.
+- **API key placeholder uses left-aligned text** — `input-masked` placeholder changed from centered to left-aligned.
+
+### Fixed
+
+- Language combobox scroll propagation fixed — opening the language select dropdown no longer scrolls the parent container.
+- **Duplicate CSS rule removed** — removed a duplicate `settings-preset-item` rule in App.css.
 
 ## [1.3.0] — 2026-05-05
 
@@ -106,6 +132,7 @@ The first release of **readani** as a standalone bilingual PDF reader, forked fr
 - PDF memory leaks in reader lifecycle — proper cleanup of pdf.js resources on unmount ([`cf17b87`](src/components/PdfPage.tsx))
 - Backend serde aliases for legacy provider kind values to maintain compatibility ([`aad5e20`](src-tauri/src/lib.rs))
 
+[1.4.0]: https://github.com/galza-guo/readani/releases/tag/v1.4.0
 [1.3.0]: https://github.com/galza-guo/readani/releases/tag/v1.3.0
 [1.2.1]: https://github.com/galza-guo/readani/releases/tag/v1.2.1
 [1.2.0]: https://github.com/galza-guo/readani/releases/tag/v1.2.0
