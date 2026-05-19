@@ -39,6 +39,15 @@ export type BookTranslationPreference = {
 
 export type ThemeMode = "system" | "light" | "dark";
 
+export type AccentColor =
+  | "blue"
+  | "purple"
+  | "pink"
+  | "red"
+  | "orange"
+  | "green"
+  | "teal";
+
 export type TranslationProviderKind =
   | "openrouter"
   | "deepseek"
@@ -60,6 +69,7 @@ export type ProviderReasoningMode = "off" | "low" | "medium" | "high" | "max";
 export type TranslationPreset = {
   id: string;
   label: string;
+  customLabel?: string;
   providerKind: TranslationProviderKind;
   baseUrl?: string;
   apiKey?: string;
@@ -85,12 +95,14 @@ export type TranslationSettings = {
   appLanguage: AppLanguageSetting;
   defaultLanguage: TargetLanguage;
   theme: ThemeMode;
+  accentColor: AccentColor;
   presets: TranslationPreset[];
 };
 
 export type TranslationCacheBookSummary = {
   docId: string;
   title: string;
+  fileType?: string;
   languages: TranslationCacheLanguageSummary[];
 };
 

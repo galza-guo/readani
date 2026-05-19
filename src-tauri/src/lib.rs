@@ -61,6 +61,7 @@ struct CachedTranslations {
 struct TranslationCacheBookSummary {
     doc_id: String,
     title: String,
+    file_type: Option<String>,
     languages: Vec<TranslationCacheLanguageSummary>,
 }
 
@@ -1670,6 +1671,11 @@ fn get_translation_cache_summary(
         .iter()
         .map(|book| (book.id.clone(), book.title.clone()))
         .collect();
+    let recent_book_file_types: HashMap<String, String> = recent_books
+        .books
+        .iter()
+        .map(|book| (book.id.clone(), book.file_type.clone()))
+        .collect();
     let cached_book_titles: HashMap<String, String> = cached_book_metadata
         .books
         .into_iter()
@@ -1686,6 +1692,7 @@ fn get_translation_cache_summary(
         &cache,
         &legacy_page_cache,
         &recent_book_titles,
+        &recent_book_file_types,
         &cached_book_titles,
         &recent_book_order,
     );
@@ -2188,6 +2195,7 @@ fn collect_translation_cache_book_summaries(
     sentence_cache: &CachedTranslations,
     page_cache: &PageTranslationCache,
     recent_book_titles: &HashMap<String, String>,
+    recent_book_file_types: &HashMap<String, String>,
     cached_book_titles: &HashMap<String, String>,
     recent_book_order: &HashMap<String, usize>,
 ) -> Vec<TranslationCacheBookSummary> {
@@ -2228,6 +2236,7 @@ fn collect_translation_cache_book_summaries(
         .into_iter()
         .map(|(doc_id, by_language)| {
             let title = resolve_cached_book_title(&doc_id, recent_book_titles, cached_book_titles);
+            let file_type = recent_book_file_types.get(&doc_id).cloned();
             let sort_index = recent_book_order
                 .get(&doc_id)
                 .copied()
@@ -2249,6 +2258,7 @@ fn collect_translation_cache_book_summaries(
                 TranslationCacheBookSummary {
                     doc_id,
                     title,
+                    file_type,
                     languages,
                 },
             )
@@ -3286,7 +3296,7 @@ mod tests {
         resolve_cached_book_title,
     };
     use chrono::Utc;
-    use crate::app_settings::{AppSettings, AppTheme, SettingsLanguage, TranslationPreset};
+    use crate::app_settings::{AppSettings, AppTheme, AccentColor, SettingsLanguage, TranslationPreset};
     use crate::providers::ProviderKind;
     use std::collections::{HashMap, HashSet};
 
@@ -3846,6 +3856,7 @@ mod tests {
             )]),
         };
         let recent_titles = HashMap::from([("doc-1".to_string(), "Book One".to_string())]);
+        let recent_file_types = HashMap::new();
         let cached_titles = HashMap::new();
         let recent_order = HashMap::from([("doc-1".to_string(), 0_usize)]);
 
@@ -3853,6 +3864,7 @@ mod tests {
             &sentence_cache,
             &page_cache,
             &recent_titles,
+            &recent_file_types,
             &cached_titles,
             &recent_order,
         );
@@ -4025,6 +4037,7 @@ mod tests {
             auto_fallback_enabled: true,
             auto_translate_next_pages: 1,
             translate_all_slow_mode: false,
+            accent_color: AccentColor::default(),
             presets: vec![
                 preset(
                     "openrouter",
@@ -4083,6 +4096,7 @@ mod tests {
             auto_fallback_enabled: false,
             auto_translate_next_pages: 1,
             translate_all_slow_mode: false,
+            accent_color: AccentColor::default(),
             presets: vec![
                 preset(
                     "openrouter",

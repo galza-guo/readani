@@ -25,6 +25,24 @@ pub enum AppTheme {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AccentColor {
+    Blue,
+    Purple,
+    Pink,
+    Red,
+    Orange,
+    Green,
+    Teal,
+}
+
+impl Default for AccentColor {
+    fn default() -> Self {
+        Self::Blue
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SettingsLanguage {
     pub code: String,
     pub label: String,
@@ -63,6 +81,8 @@ pub struct AppSettings {
     pub auto_translate_next_pages: u32,
     #[serde(default)]
     pub translate_all_slow_mode: bool,
+    #[serde(default)]
+    pub accent_color: AccentColor,
     pub presets: Vec<TranslationPreset>,
 }
 
@@ -167,6 +187,7 @@ impl Default for AppSettings {
             auto_fallback_enabled: false,
             auto_translate_next_pages: DEFAULT_AUTO_TRANSLATE_NEXT_PAGES,
             translate_all_slow_mode: false,
+            accent_color: AccentColor::default(),
             presets: vec![],
         }
     }
@@ -343,6 +364,7 @@ pub fn migrate_legacy_translation_providers(
         auto_fallback_enabled: false,
         auto_translate_next_pages: DEFAULT_AUTO_TRANSLATE_NEXT_PAGES,
         translate_all_slow_mode: false,
+        accent_color: AccentColor::default(),
         presets,
     }
     .normalized()
