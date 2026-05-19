@@ -7,6 +7,7 @@ import type {
   TranslationProviderKind,
   TranslationSettings,
 } from "../types";
+import { hasLocaleMessage, t } from "./i18n";
 import {
   DEFAULT_LANGUAGE,
   buildAppLanguageTarget,
@@ -595,18 +596,19 @@ export function hasUsableLiveTranslationSetup(
 export function getPresetApiKeyFieldState({
   apiKeyConfigured,
   apiKeyInput,
-  isEditing,
 }: {
   apiKeyConfigured?: boolean;
   apiKeyInput: string;
-  isEditing: boolean;
 }) {
   const hasDraft = Boolean(apiKeyInput.trim());
-  const showsSavedMask = Boolean(apiKeyConfigured && !hasDraft && !isEditing);
+  const showsSavedMask = Boolean(apiKeyConfigured && !hasDraft);
 
   return {
     displayValue: hasDraft ? apiKeyInput : "",
-    placeholder: showsSavedMask ? SAVED_API_KEY_MASK : "e.g. sk-...",
+    placeholder:
+      showsSavedMask && hasLocaleMessage("settings.apiKeySavedPlaceholder")
+        ? t("settings.apiKeySavedPlaceholder")
+        : "e.g. sk-...",
     showsSavedMask,
   };
 }
