@@ -2923,6 +2923,50 @@ body.is-resizing-split-y * {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.accent-color-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.accent-color-swatch {
+  appearance: none;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+
+.accent-color-swatch:hover {
+  transform: scale(1.15);
+}
+
+.accent-color-swatch:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-muted);
+}
+
+.accent-color-swatch.is-active {
+  border-color: var(--ink);
+  transform: scale(1.1);
+}
+
+[data-theme="dark"] .accent-color-swatch.is-active {
+  border-color: var(--ink);
+}
+
+.accent-color-swatch[data-accent="blue"] { background: #007aff; }
+.accent-color-swatch[data-accent="purple"] { background: #7c3aed; }
+.accent-color-swatch[data-accent="pink"] { background: #ec4899; }
+.accent-color-swatch[data-accent="red"] { background: #ef4444; }
+.accent-color-swatch[data-accent="orange"] { background: #f97316; }
+.accent-color-swatch[data-accent="green"] { background: #22c55e; }
+.accent-color-swatch[data-accent="teal"] { background: #14b8a6; }
+
 .language-combobox-trigger {
   display: inline-flex;
   align-items: center;
@@ -3308,13 +3352,22 @@ body.is-resizing-split-y * {
 }
 
 .settings-cache-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.settings-cache-item-icon {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--ink);
 }
 
 .settings-cache-item-copy {
+  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -3443,9 +3496,77 @@ body.is-resizing-split-y * {
   min-width: 0;
 }
 
+.settings-preset-rename-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 2px;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 0;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.settings-preset-rename-btn:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+
+.settings-preset-title-row--editable:hover .settings-preset-rename-btn,
+.settings-preset-title-row--editable .settings-preset-rename-btn:focus-visible {
+  opacity: 1;
+}
+
 .settings-preset-label {
   color: var(--ink);
   word-break: break-word;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.dialog-overlay--compact {
+  z-index: 1100;
+}
+
+.dialog-content--compact {
+  width: min(460px, 88vw);
+  padding: 16px 20px;
+  z-index: 1101;
+}
+
+.rename-dialog-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rename-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.rename-dialog-actions .rename-dialog-save {
+  background: var(--accent);
+  color: white;
+}
+.rename-dialog-actions .rename-dialog-save:hover {
+  filter: brightness(1.08);
 }
 
 .settings-preset-success {
@@ -3497,29 +3618,7 @@ body.is-resizing-split-y * {
   flex-shrink: 0;
   font-size: var(--type-size-label);
   font-weight: var(--type-weight-semibold);
-  color: var(--ink-muted);
-  opacity: 1;
-  transition: opacity 0.24s ease;
-}
-
-.settings-preset-status.is-ok {
-  color: #15803d;
-}
-
-.settings-preset-status.is-progress {
-  color: var(--accent-strong);
-}
-
-.settings-preset-status.is-error {
-  color: #b91c1c;
-}
-
-.settings-preset-status.is-session {
   color: var(--accent);
-}
-
-.settings-preset-status.is-fading {
-  opacity: 0;
 }
 
 .settings-toolbar {

@@ -1,4 +1,5 @@
 import type {
+  AccentColor,
   PresetSaveStatus,
   ProviderReasoningMode,
   TargetLanguage,
@@ -39,6 +40,25 @@ export {
 export const DEFAULT_THEME: ThemeMode = "system";
 export const DEFAULT_AUTO_TRANSLATE_NEXT_PAGES = 1;
 export const MAX_AUTO_TRANSLATE_NEXT_PAGES = 20;
+
+export const DEFAULT_ACCENT_COLOR: AccentColor = "blue";
+
+export const ACCENT_COLORS: AccentColor[] = [
+  "blue",
+  "purple",
+  "pink",
+  "red",
+  "orange",
+  "green",
+  "teal",
+];
+
+export function normalizeAccentColor(value: unknown): AccentColor {
+  if (typeof value === "string" && ACCENT_COLORS.includes(value as AccentColor)) {
+    return value as AccentColor;
+  }
+  return DEFAULT_ACCENT_COLOR;
+}
 
 export const PRESET_PROVIDER_OPTIONS: Array<{
   value: TranslationProviderKind;
@@ -228,6 +248,7 @@ export function normalizePresetFromStorage(preset: TranslationPreset): Translati
     ...preset,
     providerKind,
     codingPlan: Boolean(preset.codingPlan),
+    label: preset.customLabel || buildPresetLabel(providerKind, preset.model),
   };
 
   delete normalizedPreset.thinking;
@@ -275,6 +296,7 @@ export function normalizeSettingsFromStorage(
     appLanguage: normalizedAppLanguage,
     defaultLanguage: normalizeDefaultLanguage(settings.defaultLanguage),
     translateAllSlowMode: Boolean(settings.translateAllSlowMode),
+    accentColor: normalizeAccentColor((settings as Record<string, unknown>).accentColor),
     presets: settings.presets.map(normalizePresetFromStorage),
   };
 }
@@ -293,6 +315,15 @@ export function serializeSettingsForCommand(settings: TranslationSettings) {
   };
 }
 
+export function stripModelPrefix(model: string): string {
+  const trimmed = model.trim();
+  const slashIndex = trimmed.lastIndexOf("/");
+  if (slashIndex >= 0) {
+    return trimmed.slice(slashIndex + 1);
+  }
+  return trimmed;
+}
+
 export function buildPresetLabel(
   providerKind: TranslationProviderKind | string,
   model: string
@@ -300,13 +331,13 @@ export function buildPresetLabel(
   const normalizedProviderKind = normalizeProviderKind(providerKind);
   const providerLabel =
     PROVIDER_LABELS[normalizedProviderKind] ?? "Provider";
-  const trimmedModel = model.trim();
+  const displayModel = stripModelPrefix(model);
 
-  if (!trimmedModel) {
+  if (!displayModel) {
     return providerLabel;
   }
 
-  return `${providerLabel} · ${trimmedModel}`;
+  return `${providerLabel} · ${displayModel}`;
 }
 
 export function dedupePresetLabel(label: string, existingLabels: string[]) {
@@ -632,6 +663,7 @@ export function isPresetUnchangedFromSavedState({
 
   return (
     preset.label === savedPreset.label &&
+    (preset.customLabel ?? "") === (savedPreset.customLabel ?? "") &&
     normalizeProviderKind(preset.providerKind) ===
       normalizeProviderKind(savedPreset.providerKind) &&
     preset.model.trim() === savedPreset.model.trim() &&
@@ -686,15 +718,16 @@ export function normalizePresetDraft(
 ): TranslationPreset {
   const providerKind = normalizeProviderKind(preset.providerKind);
   const normalizedModel = preset.model.trim();
-  const nextLabel = buildPresetLabel(providerKind, normalizedModel);
+  const autoLabel = buildPresetLabel(providerKind, normalizedModel);
   const otherLabels = presets
     .filter((candidate) => candidate.id !== preset.id)
-    .map((candidate) => candidate.label);
+    .map((candidate) => candidate.customLabel || candidate.label);
 
   const normalizedPreset: TranslationPreset = {
     ...preset,
     providerKind,
-    label: dedupePresetLabel(nextLabel, otherLabels),
+    label: dedupePresetLabel(autoLabel, otherLabels),
+    customLabel: preset.customLabel || undefined,
     model: normalizedModel,
     codingPlan: Boolean(preset.codingPlan),
     baseUrl: (() => {
@@ -811,6 +844,7 @@ export function createDefaultSettings(): TranslationSettings {
     translateAllSlowMode: false,
     defaultLanguage: DEFAULT_LANGUAGE,
     theme: DEFAULT_THEME,
+    accentColor: DEFAULT_ACCENT_COLOR,
     presets: [],
   };
 }
