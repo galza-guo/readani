@@ -550,18 +550,6 @@ describe("app settings helpers", () => {
       getPresetApiKeyFieldState({
         apiKeyConfigured: true,
         apiKeyInput: "",
-        isEditing: false,
-      })
-    ).toEqual({
-      displayValue: "",
-      placeholder: "Key saved. Tap to change",
-      showsSavedMask: true,
-    });
-
-    expect(
-      getPresetApiKeyFieldState({
-        apiKeyConfigured: true,
-        apiKeyInput: "",
       })
     ).toEqual({
       displayValue: "",

@@ -464,7 +464,7 @@ export function SettingsDialogContent({
 	const testButtonTimersRef = useRef<
 		Record<string, { collapseTimerId?: number }>
 	>({});
-	const prevTestOkRef = useRef<Record<string, boolean>>({});
+	const prevTestOkRef = useRef<Record<string, boolean | undefined>>({});
 	const [fetchButtonExpandedId, setFetchButtonExpandedId] = useState<
 		string | null
 	>(null);
