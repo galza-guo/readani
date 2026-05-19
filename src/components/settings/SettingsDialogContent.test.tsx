@@ -15,6 +15,7 @@ function buildProps(
 ): SettingsDialogContentProps {
   const settings = overrides.settings ?? {
     theme: "system",
+    accentColor: "blue" as const,
     activePresetId: "preset-1",
     autoFallbackEnabled: false,
     autoTranslateNextPages: 1,
@@ -176,6 +177,7 @@ describe("SettingsDialogContent", () => {
         {...buildProps({
           settings: {
             theme: "system",
+            accentColor: "blue" as const,
             activePresetId: "",
             autoFallbackEnabled: false,
             autoTranslateNextPages: 1,
@@ -205,6 +207,7 @@ describe("SettingsDialogContent", () => {
           liveActivePresetId: "preset-live",
           settings: {
             theme: "system",
+            accentColor: "blue" as const,
             activePresetId: "preset-live",
             autoFallbackEnabled: false,
             autoTranslateNextPages: 1,
@@ -319,6 +322,7 @@ describe("SettingsDialogContent", () => {
         {...buildProps({
           settings: {
             theme: "system",
+            accentColor: "blue" as const,
             activePresetId: "preset-1",
             autoFallbackEnabled: false,
             autoTranslateNextPages: 1,
@@ -359,6 +363,7 @@ describe("SettingsDialogContent", () => {
         {...buildProps({
           settings: {
             theme: "system",
+            accentColor: "blue" as const,
             activePresetId: "preset-1",
             autoFallbackEnabled: false,
             autoTranslateNextPages: 1,
@@ -406,6 +411,7 @@ describe("SettingsDialogContent", () => {
           sessionFallbackPresetId: "preset-2",
           settings: {
             theme: "system",
+            accentColor: "blue" as const,
             activePresetId: "preset-1",
             autoFallbackEnabled: true,
             autoTranslateNextPages: 1,

@@ -35,7 +35,7 @@ import {
 describe("app settings helpers", () => {
   test("builds a preset label from provider and model", () => {
     expect(buildPresetLabel("openrouter", "openai/gpt-4o-mini")).toBe(
-      "OpenRouter · openai/gpt-4o-mini"
+      "OpenRouter · gpt-4o-mini"
     );
     expect(buildPresetLabel("deepseek", "deepseek-chat")).toBe(
       "DeepSeek · deepseek-chat"
@@ -43,13 +43,22 @@ describe("app settings helpers", () => {
     expect(buildPresetLabel("ollama", "llama3.2")).toBe("Ollama · llama3.2");
   });
 
+  test("strips model prefix before slash in preset label", () => {
+    expect(buildPresetLabel("siliconflow-cn", "deepseek-ai/DeepSeek-V4-Flash")).toBe(
+      "SiliconFlow.cn · DeepSeek-V4-Flash"
+    );
+    expect(buildPresetLabel("openrouter", "Qwen/Qwen3-235B-A22B")).toBe(
+      "OpenRouter · Qwen3-235B-A22B"
+    );
+  });
+
   test("adds a suffix when the generated preset label already exists", () => {
     expect(
-      dedupePresetLabel("OpenRouter · openai/gpt-4o-mini", [
-        "OpenRouter · openai/gpt-4o-mini",
-        "OpenRouter · openai/gpt-4o-mini (2)",
+      dedupePresetLabel("OpenRouter · gpt-4o-mini", [
+        "OpenRouter · gpt-4o-mini",
+        "OpenRouter · gpt-4o-mini (2)",
       ])
-    ).toBe("OpenRouter · openai/gpt-4o-mini (3)");
+    ).toBe("OpenRouter · gpt-4o-mini (3)");
   });
 
   test("returns the active preset when the id exists", () => {
@@ -126,6 +135,7 @@ describe("app settings helpers", () => {
         label: "Chinese (Simplified)",
       },
       theme: "system",
+    accentColor: "blue",
       presets: [],
     });
   });
@@ -188,10 +198,11 @@ describe("app settings helpers", () => {
         label: "Chinese (Simplified)",
       },
       theme: "system",
+    accentColor: "blue",
       presets: [
         {
           id: "preset-1",
-          label: "OpenRouter · openai/gpt-4o-mini",
+          label: "OpenRouter · gpt-4o-mini",
           providerKind: "open-router" as any,
           model: "openai/gpt-4o-mini",
           apiKeyConfigured: true,
@@ -227,6 +238,7 @@ describe("app settings helpers", () => {
         label: "Chinese (Simplified)",
       },
       theme: "system",
+    accentColor: "blue",
       presets: [
         {
           id: "preset-1",
@@ -279,6 +291,7 @@ describe("app settings helpers", () => {
         label: "Chinese (Simplified)",
       },
       theme: "system",
+    accentColor: "blue",
       presets: [
         {
           id: "preset-1",
@@ -307,6 +320,7 @@ describe("app settings helpers", () => {
         label: "Chinese (Simplified)",
       },
       theme: "system",
+    accentColor: "blue",
       presets: [
         {
           id: "preset-1",
@@ -337,6 +351,7 @@ describe("app settings helpers", () => {
         appLanguage: { code: "fr", label: "French" },
         defaultLanguage: { code: "app-language", label: "App language" },
         theme: "system",
+    accentColor: "blue",
         translateAllSlowMode: false,
         presets: [],
       } as TranslationSettings,
@@ -539,7 +554,7 @@ describe("app settings helpers", () => {
       })
     ).toEqual({
       displayValue: "",
-      placeholder: "**************",
+      placeholder: "Key saved. Tap to change",
       showsSavedMask: true,
     });
 
@@ -547,12 +562,11 @@ describe("app settings helpers", () => {
       getPresetApiKeyFieldState({
         apiKeyConfigured: true,
         apiKeyInput: "",
-        isEditing: true,
       })
     ).toEqual({
       displayValue: "",
-      placeholder: "e.g. sk-...",
-      showsSavedMask: false,
+      placeholder: "Key saved. Tap to change",
+      showsSavedMask: true,
     });
   });
 
@@ -561,14 +575,14 @@ describe("app settings helpers", () => {
       isPresetUnchangedFromSavedState({
         preset: {
           id: "preset-1",
-          label: "OpenRouter · openai/gpt-4o-mini",
+          label: "OpenRouter · gpt-4o-mini",
           providerKind: "openrouter",
           model: "openai/gpt-4o-mini",
           apiKeyConfigured: true,
         },
         savedPreset: {
           id: "preset-1",
-          label: "OpenRouter · openai/gpt-4o-mini",
+          label: "OpenRouter · gpt-4o-mini",
           providerKind: "open-router" as any,
           model: "openai/gpt-4o-mini",
           apiKeyConfigured: true,
@@ -581,14 +595,14 @@ describe("app settings helpers", () => {
       isPresetUnchangedFromSavedState({
         preset: {
           id: "preset-1",
-          label: "OpenRouter · openai/gpt-4o-mini",
+          label: "OpenRouter · gpt-4o-mini",
           providerKind: "openrouter",
           model: "openai/gpt-4o-mini",
           apiKeyConfigured: true,
         },
         savedPreset: {
           id: "preset-1",
-          label: "OpenRouter · openai/gpt-4o-mini",
+          label: "OpenRouter · gpt-4o-mini",
           providerKind: "openrouter",
           model: "openai/gpt-4o-mini",
           apiKeyConfigured: true,
@@ -614,6 +628,7 @@ describe("app settings helpers", () => {
           label: "Chinese (Simplified)",
         },
         theme: "system",
+    accentColor: "blue",
         presets: [
           {
             id: "preset-1",
@@ -639,10 +654,11 @@ describe("app settings helpers", () => {
           label: "Chinese (Simplified)",
         },
         theme: "system",
+    accentColor: "blue",
         presets: [
           {
             id: "preset-1",
-            label: "OpenRouter · openai/gpt-4o-mini",
+            label: "OpenRouter · gpt-4o-mini",
             providerKind: "open-router" as any,
             model: "openai/gpt-4o-mini",
             apiKeyConfigured: true,
@@ -655,7 +671,7 @@ describe("app settings helpers", () => {
     expect(reverted.presets).toEqual([
       {
         id: "preset-1",
-        label: "OpenRouter · openai/gpt-4o-mini",
+        label: "OpenRouter · gpt-4o-mini",
         providerKind: "openrouter",
         model: "openai/gpt-4o-mini",
         apiKeyConfigured: true,
@@ -681,10 +697,11 @@ describe("app settings helpers", () => {
           label: "Chinese (Simplified)",
         },
         theme: "system",
+    accentColor: "blue",
         presets: [
           {
             id: "preset-1",
-            label: "OpenRouter · openai/gpt-4o-mini",
+            label: "OpenRouter · gpt-4o-mini",
             providerKind: "openrouter",
             model: "openai/gpt-4o-mini",
             apiKeyConfigured: true,
@@ -711,10 +728,11 @@ describe("app settings helpers", () => {
           label: "Chinese (Simplified)",
         },
         theme: "system",
+    accentColor: "blue",
         presets: [
           {
             id: "preset-1",
-            label: "OpenRouter · openai/gpt-4o-mini",
+            label: "OpenRouter · gpt-4o-mini",
             providerKind: "openrouter",
             model: "openai/gpt-4o-mini",
             apiKeyConfigured: true,
@@ -728,7 +746,7 @@ describe("app settings helpers", () => {
     expect(reverted.presets).toEqual([
       {
         id: "preset-1",
-        label: "OpenRouter · openai/gpt-4o-mini",
+        label: "OpenRouter · gpt-4o-mini",
         providerKind: "openrouter",
         model: "openai/gpt-4o-mini",
         apiKeyConfigured: true,
@@ -805,6 +823,7 @@ describe("app settings helpers", () => {
       translateAllSlowMode: false,
       defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
       theme: "system",
+    accentColor: "blue",
       presets: [
         {
           id: "preset-1",
@@ -836,6 +855,7 @@ describe("app settings helpers", () => {
       translateAllSlowMode: false,
       defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
       theme: "system",
+    accentColor: "blue",
       presets: [
         {
           id: "preset-1",
