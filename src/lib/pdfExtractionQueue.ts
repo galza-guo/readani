@@ -80,3 +80,20 @@ export function buildPdfExtractionPlan({
 
   return plan;
 }
+
+export function chunkPageNumbers(
+  pages: number[],
+  chunkSize: number,
+): number[][] {
+  if (chunkSize <= 0 || pages.length === 0) {
+    return [];
+  }
+
+  const chunks: number[][] = [];
+
+  for (let index = 0; index < pages.length; index += chunkSize) {
+    chunks.push(pages.slice(index, index + chunkSize));
+  }
+
+  return chunks;
+}

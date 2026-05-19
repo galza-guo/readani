@@ -134,8 +134,10 @@ import {
 import { mergePdfExtractionCachePages } from "./lib/pdfExtractionCacheQueue";
 import {
   buildPdfExtractionPlan,
+  chunkPageNumbers,
   getPdfStartupHydrationPages,
 } from "./lib/pdfExtractionQueue";
+import { getErrorMessage } from "./lib/errorMessage";
 import {
   getPdfBackgroundTranslationMessage,
   getPdfPageLoadingMessage,
@@ -208,6 +210,7 @@ const PDF_KEYBOARD_ZOOM_STEP = 0.05;
 const PDF_EXTRACTION_CACHE_VERSION = "pdf-extraction-v1";
 const PDF_EXTRACTION_CACHE_BATCH_SIZE = 12;
 const PDF_EXTRACTION_CACHE_FLUSH_MS = 250;
+const PDF_EXTRACTION_HYDRATION_BATCH_SIZE = 24;
 
 type DocumentInspection = {
   docId: string;
@@ -2335,6 +2338,7 @@ function AppContent() {
       let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
       let loadedDoc: PDFDocumentProxy | null = null;
       let committedDoc = false;
+      let failedStage = "prepare PDF";
       const isStaleLoad = () => pdfLoadRequestIdRef.current !== loadRequestId;
 
       flushPendingPdfExtractionCache();
@@ -2380,6 +2384,7 @@ function AppContent() {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
 
       try {
+        failedStage = "read PDF file";
         setLoadingProgress(5);
         const bytes = await readDocumentBytes(filePath);
         const buffer = bytes.buffer.slice(0);
@@ -2395,6 +2400,7 @@ function AppContent() {
           return;
         }
 
+        failedStage = "parse PDF";
         setLoadingProgress(15);
         loadingTask = pdfjsLib.getDocument({ data: bytes });
         const doc = await loadingTask.promise;
@@ -2404,6 +2410,7 @@ function AppContent() {
           return;
         }
 
+        failedStage = "inspect PDF pages";
         setLoadingProgress(25);
         const sizes: { width: number; height: number }[] = [];
         for (let i = 1; i <= doc.numPages; i += 1) {
@@ -2478,39 +2485,110 @@ function AppContent() {
         setDocumentStatusMessage(getReaderStatusLabel("extracting-text"));
         setPages(initialPages);
 
-        const cachedExtractionStatus = (await invoke(
-          "get_cached_pdf_extraction_status",
-          {
-            docId: nextDocId,
-            extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
-            totalPages: doc.numPages,
-          },
-        )) as CachedPdfExtractionStatus;
+        let cachedExtractionStatus: CachedPdfExtractionStatus | null = null;
+        try {
+          failedStage = "read extraction cache status";
+          cachedExtractionStatus = (await invoke(
+            "get_cached_pdf_extraction_status",
+            {
+              docId: nextDocId,
+              extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
+              totalPages: doc.numPages,
+            },
+          )) as CachedPdfExtractionStatus;
+        } catch (error) {
+          console.warn(
+            "Failed to read cached PDF extraction status, continuing without cache:",
+            error,
+          );
+        }
 
         if (isStaleLoad()) {
           return;
         }
 
-        if (cachedExtractionStatus.isComplete) {
-          const cachedExtractionPages = (await invoke(
-            "get_cached_pdf_extraction_pages",
-            {
-              docId: nextDocId,
-              extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
-              pages: null,
-            },
-          )) as CachedPdfExtractionPage[];
+        if (cachedExtractionStatus?.isComplete) {
+          try {
+            failedStage = "hydrate cached extraction pages";
+            const startupHydrationPages = getPdfStartupHydrationPages({
+              totalPages: doc.numPages,
+              currentPage: initialCurrentPage,
+              radius: 1,
+            });
 
-          if (isStaleLoad()) {
+            const cachedExtractionPages = (await invoke(
+              "get_cached_pdf_extraction_pages",
+              {
+                docId: nextDocId,
+                extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
+                pages: startupHydrationPages,
+              },
+            )) as CachedPdfExtractionPage[];
+
+            if (isStaleLoad()) {
+              return;
+            }
+
+            setPages(
+              applyCachedPdfExtractionPages(initialPages, cachedExtractionPages),
+            );
+            setLoadingProgress(null);
+            setDocumentStatusMessage(null);
+
+            const hydratedPages = new Set(
+              cachedExtractionPages.map((page) => page.page),
+            );
+            const remainingPages = buildPdfExtractionPlan({
+              totalPages: doc.numPages,
+              currentPage: initialCurrentPage,
+              extractedPages: Array.from(hydratedPages),
+            });
+            const remainingPageBatches = chunkPageNumbers(
+              remainingPages,
+              PDF_EXTRACTION_HYDRATION_BATCH_SIZE,
+            );
+
+            void (async () => {
+              for (const batch of remainingPageBatches) {
+                if (isStaleLoad()) {
+                  return;
+                }
+
+                const nextBatch = (await invoke(
+                  "get_cached_pdf_extraction_pages",
+                  {
+                    docId: nextDocId,
+                    extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
+                    pages: batch,
+                  },
+                )) as CachedPdfExtractionPage[];
+
+                if (isStaleLoad()) {
+                  return;
+                }
+
+                setPages((prev) =>
+                  applyCachedPdfExtractionPages(prev, nextBatch),
+                );
+
+                await new Promise<void>((resolve) => {
+                  window.setTimeout(resolve, 0);
+                });
+              }
+            })().catch((error) => {
+              console.error("Failed to hydrate cached PDF extraction pages:", error);
+            });
+
             return;
+          } catch (error) {
+            console.warn(
+              "Failed to hydrate cached PDF extraction pages, falling back to live extraction:",
+              error,
+            );
+            setPages(initialPages);
+            setDocumentStatusMessage(getReaderStatusLabel("extracting-text"));
+            setLoadingProgress(50);
           }
-
-          setPages(
-            applyCachedPdfExtractionPages(initialPages, cachedExtractionPages),
-          );
-          setLoadingProgress(null);
-          setDocumentStatusMessage(null);
-          return;
         }
 
         const startupHydrationPages = getPdfStartupHydrationPages({
@@ -2519,14 +2597,23 @@ function AppContent() {
           radius: 1,
         });
 
-        const cachedExtractionPages = (await invoke(
-          "get_cached_pdf_extraction_pages",
-          {
-            docId: nextDocId,
-            extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
-            pages: startupHydrationPages,
-          },
-        )) as CachedPdfExtractionPage[];
+        let cachedExtractionPages: CachedPdfExtractionPage[] = [];
+        try {
+          failedStage = "read nearby extraction cache pages";
+          cachedExtractionPages = (await invoke(
+            "get_cached_pdf_extraction_pages",
+            {
+              docId: nextDocId,
+              extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
+              pages: startupHydrationPages,
+            },
+          )) as CachedPdfExtractionPage[];
+        } catch (error) {
+          console.warn(
+            "Failed to read nearby cached PDF extraction pages, continuing with live extraction:",
+            error,
+          );
+        }
 
         if (isStaleLoad()) {
           return;
@@ -2553,6 +2640,8 @@ function AppContent() {
             if (isStaleLoad()) {
               return false;
             }
+
+            failedStage = `extract text from page ${pageNumber}`;
 
             const { paragraphs, watermarks } = await extractPageParagraphs(
               page,
@@ -2620,10 +2709,11 @@ function AppContent() {
           return;
         }
 
-        console.error("Failed to load PDF:", error);
+        const detail = getErrorMessage(error);
+        console.error(`Failed to load PDF during ${failedStage}:`, error);
         setLoadingProgress(null);
         setDocumentStatusMessage(
-          "Failed to load PDF. The file may have been moved or deleted.",
+          `Failed to load PDF during ${failedStage}: ${detail}`,
         );
       } finally {
         if (!committedDoc) {

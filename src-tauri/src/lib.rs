@@ -1904,6 +1904,20 @@ fn build_preset_test_prompt(target_language: &TargetLanguage) -> String {
     build_selection_translation_prompt(target_language, PRESET_TEST_SAMPLE_TEXT)
 }
 
+fn is_icloud_drive_path(path: &str) -> bool {
+    path.contains("/Library/Mobile Documents/")
+}
+
+fn describe_read_file_error(path: &str, error: &std::io::Error) -> String {
+    if (error.kind() == std::io::ErrorKind::TimedOut || error.raw_os_error() == Some(60))
+        && is_icloud_drive_path(path)
+    {
+        return "This file is stored in iCloud Drive and macOS timed out before downloading it locally. In Finder, wait for the cloud download to finish or choose Download Now, then try again.".to_string();
+    }
+
+    error.to_string()
+}
+
 #[tauri::command]
 fn read_pdf_file(path: String) -> Result<Vec<u8>, String> {
     let path_ref = std::path::Path::new(&path);
@@ -1914,7 +1928,7 @@ fn read_pdf_file(path: String) -> Result<Vec<u8>, String> {
         return zip_directory_to_bytes(path_ref);
     }
 
-    fs::read(&path).map_err(|e| e.to_string())
+    fs::read(&path).map_err(|e| describe_read_file_error(&path, &e))
 }
 
 fn zip_directory_to_bytes(dir_path: &std::path::Path) -> Result<Vec<u8>, String> {
@@ -3287,6 +3301,7 @@ mod tests {
         cached_pdf_extraction_page_numbers,
         collect_sentence_cached_pages, collect_sentence_cached_pages_for_language,
         collect_translation_cache_book_summaries,
+        describe_read_file_error,
         find_cached_sentence_translation_any_model, find_fully_cached_pdf_pages, hash_source_text,
         is_cached_pdf_extraction_complete, legacy_shared_sentence_cache_key,
         merge_saved_preset_credentials, sentence_cache_key, CachedPdfExtractionPageRecord,
@@ -3299,6 +3314,7 @@ mod tests {
     use crate::app_settings::{AppSettings, AppTheme, AccentColor, SettingsLanguage, TranslationPreset};
     use crate::providers::ProviderKind;
     use std::collections::{HashMap, HashSet};
+    use std::io::{Error, ErrorKind};
 
     fn preset(
         id: &str,
@@ -3328,6 +3344,18 @@ mod tests {
             watermarks: vec![],
             cached_at: Utc::now(),
         }
+    }
+
+    #[test]
+    fn read_pdf_file_error_explains_icloud_timeout() {
+        let error = Error::new(ErrorKind::TimedOut, "Operation timed out");
+        let message = describe_read_file_error(
+            "/Users/test/Library/Mobile Documents/com~apple~CloudDocs/book.pdf",
+            &error,
+        );
+
+        assert!(message.contains("iCloud Drive"));
+        assert!(message.contains("Download Now"));
     }
 
     #[test]
