@@ -608,7 +608,7 @@ export function getPresetApiKeyFieldState({
     placeholder:
       showsSavedMask && hasLocaleMessage("settings.apiKeySavedPlaceholder")
         ? t("settings.apiKeySavedPlaceholder")
-        : "e.g. sk-...",
+        : "key",
     showsSavedMask,
   };
 }

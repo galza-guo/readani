@@ -3715,6 +3715,17 @@ body.is-resizing-split-y * {
   color: var(--error);
 }
 
+.settings-icon-button-connected,
+.settings-icon-button-connected:hover,
+.settings-icon-button-connected:focus-visible {
+  color: var(--success);
+}
+
+.settings-icon-button-connected .expandable-icon-button__icon svg,
+.settings-icon-button-connected .expandable-icon-button__label {
+  color: var(--success);
+}
+
 .settings-field-status,
 .settings-action-status {
   display: inline-flex;
@@ -4387,7 +4398,7 @@ body.is-resizing-split-y * {
 
 .input-masked::placeholder {
   letter-spacing: 0;
-  text-align: center;
+  text-align: left;
 }
 
 /* Radix Tooltip Styles */

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { CaretDown, CheckCircle, CheckFat, Flask, Gauge, HandWithdraw, Plugs, Plus, Question, Trash, TrashSimple, WarningCircle } from "@phosphor-icons/react";
+import { CaretDown, CheckCircle, CheckFat, Flask, Gauge, HandArrowDown, Plugs, PlugsConnected, Plus, Question, Trash, TrashSimple } from "@phosphor-icons/react";
 import * as Label from "@radix-ui/react-label";
 import * as Popover from "@radix-ui/react-popover";
 import * as Select from "@radix-ui/react-select";
@@ -425,6 +425,12 @@ export function SettingsDialogContent({
   const [savedIndicatorPhaseById, setSavedIndicatorPhaseById] = useState<
     Record<string, SavedIndicatorPhase>
   >({});
+  const [testButtonExpandedId, setTestButtonExpandedId] = useState<string | null>(null);
+  const testButtonTimersRef = useRef<Record<string, { collapseTimerId?: number }>>({});
+  const prevTestOkRef = useRef<Record<string, boolean>>({});
+  const [fetchButtonExpandedId, setFetchButtonExpandedId] = useState<string | null>(null);
+  const fetchButtonTimersRef = useRef<Record<string, { collapseTimerId?: number }>>({});
+  const prevFetchModelsRef = useRef<Record<string, boolean>>({});
   const savedIndicatorTimersRef = useRef<
     Record<string, { fadeTimerId?: number; hideTimerId?: number }>
   >({});
@@ -581,6 +587,68 @@ export function SettingsDialogContent({
       });
     };
   }, []);
+
+  useEffect(() => {
+    settings.presets.forEach((preset) => {
+      const testStatus = presetStatuses[preset.id];
+      const isTestRunning = presetTestRunningId === preset.id;
+      const wasRunning = prevTestOkRef.current[preset.id] === undefined;
+
+      if (isTestRunning && prevTestOkRef.current[preset.id] !== undefined) {
+        prevTestOkRef.current[preset.id] = undefined;
+        return;
+      }
+
+      if (wasRunning && testStatus) {
+        prevTestOkRef.current[preset.id] = testStatus?.ok ?? false;
+        if (testStatus?.ok) {
+          setTestButtonExpandedId(preset.id);
+          const timer = window.setTimeout(() => {
+            setTestButtonExpandedId((current) => (current === preset.id ? null : current));
+            delete testButtonTimersRef.current[preset.id];
+          }, 2000);
+          testButtonTimersRef.current[preset.id] = { collapseTimerId: timer };
+        }
+        return;
+      }
+    });
+
+    const presetIds = new Set(settings.presets.map((p) => p.id));
+    Object.keys(testButtonTimersRef.current).forEach((presetId) => {
+      if (!presetIds.has(presetId)) {
+        const timers = testButtonTimersRef.current[presetId];
+        if (timers.collapseTimerId) window.clearTimeout(timers.collapseTimerId);
+        delete testButtonTimersRef.current[presetId];
+      }
+    });
+  }, [presetStatuses, settings.presets, presetTestRunningId]);
+
+  useEffect(() => {
+    settings.presets.forEach((preset) => {
+      const isLoading = presetModelsLoadingById[preset.id];
+      const wasLoading = prevFetchModelsRef.current[preset.id];
+
+      if (wasLoading && !isLoading && editingPreset?.id === preset.id) {
+        setFetchButtonExpandedId(preset.id);
+        const timer = window.setTimeout(() => {
+          setFetchButtonExpandedId((current) => (current === preset.id ? null : current));
+          delete fetchButtonTimersRef.current[preset.id];
+        }, 2000);
+        fetchButtonTimersRef.current[preset.id] = { collapseTimerId: timer };
+      }
+
+      prevFetchModelsRef.current[preset.id] = isLoading;
+    });
+
+    const presetIds = new Set(settings.presets.map((p) => p.id));
+    Object.keys(fetchButtonTimersRef.current).forEach((presetId) => {
+      if (!presetIds.has(presetId)) {
+        const timers = fetchButtonTimersRef.current[presetId];
+        if (timers.collapseTimerId) window.clearTimeout(timers.collapseTimerId);
+        delete fetchButtonTimersRef.current[presetId];
+      }
+    });
+  }, [presetModelsLoadingById, settings.presets, editingPreset]);
 
   const helpPopover = (
     <Tooltip.Root>
@@ -894,45 +962,7 @@ export function SettingsDialogContent({
                           >
                             <div className="settings-preset-copy">
                               <div className="settings-preset-title-row">
-                              <span className="settings-preset-label type-pane-title">{preset.label}</span>
-                                {testStatus?.ok ? (
-                                  <span
-                                    aria-label={t("settings.presetTestPassed")}
-                                    className="settings-preset-success"
-                                    title={t("settings.presetTestPassed")}
-                                  >
-                                    <CheckCircle size={16} weight="fill" />
-                                  </span>
-                                ) : testStatus ? (
-                                  <Tooltip.Root>
-                                    <Tooltip.Trigger asChild>
-                                      <span
-                                        aria-label={t("settings.presetTestFailed")}
-                                        className="settings-preset-warning"
-                                        title={testStatus.detail ?? testStatus.message}
-                                      >
-                                        <WarningCircle size={16} weight="fill" />
-                                      </span>
-                                    </Tooltip.Trigger>
-                                    <Tooltip.Portal>
-                                      <Tooltip.Content
-                                        className="tooltip-content settings-preset-test-tooltip"
-                                        side="top"
-                                        sideOffset={6}
-                                      >
-                                        <div className="settings-preset-test-tooltip__summary">
-                                          {testStatus.message}
-                                        </div>
-                                        {testStatus.detail ? (
-                                          <div className="settings-preset-test-tooltip__detail">
-                                            {testStatus.detail}
-                                          </div>
-                                        ) : null}
-                                        <Tooltip.Arrow className="tooltip-arrow" />
-                                      </Tooltip.Content>
-                                    </Tooltip.Portal>
-                                  </Tooltip.Root>
-                                ) : null}
+                                <span className="settings-preset-label type-pane-title">{preset.label}</span>
                               </div>
                             </div>
                           </button>
@@ -1049,17 +1079,17 @@ export function SettingsDialogContent({
                                     {t("settings.apiKey")}
                                   </Label.Root>
                                   <input
-                                  id="preset-api-key"
-                                  className={editingPresetApiKeyState?.showsSavedMask ? "input input-masked" : "input"}
-                                  type={editingPresetApiKeyState?.showsSavedMask ? "text" : "password"}
-                                  placeholder={editingPresetApiKeyState?.placeholder}
-                                  value={editingPresetApiKeyState?.displayValue ?? ""}
-                                  onBlur={() => {
-                                    void Promise.resolve(onPresetApiKeyBlur(editingPreset.id)).catch(() => {});
-                                  }}
-                                  onChange={(event) => {
-                                    const key = event.target.value;
-                                    onPresetApiKeyInputChange(editingPreset.id, key);
+                                    id="preset-api-key"
+                                    className={editingPresetApiKeyState?.showsSavedMask ? "input input-masked" : "input"}
+                                      type={editingPresetApiKeyState?.showsSavedMask ? "text" : "password"}
+                                      placeholder={editingPresetApiKeyState?.placeholder}
+                                      value={editingPresetApiKeyState?.displayValue ?? ""}
+                                      onBlur={() => {
+                                        void Promise.resolve(onPresetApiKeyBlur(editingPreset.id)).catch(() => {});
+                                      }}
+                                      onChange={(event) => {
+                                        const key = event.target.value;
+                                        onPresetApiKeyInputChange(editingPreset.id, key);
                                     if (
                                       !editingPreset.codingPlan &&
                                       detectCodingPlanKey(editingPreset.providerKind, key)
@@ -1071,9 +1101,9 @@ export function SettingsDialogContent({
                                     }
                                   }}
                                   onFocus={() => onPresetApiKeyFocus(editingPreset.id)}
-                                />
-                              </div>
-                            ) : null}
+                                  />
+                                </div>
+                              ) : null}
 
                             {editingPreset && providerUsesCodingPlan(editingPreset.providerKind) ? (
                                 <div className="settings-editor-row settings-editor-row--toggle">
@@ -1266,26 +1296,32 @@ export function SettingsDialogContent({
                                 aria-label={t("settings.fetchModels")}
                                 className="settings-icon-button"
                                 disabled={!editingPresetCanLoadModels || Boolean(presetModelsLoadingById[editingPreset.id])}
-                                label={presetModelsLoadingById[editingPreset.id] ? t("settings.fetchingModels") : editingPresetModels.length > 0 ? t("settings.reloadModels") : t("settings.fetchModels")}
+                                expanded={Boolean(presetModelsLoadingById[editingPreset.id]) || fetchButtonExpandedId === editingPreset.id}
+                                label={presetModelsLoadingById[editingPreset.id] ? (editingPresetModels.length > 0 ? t("settings.reloadingModels") : t("settings.fetchingModels")) : (fetchButtonExpandedId === editingPreset.id ? t("settings.fetchedModels") : (editingPresetModels.length > 0 ? t("settings.reloadModels") : t("settings.fetchModels")))}
                                 labelDirection="left"
                                 onClick={() => {
                                   void Promise.resolve(onFetchPresetModels(editingPreset.id)).catch(() => {});
                                 }}
                                 title={!editingPresetCanLoadModels ? getModelLoadHint(editingPreset, editingPresetApiKeyInput) : undefined}
                               >
-                                <HandWithdraw size={16} weight="bold" />
+                                <HandArrowDown size={16} weight="bold" />
                               </ExpandableIconButton>
                               <ExpandableIconButton
                                 aria-label={t("settings.testConnection")}
-                                className="settings-icon-button"
+                                className={`settings-icon-button ${testStatus?.ok ? "settings-icon-button-connected" : ""}`}
                                 disabled={presetTestRunningId === editingPreset.id || !editingPresetValidation?.isValid}
-                                label={presetTestRunningId === editingPreset.id ? t("settings.testingConnection") : t("settings.testConnection")}
+                                expanded={presetTestRunningId === editingPreset.id || testButtonExpandedId === editingPreset.id}
+                                label={presetTestRunningId === editingPreset.id ? t("settings.testingConnection") : testStatus?.ok ? t("settings.connected") : t("settings.testConnection")}
                                 labelDirection="left"
                                 onClick={() => {
                                   void Promise.resolve(onTestPreset(editingPreset.id)).catch(() => {});
                                 }}
                               >
-                                <Plugs size={16} weight="bold" />
+                                {testStatus?.ok ? (
+                                  <PlugsConnected size={16} weight="bold" />
+                                ) : (
+                                  <Plugs size={16} weight="bold" />
+                                )}
                               </ExpandableIconButton>
                               <ExpandableIconButton
                                 aria-label={t("settings.deletePreset")}
