@@ -5,33 +5,13 @@ import * as Progress from "@radix-ui/react-progress";
 import { Trash } from "@phosphor-icons/react";
 import type { RecentBook } from "../../types";
 import { t } from "../../lib/i18n";
+import { FileIcon } from "../FileIcon";
 
 type BookListItemProps = {
   book: RecentBook;
   onOpen: (book: RecentBook) => void;
   onRemove: (book: RecentBook) => void;
 };
-
-function PdfIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="book-icon book-icon-pdf">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="currentColor" opacity="0.15" />
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      <polyline points="14 2 14 8 20 8" stroke="currentColor" strokeWidth="1.5" fill="none" />
-    </svg>
-  );
-}
-
-function EpubIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="book-icon book-icon-epub">
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" fill="currentColor" opacity="0.15" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" fill="currentColor" opacity="0.15" />
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" stroke="currentColor" strokeWidth="1.5" fill="none" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" stroke="currentColor" strokeWidth="1.5" fill="none" />
-    </svg>
-  );
-}
 
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
@@ -67,7 +47,7 @@ export function BookCard({ book, onOpen, onRemove }: BookListItemProps) {
       <ContextMenu.Trigger asChild>
         <div className="book-card" onClick={() => onOpen(book)}>
           <div className="book-card-icon">
-            {book.fileType === 'epub' ? <EpubIcon /> : <PdfIcon />}
+            <FileIcon kind={book.fileType === 'epub' ? 'epub' : 'pdf'} size={20} />
           </div>
           <div className="book-card-content">
             <div className="book-card-title">{book.title}</div>

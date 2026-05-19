@@ -4,6 +4,7 @@ import * as ScrollArea from "@radix-ui/react-scroll-area";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { BookOpen, Info, GearSix, Trash } from "@phosphor-icons/react";
 import { ExpandableIconButton } from "../components/reader/ExpandableIconButton";
+import { FileIcon } from "../components/FileIcon";
 import { ThemeToggleButton } from "../components/ThemeToggleButton";
 import { UpdateActionButton } from "../components/UpdateActionButton";
 import type { RecentBook, ThemeMode } from "../types";
@@ -22,26 +23,6 @@ type HomeViewProps = {
   showUpdateAction?: boolean;
   onInstallUpdate?: () => void;
 };
-
-function PdfIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="#e74c3c" opacity="0.15" />
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="#e74c3c" strokeWidth="1.5" fill="none" />
-      <polyline points="14 2 14 8 20 8" stroke="#e74c3c" strokeWidth="1.5" fill="none" />
-    </svg>
-  );
-}
-
-function EpubIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" fill="#27ae60" opacity="0.15" />
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" stroke="#27ae60" strokeWidth="1.5" fill="none" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" stroke="#27ae60" strokeWidth="1.5" fill="none" />
-    </svg>
-  );
-}
 
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
@@ -200,7 +181,7 @@ export function HomeView({
                           <div className="home-file-row">
                             <button className="home-file" onClick={() => onOpenBook(book)} type="button">
                               <span className="home-file-icon">
-                                {book.fileType === 'epub' ? <EpubIcon /> : <PdfIcon />}
+                                <FileIcon kind={book.fileType === 'epub' ? 'epub' : 'pdf'} />
                               </span>
                               <span className="home-file-info">
                                 <span className="home-file-name">{book.title}</span>
