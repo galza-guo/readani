@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { CaretDown, Check } from "@phosphor-icons/react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { KeyboardEvent } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import type { TargetLanguage } from "../../types";
@@ -18,38 +19,40 @@ type LanguageComboboxProps = {
   buildSections?: (query: string) => LanguagePickerSection[];
   contentClassName?: string;
   getOptionLabel?: (language: TargetLanguage) => string;
+  getTriggerLabel?: (language: TargetLanguage) => string;
+  selectedValue?: TargetLanguage | null;
   searchable?: boolean;
   searchPlaceholder?: string;
   searchPlaceholderKey?: MessageKey;
+  triggerClassName?: string;
+  triggerAriaLabel?: string;
+  triggerTitle?: string;
+  hideTriggerChevron?: boolean;
+  contentAlign?: "start" | "center" | "end";
+  contentSideOffset?: number;
+  leadingContent?: ReactNode | ((controls: { close: () => void }) => ReactNode);
 };
-
-function ChevronDownIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="m5 13 4 4L19 7" />
-    </svg>
-  );
-}
 
 export function LanguageCombobox({
   allowCustom = true,
   buildSections = buildLanguagePickerSections,
+  contentAlign = "start",
   contentClassName,
+  contentSideOffset = 8,
   getOptionLabel = getLanguageDisplayLabel,
+  getTriggerLabel = getOptionLabel,
   id,
+  leadingContent,
   value,
   onChange,
+  selectedValue,
   searchable = true,
   searchPlaceholder,
   searchPlaceholderKey = "languages.search",
+  hideTriggerChevron = false,
+  triggerAriaLabel,
+  triggerClassName,
+  triggerTitle,
 }: LanguageComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -162,36 +165,50 @@ export function LanguageCombobox({
   let optionIndex = -1;
   const resolvedSearchPlaceholder =
     searchPlaceholder ?? t(searchPlaceholderKey);
+  const resolvedSelectedValue = selectedValue ?? value;
+  const resolvedLeadingContent =
+    typeof leadingContent === "function"
+      ? leadingContent({
+          close: () => {
+            setOpen(false);
+            setQuery("");
+          },
+        })
+      : leadingContent;
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <button
           id={id}
+          aria-label={triggerAriaLabel}
           aria-expanded={open}
           aria-haspopup="dialog"
-          className="language-combobox-trigger"
+          className={triggerClassName ?? "language-combobox-trigger"}
+          title={triggerTitle}
           type="button"
         >
           <span className="language-combobox-trigger-text">
-            {getOptionLabel(value)}
+            {getTriggerLabel(value)}
           </span>
-          <ChevronDownIcon />
+          {hideTriggerChevron ? null : <CaretDown size={16} weight="bold" />}
         </button>
       </Popover.Trigger>
 
       <Popover.Portal>
         <Popover.Content
-          align="start"
+          align={contentAlign}
           className={`language-combobox-content ${contentClassName ?? ""}`.trim()}
           onWheel={(event) => {
             event.stopPropagation();
           }}
           onKeyDown={!searchable ? handleInputKeyDown : undefined}
           ref={contentRef}
-          sideOffset={8}
+          sideOffset={contentSideOffset}
           tabIndex={searchable ? undefined : -1}
         >
+          {resolvedLeadingContent}
+
           {searchable ? (
             <input
               ref={inputRef}
@@ -215,7 +232,7 @@ export function LanguageCombobox({
                 {section.items.map((language) => {
                   optionIndex += 1;
                   const currentIndex = optionIndex;
-                  const isSelected = language.code === value.code;
+                  const isSelected = language.code === resolvedSelectedValue?.code;
                   const isHighlighted = currentIndex === highlightedIndex;
 
                   return (
@@ -236,7 +253,7 @@ export function LanguageCombobox({
                       type="button"
                     >
                       <span>{getOptionLabel(language)}</span>
-                      {isSelected ? <CheckIcon /> : null}
+                      {isSelected ? <Check size={16} weight="bold" /> : null}
                     </button>
                   );
                 })}

@@ -8,11 +8,11 @@ type PanelToggleGroupProps = {
 };
 
 export function PanelToggleGroup({ panels, onToggle }: PanelToggleGroupProps) {
-  const PANEL_CONTROLS: Array<{ key: ReaderPanelKey; label: string; shortLabel: string }> = [
-    { key: "navigation", label: t("reader.panelNavigate"), shortLabel: t("reader.panelNavigateShort") },
-    { key: "original", label: t("reader.panelOriginal"), shortLabel: t("reader.panelOriginalShort") },
-    { key: "translation", label: t("reader.panelTranslate"), shortLabel: t("reader.panelTranslateShort") },
-    { key: "chat", label: t("reader.panelChat"), shortLabel: t("reader.panelChatShort") },
+  const PANEL_CONTROLS: Array<{ key: ReaderPanelKey; label: string }> = [
+    { key: "navigation", label: t("reader.panelNavigate") },
+    { key: "original", label: t("reader.panelOriginal") },
+    { key: "translation", label: t("reader.panelTranslate") },
+    { key: "chat", label: t("reader.panelChat") },
   ];
 
   const visiblePanelCount = Object.values(panels).filter(Boolean).length;
@@ -32,7 +32,7 @@ export function PanelToggleGroup({ panels, onToggle }: PanelToggleGroupProps) {
             onClick={() => onToggle(panel.key)}
             title={panel.label}
           >
-            {panel.shortLabel}
+            {panel.label}
           </Toolbar.Button>
         );
       })}

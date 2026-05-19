@@ -1,10 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { CaretDown, CheckCircle, Flask, Plus, Question, Trash, TrashSimple, WarningCircle } from "@phosphor-icons/react";
 import * as Label from "@radix-ui/react-label";
 import * as Popover from "@radix-ui/react-popover";
 import * as Select from "@radix-ui/react-select";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { ConfirmationDialog } from "../ConfirmationDialog";
+import { ExpandableIconButton } from "../reader/ExpandableIconButton";
 import { LanguageCombobox } from "./LanguageCombobox";
 import { canListModels } from "../../lib/providerForm";
 import {
@@ -133,64 +135,6 @@ function getCacheLanguageLabel(languageCode: string) {
   }
 
   return getLanguageLabel(languageCode) ?? languageCode;
-}
-
-function PlusIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M12 5v14" />
-      <path d="M5 12h14" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M3 6h18" />
-      <path d="M8 6V4h8v2" />
-      <path d="m19 6-1 14H6L5 6" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
-    </svg>
-  );
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
-}
-
-function CheckCircleIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="9" />
-      <path d="m8.5 12 2.5 2.5L15.5 10" />
-    </svg>
-  );
-}
-
-function WarningCircleIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 8v5" strokeLinecap="round" />
-      <circle cx="12" cy="16.5" r="0.9" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function HelpIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M9.5 9a2.5 2.5 0 1 1 4.2 1.8c-.8.7-1.7 1.2-1.7 2.7" />
-      <circle cx="12" cy="17" r="1" fill="currentColor" stroke="none" />
-    </svg>
-  );
 }
 
 function ProviderIcon({
@@ -349,7 +293,7 @@ function ModelCombobox({
                   type="button"
                 >
                   <span>{model}</span>
-                  {isSelected ? <CheckCircleIcon /> : null}
+                  {isSelected ? <CheckCircle size={16} weight="fill" /> : null}
                 </button>
               );
             })
@@ -646,7 +590,7 @@ export function SettingsDialogContent({
           className="btn btn-icon-only btn-quiet-action settings-help-button"
           type="button"
         >
-          <HelpIcon />
+          <Question size={16} weight="regular" />
         </button>
       </Tooltip.Trigger>
       <Tooltip.Portal>
@@ -670,7 +614,7 @@ export function SettingsDialogContent({
           className="btn btn-icon-only btn-quiet-action settings-help-button"
           type="button"
         >
-          <HelpIcon />
+          <Question size={16} weight="regular" />
         </button>
       </Tooltip.Trigger>
       <Tooltip.Portal>
@@ -791,7 +735,7 @@ export function SettingsDialogContent({
                   >
                     <span>{getAutoTranslateNextPageLabel(settings.autoTranslateNextPages)}</span>
                     <Select.Icon asChild>
-                      <ChevronDownIcon />
+                      <CaretDown size={16} weight="bold" />
                     </Select.Icon>
                   </Select.Trigger>
                   <Select.Portal>
@@ -838,14 +782,16 @@ export function SettingsDialogContent({
                   ) : null}
                   <Popover.Root open={providerPickerOpen} onOpenChange={setProviderPickerOpen}>
                     <Popover.Trigger asChild>
-                      <button
-                        className="btn btn-icon-only btn-quiet-action settings-icon-button"
+                      <ExpandableIconButton
+                        className="settings-icon-button"
                         aria-label={t("settings.addProvider")}
+                        expanded={providerPickerOpen}
+                        label={t("common.add")}
+                        labelDirection="left"
                         title={t("settings.addProvider")}
-                        type="button"
                       >
-                        <PlusIcon />
-                      </button>
+                        <Plus size={16} weight="bold" />
+                      </ExpandableIconButton>
                     </Popover.Trigger>
                     <Popover.Portal>
                       <Popover.Content
@@ -951,7 +897,7 @@ export function SettingsDialogContent({
                                     className="settings-preset-success"
                                     title={t("settings.presetTestPassed")}
                                   >
-                                    <CheckCircleIcon />
+                                    <CheckCircle size={16} weight="fill" />
                                   </span>
                                 ) : testStatus ? (
                                   <Tooltip.Root>
@@ -961,7 +907,7 @@ export function SettingsDialogContent({
                                         className="settings-preset-warning"
                                         title={testStatus.detail ?? testStatus.message}
                                       >
-                                        <WarningCircleIcon />
+                                        <WarningCircle size={16} weight="fill" />
                                       </span>
                                     </Tooltip.Trigger>
                                     <Tooltip.Portal>
@@ -1010,7 +956,7 @@ export function SettingsDialogContent({
                                 aria-hidden="true"
                                 className={`settings-preset-chevron ${isEditing ? "is-open" : ""}`}
                               >
-                                <ChevronDownIcon />
+                                <CaretDown size={16} weight="bold" />
                               </span>
                             </button>
                           </div>
@@ -1047,7 +993,7 @@ export function SettingsDialogContent({
                                     <span>{getProviderOptionLabel(editingPreset.providerKind)}</span>
                                   </span>
                                   <Select.Icon asChild>
-                                    <ChevronDownIcon />
+                                    <CaretDown size={16} weight="bold" />
                                   </Select.Icon>
                                 </Select.Trigger>
                                 <Select.Portal>
@@ -1142,7 +1088,7 @@ export function SettingsDialogContent({
                                             className="btn btn-icon-only btn-quiet-action settings-help-button"
                                             type="button"
                                           >
-                                            <HelpIcon />
+                                            <Question size={16} weight="regular" />
                                           </button>
                                         </Tooltip.Trigger>
                                         <Tooltip.Portal>
@@ -1249,7 +1195,7 @@ export function SettingsDialogContent({
                                       )?.label ?? t("common.off")}
                                     </span>
                                     <Select.Icon asChild>
-                                      <ChevronDownIcon />
+                                      <CaretDown size={16} weight="bold" />
                                     </Select.Icon>
                                   </Select.Trigger>
                                   <Select.Portal>
@@ -1308,7 +1254,7 @@ export function SettingsDialogContent({
                                       )?.label ?? t("common.off")}
                                     </span>
                                     <Select.Icon asChild>
-                                      <ChevronDownIcon />
+                                      <CaretDown size={16} weight="bold" />
                                     </Select.Icon>
                                   </Select.Trigger>
                                   <Select.Portal>
@@ -1346,7 +1292,7 @@ export function SettingsDialogContent({
                                 onClick={() => setPendingDeletePresetId(editingPreset.id)}
                                 type="button"
                               >
-                                <TrashIcon />
+                                <TrashSimple size={18} weight="regular" />
                                 {t("settings.deletePreset")}
                               </button>
                             </div>
@@ -1416,7 +1362,9 @@ export function SettingsDialogContent({
                   <div className="settings-toggle-copy">
                     <div className="settings-toggle-title-row">
                       <span className="settings-toggle-title">{t("settings.autoFallback")}</span>
-                      <span className="settings-experimental-badge">{t("settings.experimental")}</span>
+                      <span aria-hidden="true" className="settings-experimental-badge">
+                        <Flask size={13} weight="regular" />
+                      </span>
                     </div>
                     <span className="settings-toggle-detail">
                       {t("settings.autoFallbackDetail")}
@@ -1456,9 +1404,15 @@ export function SettingsDialogContent({
                 </span>
 
               </div>
-              <button
-                className="btn btn-quiet-action btn-danger-quiet settings-cache-delete-all"
+              <ExpandableIconButton
+                className="settings-cache-delete-all settings-icon-button-danger"
                 disabled={cacheActionInProgress}
+                label={
+                  translationCacheActionTarget === "all"
+                    ? t("cache.deleting")
+                    : t("cache.deleteAll")
+                }
+                labelDirection="left"
                 onClick={() => {
                   if (cacheActionInProgress) {
                     return;
@@ -1466,11 +1420,14 @@ export function SettingsDialogContent({
 
                   setPendingDeleteAllCache(true);
                 }}
-                type="button"
+                title={
+                  translationCacheActionTarget === "all"
+                    ? t("cache.deleting")
+                    : t("cache.deleteAll")
+                }
               >
-                <TrashIcon />
-                {translationCacheActionTarget === "all" ? t("cache.deleting") : t("cache.deleteAll")}
-              </button>
+                <Trash size={18} weight="regular" />
+              </ExpandableIconButton>
             </div>
 
             {translationCacheLoading && translationCacheSummary === null ? (
@@ -1503,10 +1460,12 @@ export function SettingsDialogContent({
                               : t("cache.cachedPages", { count: String(language.cachedPageCount) })}
                           </span>
                         </div>
-                        <button
+                        <ExpandableIconButton
                           aria-label={t("settings.deleteCachedPagesFor", { title: book.title })}
-                          className="btn btn-icon-only btn-quiet-action settings-icon-button settings-icon-button-danger"
+                          className="settings-icon-button settings-icon-button-danger"
                           disabled={cacheActionInProgress}
+                          label={t("common.delete")}
+                          labelDirection="left"
                           onClick={() => {
                             if (cacheActionInProgress) {
                               return;
@@ -1519,10 +1478,9 @@ export function SettingsDialogContent({
                             });
                           }}
                           title={isDeletingBook ? t("cache.deleting") : t("settings.deleteCachedPages")}
-                          type="button"
                         >
-                          <TrashIcon />
-                        </button>
+                          <TrashSimple size={18} weight="regular" />
+                        </ExpandableIconButton>
                       </div>
                     );
                   }),

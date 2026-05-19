@@ -133,13 +133,15 @@ describe("SettingsDialogContent", () => {
     expect(settingsDialogSource).not.toContain("0 turns it off.");
   });
 
-  test("renders the automatic fallback switch with experimental copy", () => {
+  test("renders the automatic fallback switch with the experimental flask badge", () => {
     const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
 
     expect(html).toContain("Automatic fallback");
-    expect(html).toContain("Experimental");
+    expect(html).toContain("settings-experimental-badge");
+    expect(html).not.toContain(">Experimental<");
     expect(html).toContain("Retry another usable preset after a failure or timeout.");
     expect(settingsDialogSource).toContain("settings-toggle-row");
+    expect(settingsDialogSource).toContain("<Flask size={13} weight=\"regular\" />");
   });
 
   test("renders a provider picker and removes the old explicit save action", () => {

@@ -93,6 +93,47 @@ describe("PdfViewer", () => {
     expect(html.match(/120%/g)?.length).toBe(1);
   });
 
+  test("renders the page number as a quiet underlined trigger before editing", () => {
+    const html = renderToStaticMarkup(
+      <PdfViewer
+        pdfDoc={{} as any}
+        pageSizes={Array.from({ length: 12 }, () => ({ width: 100, height: 200 }))}
+        currentPage={12}
+        zoomMode="custom"
+        manualScale={1}
+        scrollAnchor="top"
+        paragraphs={[]}
+        highlightPid={null}
+        onNavigateToPage={() => {}}
+        onRequestPageChange={() => {}}
+        onZoomModeChange={() => {}}
+        onManualScaleChange={() => {}}
+        onResolvedScaleChange={() => {}}
+        onSelectionText={() => {}}
+        onClearSelection={() => {}}
+      />,
+    );
+
+    expect(html).toContain('class="pdf-page-jump-trigger"');
+    expect(html).toContain('type="button"');
+    expect(html).toContain(">12</button>");
+    expect(html).not.toContain('class="pdf-page-input"');
+    expect(html).toContain("/ 1");
+  });
+
+  test("uses hover-only emphasis for the resting page number trigger", () => {
+    const triggerRule =
+      appCss.match(/\.pdf-page-jump-trigger\s*\{([^}]*)\}/)?.[1] ?? "";
+    const hoverRule =
+      appCss.match(/\.pdf-page-jump-trigger:hover\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(triggerRule).toContain("border-bottom");
+    expect(triggerRule).toContain("cursor: pointer");
+    expect(triggerRule).not.toContain("background: var(--panel)");
+    expect(hoverRule).toContain("color: var(--ink)");
+    expect(hoverRule).toContain("border-bottom-color: var(--ink)");
+  });
+
   test("sizes each dot marker from the extracted line thickness", () => {
     const html = renderToStaticMarkup(
       <PdfViewer

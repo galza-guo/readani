@@ -28,10 +28,23 @@ describe("PanelToggleGroup", () => {
     expect(html).toContain(">Navigate<");
     expect(html).toContain(">Original<");
     expect(html).toContain(">Translate<");
-    expect(html).toContain(">Chat<");
+    expect(html).toContain(">AI Chat<");
     expect(html).toContain('class="panel-toggle-btn is-active"');
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('aria-pressed="false"');
+  });
+
+  test("uses the same visible labels as the pane titles", () => {
+    const source = Bun.file(
+      "/Users/guolite/GitHub/readani/src/components/reader/PanelToggleGroup.tsx",
+    );
+
+    return source.text().then((text) => {
+      expect(text).not.toContain("reader.panelChatShort");
+      expect(text).not.toContain("reader.panelTranslateShort");
+      expect(text).not.toContain("reader.panelNavigateShort");
+      expect(text).not.toContain("reader.panelOriginalShort");
+    });
   });
 
   test("disables the last visible active segment", () => {

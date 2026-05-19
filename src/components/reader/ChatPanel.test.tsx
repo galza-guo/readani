@@ -28,11 +28,25 @@ describe("ChatPanel", () => {
     expect(chatPanelSource).toContain('className="chat-header rail-pane-header"');
     expect(chatPanelSource).toContain('className="chat-title rail-pane-title-row"');
     expect(chatPanelSource).toContain('className="rail-pane-title"');
+    expect(chatPanelSource).toContain('t("reader.panelChat")');
     expect(chatPanelSource).not.toContain('className="rail-pane-title-icon"');
     expect(chatPanelSource).not.toContain("function SparkleIcon()");
     expect(chatPanelSource).toContain('aria-label={t("chat.clearChat")}');
     expect(chatPanelSource).toContain('title={t("chat.clearChat")}');
     expect(chatPanelSource).toContain('className="btn btn-ghost btn-icon-only"');
+  });
+
+  test("uses the shared reader panel label for the chat pane title", () => {
+    const html = renderToStaticMarkup(
+      <ChatPanel
+        isVisible={false}
+        model="openrouter/test"
+        getCurrentPageText={() => "Current page"}
+        getSurroundingPagesText={() => "Nearby pages"}
+      />
+    );
+
+    expect(html).toContain(">AI Chat<");
   });
 
   test("uses a full-width rail separator, in-content empty-state chips, and aligned chat composer sizing", () => {

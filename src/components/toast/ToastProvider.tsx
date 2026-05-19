@@ -1,3 +1,4 @@
+import { CheckCircle, Info, WarningCircle } from "@phosphor-icons/react";
 import {
   createContext,
   useCallback,
@@ -43,45 +44,16 @@ function getToastExitDurationMs() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : TOAST_EXIT_DURATION_MS;
 }
 
-function InfoIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 10v5" strokeLinecap="round" />
-      <circle cx="12" cy="7.25" r="0.9" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="9" />
-      <path d="m8.5 12.5 2.3 2.3 4.9-5.3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function AlertIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M12 4 3.8 19h16.4Z" strokeLinejoin="round" />
-      <path d="M12 9v4.5" strokeLinecap="round" />
-      <circle cx="12" cy="16.5" r="0.9" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
 function ToastIcon({ tone }: { tone: ToastTone }) {
   if (tone === "success") {
-    return <CheckIcon />;
+    return <CheckCircle size={14} weight="fill" />;
   }
 
   if (tone === "error") {
-    return <AlertIcon />;
+    return <WarningCircle size={14} weight="fill" />;
   }
 
-  return <InfoIcon />;
+  return <Info size={14} weight="fill" />;
 }
 
 export function ToastProvider({ children }: PropsWithChildren) {

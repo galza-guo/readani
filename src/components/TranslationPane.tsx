@@ -1,3 +1,4 @@
+import { ArrowClockwise, Check, Copy, CrosshairSimple, DotsThree, Highlighter, Minus, Plus, Translate, Warning } from "@phosphor-icons/react";
 import {
   memo,
   useCallback,
@@ -11,9 +12,7 @@ import { Virtuoso } from "react-virtuoso";
 import type { VirtuosoHandle } from "react-virtuoso";
 import * as Popover from "@radix-ui/react-popover";
 import {
-  buildLanguagePickerSections,
-  getCustomLanguageOption,
-  getLanguageDisplayLabel,
+  getLanguageSelfLabel,
 } from "../lib/languageOptions";
 import {
   getPdfAlignmentState,
@@ -23,6 +22,8 @@ import { getFriendlyProviderError } from "../lib/providerErrors";
 import type { PageProgressStatus } from "../lib/pageTranslationScheduler";
 import { t } from "../lib/i18n";
 import { useToast } from "./toast/ToastProvider";
+import { ExpandableIconButton } from "./reader/ExpandableIconButton";
+import { LanguageCombobox } from "./settings/LanguageCombobox";
 import type {
   PageDoc,
   PageTranslationState,
@@ -177,138 +178,39 @@ function getFallbackAttemptSummary(pageTranslation?: PageTranslationState) {
 }
 
 function TranslateIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M5 8l6 6" />
-      <path d="M4 14l6-6 2-3" />
-      <path d="M2 5h12" />
-      <path d="M7 2h1" />
-      <path d="M22 22l-5-10-5 10" />
-      <path d="M14 18h6" />
-    </svg>
-  );
+  return <Translate size={16} weight="regular" />;
 }
 
 function LocateIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 2v4" />
-      <path d="M12 18v4" />
-      <path d="M2 12h4" />
-      <path d="M18 12h4" />
-    </svg>
-  );
+  return <CrosshairSimple size={16} weight="regular" />;
 }
 
 function RetryIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M21 2v6h-6" />
-      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-      <path d="M3 22v-6h6" />
-      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-    </svg>
-  );
+  return <ArrowClockwise size={16} weight="regular" />;
 }
 
 function CopyIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="9" y="9" width="11" height="11" rx="2" />
-      <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
+  return <Copy size={16} weight="regular" />;
 }
 
 function AnnotateIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-    </svg>
-  );
+  return <Highlighter size={16} weight="regular" />;
 }
 
 function CheckSmallIcon() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M20 6L9 17l-5-5" />
-    </svg>
-  );
+  return <Check size={12} weight="bold" />;
 }
 
 function MoreIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="12" r="1" />
-      <circle cx="19" cy="12" r="1" />
-      <circle cx="5" cy="12" r="1" />
-    </svg>
-  );
+  return <DotsThree size={16} weight="bold" />;
+}
+
+function MinusSmallIcon() {
+  return <Minus size={14} weight="bold" aria-hidden="true" />;
+}
+
+function PlusSmallIcon() {
+  return <Plus size={14} weight="bold" aria-hidden="true" />;
 }
 
 function getPresetSummary(preset: TranslationPreset) {
@@ -322,195 +224,44 @@ function TranslationLanguageControl({
   targetLanguage,
   onChange,
 }: TranslationLanguageControlProps) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-
-  const sections = useMemo(() => buildLanguagePickerSections(query), [query]);
-  const customOption = useMemo(
-    () => getCustomLanguageOption(query, targetLanguage),
-    [query, targetLanguage],
-  );
-  const flattenedOptions = useMemo(() => {
-    const builtIn = sections.flatMap((section) =>
-      section.items.map((language) => ({
-        key: language.code,
-        language,
-      })),
-    );
-
-    return customOption
-      ? [...builtIn, { key: customOption.code, language: customOption }]
-      : builtIn;
-  }, [customOption, sections]);
-
-  useEffect(() => {
-    if (!open) {
-      optionRefs.current = [];
-      return;
-    }
-
-    setQuery("");
-    setHighlightedIndex(0);
-
-    const frame = window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, [open]);
-
-  useEffect(() => {
-    setHighlightedIndex(0);
-  }, [query]);
-
-  useEffect(() => {
-    optionRefs.current[highlightedIndex]?.scrollIntoView({ block: "nearest" });
-  }, [highlightedIndex]);
-
-  const selectLanguage = (language: TargetLanguage) => {
-    onChange({ enabled: true, targetLanguage: language });
-    setOpen(false);
-    setQuery("");
-  };
-
-  const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setHighlightedIndex((current) =>
-        flattenedOptions.length === 0
-          ? 0
-          : Math.min(current + 1, flattenedOptions.length - 1),
-      );
-      return;
-    }
-
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setHighlightedIndex((current) =>
-        flattenedOptions.length === 0 ? 0 : Math.max(current - 1, 0),
-      );
-      return;
-    }
-
-    if (event.key === "Enter" && flattenedOptions[highlightedIndex]) {
-      event.preventDefault();
-      selectLanguage(flattenedOptions[highlightedIndex].language);
-    }
-  };
-
-  let optionIndex = -1;
-  const label = enabled ? getLanguageDisplayLabel(targetLanguage) : t("common.off");
+  const label = enabled ? getLanguageSelfLabel(targetLanguage) : t("translation.off");
 
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger asChild>
-        <button
-          className="translation-language-trigger"
-          type="button"
-          aria-label={t("translation.changeLanguage")}
-          aria-expanded={open}
-          title={t("translation.changeLanguage")}
-        >
-          {label}
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          align="end"
-          className="language-combobox-content translation-language-content"
-          sideOffset={8}
-        >
+    <LanguageCombobox
+      contentAlign="end"
+      contentClassName="translation-language-content"
+      contentSideOffset={8}
+      getOptionLabel={getLanguageSelfLabel}
+      getTriggerLabel={() => label}
+      hideTriggerChevron={true}
+      id="translation-language-select"
+      leadingContent={({ close }) => (
+        <>
           <button
             className={`language-combobox-option translation-language-off-option ${
               !enabled ? "is-selected" : ""
             }`}
             onClick={() => {
               onChange({ enabled: false, targetLanguage });
-              setOpen(false);
-              setQuery("");
+              close();
             }}
             type="button"
           >
-            <span>{t("common.off")}</span>
+            <span>{t("translation.off")}</span>
             {!enabled ? <CheckSmallIcon /> : null}
           </button>
           <div className="translation-language-divider" />
-          <input
-            ref={inputRef}
-            aria-label={t("languages.search")}
-            className="language-combobox-input"
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={handleInputKeyDown}
-            placeholder={t("languages.search")}
-            type="text"
-            value={query}
-          />
-          <div className="language-combobox-list" role="listbox">
-            {sections.map((section) => (
-              <div key={section.id} className="language-combobox-section">
-                {section.title ? (
-                  <div className="language-combobox-section-title">
-                    {section.title}
-                  </div>
-                ) : null}
-                {section.items.map((language) => {
-                  optionIndex += 1;
-                  const currentIndex = optionIndex;
-                  const isSelected = enabled && language.code === targetLanguage.code;
-                  const isHighlighted = currentIndex === highlightedIndex;
-
-                  return (
-                    <button
-                      key={language.code}
-                      ref={(element) => {
-                        optionRefs.current[currentIndex] = element;
-                      }}
-                      className={`language-combobox-option ${
-                        isHighlighted ? "is-highlighted" : ""
-                      } ${isSelected ? "is-selected" : ""}`}
-                      onClick={() => selectLanguage(language)}
-                      onMouseEnter={() => setHighlightedIndex(currentIndex)}
-                      role="option"
-                      type="button"
-                    >
-                      <span>{getLanguageDisplayLabel(language)}</span>
-                      {isSelected ? <CheckSmallIcon /> : null}
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-            {customOption ? (
-              <button
-                ref={(element) => {
-                  optionRefs.current[flattenedOptions.length - 1] = element;
-                }}
-                className={`language-combobox-option language-combobox-option-custom ${
-                  highlightedIndex === flattenedOptions.length - 1
-                    ? "is-highlighted"
-                    : ""
-                }`}
-                onClick={() => selectLanguage(customOption)}
-                onMouseEnter={() =>
-                  setHighlightedIndex(flattenedOptions.length - 1)
-                }
-                role="option"
-                type="button"
-              >
-                {t("languages.useCustom", { label: customOption.label })}
-              </button>
-            ) : null}
-            {flattenedOptions.length === 0 ? (
-              <div className="language-combobox-empty">{t("languages.noResults")}</div>
-            ) : null}
-          </div>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+        </>
+      )}
+      onChange={(language) => {
+        onChange({ enabled: true, targetLanguage: language });
+      }}
+      selectedValue={enabled ? targetLanguage : null}
+      triggerAriaLabel={t("translation.changeLanguage")}
+      triggerClassName="translation-language-trigger"
+      triggerTitle={t("translation.changeLanguage")}
+      value={targetLanguage}
+    />
   );
 }
 
@@ -611,26 +362,32 @@ function TranslationPaneHeaderMenu({
   );
   const canShrink = textSizeIndex > 0;
   const canEnlarge = textSizeIndex < TRANSLATION_TEXT_SIZE_LEVELS.length - 1;
+  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <Popover.Root>
+    <Popover.Root open={menuOpen} onOpenChange={setMenuOpen}>
       <Popover.Trigger asChild>
-        <button
+        <ExpandableIconButton
           className="translation-pane-menu-trigger"
-          type="button"
           aria-label={t("translation.options")}
+          label={t("translation.options")}
+          labelDirection="left"
           title={t("translation.options")}
+          expanded={menuOpen}
         >
           <MoreIcon />
-        </button>
+        </ExpandableIconButton>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
           align="end"
-          className="translation-pane-menu-content"
+          className="settings-help-popover translation-pane-menu-content"
           sideOffset={8}
         >
           <div className="translation-pane-menu-row is-end-aligned">
+            <span className="translation-pane-menu-label">
+              {t("settings.general.translateTo")}
+            </span>
             <TranslationLanguageControl
               enabled={translationEnabled}
               targetLanguage={targetLanguage}
@@ -642,6 +399,9 @@ function TranslationPaneHeaderMenu({
               className="translation-text-size-control"
               aria-label={t("translation.textSize")}
             >
+              <span className="translation-text-size-readout">
+                {textSizePercent}%
+              </span>
               <button
                 className="translation-text-size-btn"
                 type="button"
@@ -650,11 +410,8 @@ function TranslationPaneHeaderMenu({
                 aria-label={t("translation.shrinkText")}
                 title={t("translation.shrinkText")}
               >
-                A-
+                <MinusSmallIcon />
               </button>
-              <span className="translation-text-size-readout">
-                {textSizePercent}%
-              </span>
               <button
                 className="translation-text-size-btn"
                 type="button"
@@ -663,7 +420,7 @@ function TranslationPaneHeaderMenu({
                 aria-label={t("translation.enlargeText")}
                 title={t("translation.enlargeText")}
               >
-                A+
+                <PlusSmallIcon />
               </button>
             </div>
           </div>
@@ -674,16 +431,14 @@ function TranslationPaneHeaderMenu({
           />
           {onRedoPage ? (
             <button
-              className="translation-pane-menu-item"
+              className="translation-pane-menu-item translation-pane-menu-item-end-aligned"
               type="button"
               onClick={onRedoPage}
               disabled={redoPageDisabled}
             >
-              <RetryIcon />
               <span className="translation-pane-menu-item-text">{t("translation.redoPage")}</span>
             </button>
           ) : null}
-          <Popover.Arrow className="popover-arrow" />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
@@ -691,22 +446,7 @@ function TranslationPaneHeaderMenu({
 }
 
 function WarningIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-      <line x1="12" y1="9" x2="12" y2="13" />
-      <line x1="12" y1="17" x2="12.01" y2="17" />
-    </svg>
-  );
+  return <Warning size={14} weight="fill" />;
 }
 
 async function copyTextToClipboard(text: string) {
@@ -1999,7 +1739,7 @@ function PdfTranslationPane({
       <div className="translation-pane-header rail-pane-header">
         <div className="rail-pane-header-copy">
           <div className="rail-pane-title-row">
-            <span className="rail-pane-title">{t("translation.title")}</span>
+            <span className="rail-pane-title">{t("reader.panelTranslate")}</span>
             {pageTranslation?.isCached ? (
               <span
                 className="page-translation-cached-indicator"
@@ -2054,9 +1794,8 @@ function PdfTranslationPane({
           </div>
         ) : null}
         <div className="page-translation-actions rail-pane-header-actions">
-          <button
+          <ExpandableIconButton
             className={`annotation-mode-btn ${annotationModeEnabled ? "is-active" : ""}`}
-            type="button"
             onClick={() => {
               if (selectedPids.length > 0) {
                 onHighlightSelected?.(selectedPids);
@@ -2070,9 +1809,14 @@ function PdfTranslationPane({
             aria-label={
               selectedPids.length > 0 ? "Highlight selected" : t("translation.annotationMode")
             }
+            label={
+              selectedPids.length > 0 ? "Highlight selected" : t("translation.annotationMode")
+            }
+            labelDirection="left"
+            expanded={annotationModeEnabled || selectedPids.length > 0}
           >
             <AnnotateIcon />
-          </button>
+          </ExpandableIconButton>
           <TranslationPaneHeaderMenu
             translationEnabled={translationEnabled}
             targetLanguage={targetLanguage}
@@ -2432,19 +2176,21 @@ function EpubTranslationPane({
       <div className="translation-pane-header rail-pane-header">
         <div className="rail-pane-header-copy">
           <div className="rail-pane-title-row">
-            <span className="rail-pane-title">{t("translation.title")}</span>
+            <span className="rail-pane-title">{t("reader.panelTranslate")}</span>
           </div>
         </div>
         <div className="page-translation-actions rail-pane-header-actions">
-          <button
+          <ExpandableIconButton
             className={`annotation-mode-btn ${annotationModeEnabled ? "is-active" : ""}`}
-            type="button"
             onClick={() => onToggleAnnotationMode?.()}
             title={t("translation.annotationMode")}
             aria-label={t("translation.annotationMode")}
+            label={t("translation.annotationMode")}
+            labelDirection="left"
+            expanded={annotationModeEnabled}
           >
             <AnnotateIcon />
-          </button>
+          </ExpandableIconButton>
           <TranslationPaneHeaderMenu
             translationEnabled={translationEnabled}
             targetLanguage={targetLanguage}

@@ -6,6 +6,7 @@ import {
 
 type ExpandableIconButtonProps = PropsWithChildren<
   ButtonHTMLAttributes<HTMLButtonElement> & {
+    expanded?: boolean;
     label: string;
     labelDirection: "left" | "right";
   }
@@ -15,7 +16,15 @@ export const ExpandableIconButton = forwardRef<
   HTMLButtonElement,
   ExpandableIconButtonProps
 >(function ExpandableIconButton(
-  { label, labelDirection, className, children, type = "button", ...props },
+  {
+    expanded = false,
+    label,
+    labelDirection,
+    className,
+    children,
+    type = "button",
+    ...props
+  },
   ref
 ) {
   const resolvedAriaLabel = props["aria-label"] ?? label;
@@ -36,6 +45,7 @@ export const ExpandableIconButton = forwardRef<
       type={type}
       aria-label={resolvedAriaLabel}
       className={classes}
+      data-expanded={expanded ? "true" : undefined}
       data-label-direction={labelDirection}
     >
       {labelDirection === "left" ? labelNode : null}

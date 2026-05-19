@@ -399,8 +399,14 @@ describe("TranslationPane", () => {
   test("keeps the shared translation header in EPUB mode", () => {
     const html = renderEpubPane({ pages: [] });
 
-    expect(html).toContain(">Translation<");
+    expect(html).toContain(">Translate<");
     expect(html).toContain("rail-pane-title");
+  });
+
+  test("uses the shared reader panel label for the PDF translation pane title", () => {
+    const html = renderPdfPane({});
+
+    expect(html).toContain(">Translate<");
   });
 
   test("renders EPUB annotation mode button in header", () => {

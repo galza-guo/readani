@@ -1,4 +1,6 @@
+import { MagnifyingGlassPlus } from "@phosphor-icons/react";
 import { t } from "../lib/i18n";
+import { formatTotalPagesSuffix } from "../lib/pageCountLabel";
 import {
   useCallback,
   useEffect,
@@ -56,23 +58,6 @@ type PdfViewerProps = {
   onClearSelection: () => void;
 };
 
-function ZoomIcon() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <circle cx="11" cy="11" r="7" />
-      <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
-      <path d="M11 8v6M8 11h6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 export function PdfViewer({
   pdfDoc,
   pageSizes,
@@ -96,10 +81,12 @@ export function PdfViewer({
 }: PdfViewerProps) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const zoomDockRef = useRef<HTMLDivElement | null>(null);
+  const pageInputRef = useRef<HTMLInputElement | null>(null);
   const lastPageTurnAtRef = useRef(0);
   const zoomPopoverCloseTimeoutRef = useRef<number | null>(null);
   const [viewerSize, setViewerSize] = useState({ width: 0, height: 0 });
   const [pageInputValue, setPageInputValue] = useState(String(currentPage));
+  const [isEditingPageNumber, setIsEditingPageNumber] = useState(false);
   const [isZoomPopoverOpen, setIsZoomPopoverOpen] = useState(
     defaultZoomPopoverOpen,
   );
@@ -134,6 +121,15 @@ export function PdfViewer({
   useEffect(() => {
     setPageInputValue(String(currentPage));
   }, [currentPage]);
+
+  useEffect(() => {
+    if (!isEditingPageNumber) {
+      return;
+    }
+
+    pageInputRef.current?.focus();
+    pageInputRef.current?.select();
+  }, [isEditingPageNumber]);
 
   useEffect(() => {
     const scroller = scrollerRef.current;
@@ -222,17 +218,20 @@ export function PdfViewer({
   const commitPageInput = useCallback(() => {
     if (pageSizes.length === 0) {
       setPageInputValue(String(currentPage));
+      setIsEditingPageNumber(false);
       return;
     }
 
     const parsedPage = Number.parseInt(pageInputValue, 10);
     if (Number.isNaN(parsedPage)) {
       setPageInputValue(String(currentPage));
+      setIsEditingPageNumber(false);
       return;
     }
 
     const nextPage = clampPage(parsedPage, pageSizes.length);
     setPageInputValue(String(nextPage));
+    setIsEditingPageNumber(false);
 
     if (nextPage !== currentPage) {
       onNavigateToPage(nextPage);
@@ -262,6 +261,11 @@ export function PdfViewer({
     },
     [commitPageInput, currentPage],
   );
+
+  const handlePageTriggerClick = useCallback(() => {
+    setPageInputValue(String(currentPage));
+    setIsEditingPageNumber(true);
+  }, [currentPage]);
 
   const clearZoomPopoverCloseTimer = useCallback(() => {
     if (zoomPopoverCloseTimeoutRef.current !== null) {
@@ -343,19 +347,31 @@ export function PdfViewer({
         onNext={() => onNavigateToPage(currentPage + 1)}
       >
         <label className="pdf-page-jump">
-          <span className="pdf-page-jump-label">{t("reader.page")}</span>
-          <input
-            className="pdf-page-input"
-            type="text"
-            inputMode="numeric"
-            value={pageInputValue}
-            onChange={handlePageInputChange}
-            onBlur={commitPageInput}
-            onKeyDown={handlePageInputKeyDown}
-            onFocus={(event) => event.currentTarget.select()}
-            aria-label={t("reader.currentPage")}
-          />
-          <span className="pdf-page-jump-total">{t("reader.pageOf", { count: String(pageSizes.length) })}</span>
+          {isEditingPageNumber ? (
+            <input
+              ref={pageInputRef}
+              className="pdf-page-input"
+              type="text"
+              inputMode="numeric"
+              value={pageInputValue}
+              onChange={handlePageInputChange}
+              onBlur={commitPageInput}
+              onKeyDown={handlePageInputKeyDown}
+              aria-label={t("reader.currentPage")}
+            />
+          ) : (
+            <button
+              type="button"
+              className="pdf-page-jump-trigger"
+              onClick={handlePageTriggerClick}
+              aria-label={t("reader.currentPage")}
+            >
+              {currentPage}
+            </button>
+          )}
+          <span className="pdf-page-jump-total">
+            / {formatTotalPagesSuffix(pageSizes.length)}
+          </span>
         </label>
       </PageNavigationToolbar>
 
@@ -433,7 +449,7 @@ export function PdfViewer({
                 setIsZoomPopoverOpen(true);
               }}
             >
-              <ZoomIcon />
+              <MagnifyingGlassPlus size={18} weight="regular" />
               <span>{displayedZoomPercent}%</span>
             </button>
           )}

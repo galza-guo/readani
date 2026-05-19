@@ -1,3 +1,4 @@
+import { PaperPlaneTilt, TrashSimple } from "@phosphor-icons/react";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
@@ -17,24 +18,6 @@ const PRESET_QUESTIONS: Array<{ labelKey: MessageKey; promptKey: MessageKey }> =
   { labelKey: "chat.summaryNearbyPages", promptKey: "chat.summaryNearbyPrompt" },
   { labelKey: "chat.explainTerms", promptKey: "chat.explainTermsPrompt" },
 ];
-
-function SendIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="22" y1="2" x2="11" y2="13" />
-      <polygon points="22 2 15 22 11 13 2 9 22 2" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
-  );
-}
 
 export function ChatPanel({
   isVisible,
@@ -133,7 +116,7 @@ export function ChatPanel({
     <div className="chat-panel">
       <div className="chat-header rail-pane-header">
         <div className="chat-title rail-pane-title-row">
-          <span className="rail-pane-title">{t("chat.title")}</span>
+          <span className="rail-pane-title">{t("reader.panelChat")}</span>
         </div>
         <div className="chat-header-actions rail-pane-header-actions">
           {messages.length > 0 && (
@@ -144,7 +127,7 @@ export function ChatPanel({
               title={t("chat.clearChat")}
               onClick={handleClearChat}
             >
-              <TrashIcon />
+              <TrashSimple size={14} weight="regular" />
             </button>
           )}
         </div>
@@ -205,7 +188,7 @@ export function ChatPanel({
           className="chat-send-btn"
           disabled={!input.trim() || isLoading}
         >
-          <SendIcon />
+          <PaperPlaneTilt size={18} weight="fill" />
         </button>
       </form>
     </div>

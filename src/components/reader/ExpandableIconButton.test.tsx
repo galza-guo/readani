@@ -42,20 +42,17 @@ describe("ExpandableIconButton", () => {
   test("hides the label without reserving space until hover or focus", () => {
     const buttonRule = appCss.match(/\.expandable-icon-button\s*\{([^}]*)\}/)?.[1] ?? "";
     const labelRule = appCss.match(/\.expandable-icon-button__label\s*\{([^}]*)\}/)?.[1] ?? "";
-    const revealRule =
-      appCss.match(
-        /\.expandable-icon-button:hover \.expandable-icon-button__label,\s*\.expandable-icon-button:focus-visible \.expandable-icon-button__label\s*\{([^}]*)\}/
-      )?.[1] ?? "";
 
     expect(buttonRule).toContain("overflow: hidden");
     expect(buttonRule).toContain("min-width: 32px");
     expect(labelRule).toContain("max-width: 0");
     expect(labelRule).toContain("opacity: 0");
-    expect(revealRule).toContain("max-width");
-    expect(revealRule).toContain("opacity: 1");
+    expect(appCss).toContain('.expandable-icon-button[data-expanded="true"] .expandable-icon-button__label');
+    expect(appCss).toContain("max-width: 120px");
+    expect(appCss).toContain("opacity: 1");
   });
 
-  test("keeps shared utility button hover and focus styles transparent and borderless", () => {
+  test("uses the shared hover surface while staying borderless", () => {
     const ghostHoverRule =
       appCss.match(/\.btn-ghost:hover,\s*\.btn-ghost:focus-visible\s*\{([^}]*)\}/)?.[1] ?? "";
     const quietHoverRule = appCss.match(/\.btn-quiet-action:hover\s*\{([^}]*)\}/)?.[1] ?? "";
@@ -64,11 +61,6 @@ describe("ExpandableIconButton", () => {
       appCss.match(
         /\.btn-quiet-action\.settings-icon-button-danger:hover,\s*\.btn-quiet-action\.settings-icon-button-danger:focus-visible\s*\{([^}]*)\}/
       )?.[1] ?? "";
-    const darkHoverRule =
-      appCss.match(
-        /\[data-theme="dark"\] \.expandable-icon-button:hover,\s*\[data-theme="dark"\] \.expandable-icon-button:focus-visible\s*\{([^}]*)\}/
-      )?.[1] ?? "";
-
     expect(ghostHoverRule).toContain("background: transparent");
     expect(ghostHoverRule).toContain("border-color: transparent");
 
@@ -82,7 +74,10 @@ describe("ExpandableIconButton", () => {
 
     expect(quietDangerRule).toContain("color: var(--error)");
     expect(quietDangerRule).not.toContain("border-color");
-
-    expect(darkHoverRule).toBe("");
+    expect(appCss).toContain(".expandable-icon-button:hover,");
+    expect(appCss).toContain('.expandable-icon-button[data-expanded="true"] {');
+    expect(appCss).toContain("background: var(--surface-hover-strong)");
+    expect(appCss).toContain("color: var(--ink)");
+    expect(appCss).toContain("outline: none");
   });
 });

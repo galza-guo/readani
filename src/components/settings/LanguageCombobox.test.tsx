@@ -51,13 +51,15 @@ describe("LanguageCombobox", () => {
     const appStyles = readFileSync(resolve(import.meta.dir, "..", "..", "App.css"), "utf8");
 
     expect(languageComboboxSource).toContain("contentClassName?: string;");
+    expect(languageComboboxSource).toContain("triggerClassName?: string;");
+    expect(languageComboboxSource).toContain("leadingContent?: ReactNode");
     expect(languageComboboxSource).toContain("searchable?: boolean;");
     expect(languageComboboxSource).toContain("shouldAutoScrollRef");
     expect(languageComboboxSource).toContain('className={`language-combobox-content ${contentClassName ?? ""}`.trim()}');
     expect(appStyles).toContain(".language-combobox-content-shortlist");
-    expect(appStyles).toContain(".language-combobox-content-shortlist .language-combobox-list");
     expect(appStyles).toContain(".language-combobox-content-common-list");
-    expect(appStyles).toContain(".language-combobox-content-common-list .language-combobox-list");
+    expect(appStyles).toContain("max-height: min(480px, var(--radix-popover-content-available-height));");
+    expect(appStyles).toContain("max-height: min(420px, var(--radix-popover-content-available-height));");
     expect(appStyles).toContain("min-height: 0;");
     expect(appStyles).toContain("overflow: hidden;");
   });
