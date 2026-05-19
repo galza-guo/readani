@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { CaretDown, CheckCircle, CheckFat, Flask, Plus, Question, Trash, TrashSimple, WarningCircle } from "@phosphor-icons/react";
+import { CaretDown, CheckCircle, CheckFat, Flask, Gauge, HandWithdraw, Plugs, Plus, Question, Trash, TrashSimple, WarningCircle } from "@phosphor-icons/react";
 import * as Label from "@radix-ui/react-label";
 import * as Popover from "@radix-ui/react-popover";
 import * as Select from "@radix-ui/react-select";
@@ -769,16 +769,17 @@ export function SettingsDialogContent({
                 </div>
                 <div className="settings-toolbar-actions">
                   {settings.presets.length > 0 ? (
-                    <button
-                      className="btn btn-small btn-quiet-action"
+                    <ExpandableIconButton
+                      className="btn-quiet-action"
                       disabled={testAllRunning || testAllDisabled}
+                      label={t("settings.testAll")}
+                      labelDirection="left"
                       onClick={() => {
                         void Promise.resolve(onTestAllPresets()).catch(() => {});
                       }}
-                      type="button"
                     >
-                      {testAllRunning ? t("common.testing") : t("settings.testAll")}
-                    </button>
+                      <Gauge size={16} weight="bold" />
+                    </ExpandableIconButton>
                   ) : null}
                   <Popover.Root open={providerPickerOpen} onOpenChange={setProviderPickerOpen}>
                     <Popover.Trigger asChild>
@@ -964,14 +965,15 @@ export function SettingsDialogContent({
 
                         {isEditing && editingPreset?.id === preset.id ? (
                           <div className="settings-preset-editor">
-                            <div className="settings-item">
-                              <Label.Root
-                                className="settings-label type-field-label"
-                                htmlFor="preset-provider-kind"
-                              >
-                                {t("settings.provider")}
-                              </Label.Root>
-                              <Select.Root
+                            <div className="settings-editor-inputs">
+                              <div className="settings-editor-row">
+                                <Label.Root
+                                  className="settings-label type-field-label"
+                                  htmlFor="preset-provider-kind"
+                                >
+                                  {t("settings.provider")}
+                                </Label.Root>
+                                <Select.Root
                                 value={editingPreset.providerKind}
                                 onValueChange={(value) =>
                                   onPresetChange({
@@ -1015,15 +1017,15 @@ export function SettingsDialogContent({
                                     </Select.Viewport>
                                   </Select.Content>
                                 </Select.Portal>
-                              </Select.Root>
-                            </div>
+                                </Select.Root>
+                              </div>
 
-                            {editingPresetShowsBaseUrlField ? (
-                              <div className="settings-item">
-                                <Label.Root className="settings-label type-field-label" htmlFor="preset-base-url">
-                                  {t("settings.baseUrl")}
-                                </Label.Root>
-                                <input
+                              {editingPresetShowsBaseUrlField ? (
+                                <div className="settings-editor-row">
+                                  <Label.Root className="settings-label type-field-label" htmlFor="preset-base-url">
+                                    {t("settings.baseUrl")}
+                                  </Label.Root>
+                                  <input
                                   id="preset-base-url"
                                   className="input"
                                   placeholder={t("settings.baseUrlPlaceholder", { url: getDefaultBaseUrlForProvider(editingPreset.providerKind) ?? "https://api.example.com/v1" })}
@@ -1038,15 +1040,15 @@ export function SettingsDialogContent({
                               </div>
                             ) : null}
 
-                            {editingPresetShowsApiKeyField ? (
-                              <div className="settings-item">
-                                <Label.Root
-                                  className="settings-label type-field-label"
-                                  htmlFor="preset-api-key"
-                                >
-                                  {t("settings.apiKey")}
-                                </Label.Root>
-                                <input
+                              {editingPresetShowsApiKeyField ? (
+                                <div className="settings-editor-row">
+                                  <Label.Root
+                                    className="settings-label type-field-label"
+                                    htmlFor="preset-api-key"
+                                  >
+                                    {t("settings.apiKey")}
+                                  </Label.Root>
+                                  <input
                                   id="preset-api-key"
                                   className={editingPresetApiKeyState?.showsSavedMask ? "input input-masked" : "input"}
                                   type={editingPresetApiKeyState?.showsSavedMask ? "text" : "password"}
@@ -1074,8 +1076,8 @@ export function SettingsDialogContent({
                             ) : null}
 
                             {editingPreset && providerUsesCodingPlan(editingPreset.providerKind) ? (
-                              <div className="settings-item">
-                                <div className="settings-toggle-row" style={{ borderTop: 0, borderBottom: 0 }}>
+                                <div className="settings-editor-row settings-editor-row--toggle">
+                                  <div className="settings-toggle-row" style={{ borderTop: 0, borderBottom: 0 }}>
                                   <div className="settings-toggle-copy">
                                     <div className="settings-toggle-title-row">
                                       <span className="settings-toggle-title">{t("settings.codingPlan")}</span>
@@ -1116,26 +1118,10 @@ export function SettingsDialogContent({
                               </div>
                             ) : null}
 
-                            <div className="settings-item">
-                              <div className="settings-inline-row">
-                                <Label.Root className="settings-label type-field-label" htmlFor="preset-model">
-                                  {t("settings.model")}
-                                </Label.Root>
-                                {editingPresetCanLoadModels ? (
-                                  <button
-                                    className="btn btn-ghost btn-small"
-                                    disabled={presetModelsLoadingById[editingPreset.id]}
-                                    onClick={() => {
-                                      void Promise.resolve(onFetchPresetModels(editingPreset.id)).catch(() => {});
-                                    }}
-                                    type="button"
-                                  >
-                                    {presetModelsLoadingById[editingPreset.id] ? t("settings.loadingModels") : editingPresetModels.length > 0 ? t("settings.reloadModels") : t("settings.loadModels")}
-                                  </button>
-                                ) : (
-                                  <span className="settings-inline-hint">{getModelLoadHint(editingPreset, editingPresetApiKeyInput)}</span>
-                                )}
-                              </div>
+                            <div className="settings-editor-row">
+                              <Label.Root className="settings-label type-field-label" htmlFor="preset-model">
+                                {t("settings.model")}
+                              </Label.Root>
 
                               <ModelCombobox
                                 id="preset-model"
@@ -1157,11 +1143,11 @@ export function SettingsDialogContent({
                             </div>
 
                             {providerUsesThinking(editingPreset.providerKind) ? (
-                              <div className="settings-item">
-                                <Label.Root className="settings-label type-field-label" htmlFor="preset-thinking">
-                                  {t("settings.thinking")}
-                                </Label.Root>
-                                <Select.Root
+                                <div className="settings-editor-row">
+                                  <Label.Root className="settings-label type-field-label" htmlFor="preset-thinking">
+                                    {t("settings.thinking")}
+                                  </Label.Root>
+                                  <Select.Root
                                   value={normalizeProviderReasoningMode(
                                     editingPreset.providerKind,
                                     editingPreset.thinking,
@@ -1219,9 +1205,9 @@ export function SettingsDialogContent({
                             ) : null}
 
                             {providerUsesReasoning(editingPreset.providerKind) ? (
-                              <div className="settings-item">
-                                <Label.Root className="settings-label type-field-label" htmlFor="preset-reasoning">
-                                  {t("settings.reasoning")}
+                                <div className="settings-editor-row">
+                                  <Label.Root className="settings-label type-field-label" htmlFor="preset-reasoning">
+                                    {t("settings.reasoning")}
                                 </Label.Root>
                                 <Select.Root
                                   value={normalizeProviderReasoningMode(
@@ -1273,26 +1259,43 @@ export function SettingsDialogContent({
                                 </Select.Root>
                               </div>
                             ) : null}
+                            </div>
 
                             <div className="settings-actions-row">
-                              <button
-                                className="btn btn-quiet-action"
+                              <ExpandableIconButton
+                                aria-label={t("settings.fetchModels")}
+                                className="settings-icon-button"
+                                disabled={!editingPresetCanLoadModels || Boolean(presetModelsLoadingById[editingPreset.id])}
+                                label={presetModelsLoadingById[editingPreset.id] ? t("settings.fetchingModels") : editingPresetModels.length > 0 ? t("settings.reloadModels") : t("settings.fetchModels")}
+                                labelDirection="left"
+                                onClick={() => {
+                                  void Promise.resolve(onFetchPresetModels(editingPreset.id)).catch(() => {});
+                                }}
+                                title={!editingPresetCanLoadModels ? getModelLoadHint(editingPreset, editingPresetApiKeyInput) : undefined}
+                              >
+                                <HandWithdraw size={16} weight="bold" />
+                              </ExpandableIconButton>
+                              <ExpandableIconButton
+                                aria-label={t("settings.testConnection")}
+                                className="settings-icon-button"
                                 disabled={presetTestRunningId === editingPreset.id || !editingPresetValidation?.isValid}
+                                label={presetTestRunningId === editingPreset.id ? t("settings.testingConnection") : t("settings.testConnection")}
+                                labelDirection="left"
                                 onClick={() => {
                                   void Promise.resolve(onTestPreset(editingPreset.id)).catch(() => {});
                                 }}
-                                type="button"
                               >
-                                {presetTestRunningId === editingPreset.id ? t("common.testing") : t("settings.testConnection")}
-                              </button>
-                              <button
-                                className="btn btn-quiet-action btn-danger-quiet"
+                                <Plugs size={16} weight="bold" />
+                              </ExpandableIconButton>
+                              <ExpandableIconButton
+                                aria-label={t("settings.deletePreset")}
+                                className="settings-icon-button settings-icon-button-danger"
+                                label={t("settings.deletePreset")}
+                                labelDirection="left"
                                 onClick={() => setPendingDeletePresetId(editingPreset.id)}
-                                type="button"
                               >
-                                <TrashSimple size={18} weight="regular" />
-                                {t("settings.deletePreset")}
-                              </button>
+                                <TrashSimple size={16} weight="bold" />
+                              </ExpandableIconButton>
                             </div>
 
                             {presetStatuses[editingPreset.id] && !presetStatuses[editingPreset.id]?.ok ? (
