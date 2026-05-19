@@ -2888,20 +2888,13 @@ body.is-resizing-split-y * {
 .settings-layout {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 30px;
 }
 
 .settings-block {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.settings-block:last-child {
-  padding-bottom: 0;
-  border-bottom: 0;
 }
 
 .settings-block-inline {
@@ -3160,25 +3153,12 @@ body.is-resizing-split-y * {
   justify-content: space-between;
   gap: 16px;
   padding: 10px 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-
-.settings-toggle-row-first {
-  border-top: 0;
-}
-
-.settings-toggle-row-bottom {
-  border-top: 0;
-}
-
-.settings-block-providers {
-  border-bottom: 0;
 }
 
 .settings-provider-toggle-group {
   display: flex;
   flex-direction: column;
+  gap: 30px;
 }
 
 .settings-toggle-copy {
@@ -3288,6 +3268,8 @@ body.is-resizing-split-y * {
 .settings-cache-list {
   display: flex;
   flex-direction: column;
+  gap: 30px;
+  padding-top: 30px;
 }
 
 .settings-cache-item {
@@ -3295,12 +3277,6 @@ body.is-resizing-split-y * {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.settings-cache-item:last-child {
-  border-bottom: 0;
 }
 
 .settings-cache-item-copy {
@@ -3330,12 +3306,21 @@ body.is-resizing-split-y * {
 .settings-preset-list {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--border);
+  gap: 16px;
+  padding: 0 60px;
+}
+
+.settings-preset-active-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+  position: absolute;
+  left: -26px;
+  top: 12px;
 }
 
 .settings-preset-item {
+  position: relative;
   width: 100%;
-  border-bottom: 1px solid var(--border);
   padding: 10px 0 10px 14px;
   background: transparent;
   color: var(--ink);
@@ -3350,7 +3335,7 @@ body.is-resizing-split-y * {
 
 .settings-preset-item.is-selected {
   background: transparent;
-  box-shadow: inset 2px 0 0 var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .settings-preset-item.is-expanded {

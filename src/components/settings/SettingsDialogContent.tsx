@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { CaretDown, CheckCircle, Flask, Plus, Question, Trash, TrashSimple, WarningCircle } from "@phosphor-icons/react";
+import { CaretDown, CheckCircle, CheckFat, Flask, Plus, Question, Trash, TrashSimple, WarningCircle } from "@phosphor-icons/react";
 import * as Label from "@radix-ui/react-label";
 import * as Popover from "@radix-ui/react-popover";
 import * as Select from "@radix-ui/react-select";
@@ -134,7 +134,8 @@ function getCacheLanguageLabel(languageCode: string) {
       .join(" ");
   }
 
-  return getLanguageLabel(languageCode) ?? languageCode;
+  const label = getLanguageLabel(languageCode) ?? languageCode;
+  return getLanguageSelfLabel({ code: languageCode, label });
 }
 
 function ProviderIcon({
@@ -869,6 +870,11 @@ export function SettingsDialogContent({
                           isEditing ? "is-expanded" : ""
                         } ${isActive ? "is-selected" : ""}`}
                       >
+                        {isActive ? (
+                          <span className="settings-preset-active-icon">
+                            <CheckFat size={16} weight="fill" />
+                          </span>
+                        ) : null}
                         <div className="settings-preset-row">
                           <button
                             className="settings-preset-main"
@@ -890,7 +896,7 @@ export function SettingsDialogContent({
                           >
                             <div className="settings-preset-copy">
                               <div className="settings-preset-title-row">
-                                <span className="settings-preset-label type-pane-title">{preset.label}</span>
+                              <span className="settings-preset-label type-pane-title">{preset.label}</span>
                                 {testStatus?.ok ? (
                                   <span
                                     aria-label={t("settings.presetTestPassed")}
@@ -1330,7 +1336,7 @@ export function SettingsDialogContent({
               )}
 
               <div className="settings-provider-toggle-group">
-                <div className="settings-toggle-row settings-toggle-row-first">
+                <div className="settings-toggle-row">
                 <div className="settings-toggle-copy">
                   <div className="settings-toggle-title-row">
                     <span className="settings-toggle-title">{t("settings.translateAllSlowMode")}</span>
@@ -1358,7 +1364,7 @@ export function SettingsDialogContent({
                 </button>
               </div>
 
-                <div className="settings-toggle-row settings-toggle-row-bottom">
+                <div className="settings-toggle-row">
                   <div className="settings-toggle-copy">
                     <div className="settings-toggle-title-row">
                       <span className="settings-toggle-title">{t("settings.autoFallback")}</span>
