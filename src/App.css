@@ -2919,10 +2919,6 @@ body.is-resizing-split-y * {
   max-height: min(480px, var(--radix-popover-content-available-height));
 }
 
-.language-combobox-content-shortlist {
-  max-height: min(480px, var(--radix-popover-content-available-height));
-}
-
 .language-combobox-content-common-list {
   max-height: min(420px, var(--radix-popover-content-available-height));
 }

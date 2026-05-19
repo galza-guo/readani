@@ -184,6 +184,9 @@ export function LanguageCombobox({
         <Popover.Content
           align="start"
           className={`language-combobox-content ${contentClassName ?? ""}`.trim()}
+          onWheel={(event) => {
+            event.stopPropagation();
+          }}
           onKeyDown={!searchable ? handleInputKeyDown : undefined}
           ref={contentRef}
           sideOffset={8}
