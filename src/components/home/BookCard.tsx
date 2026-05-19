@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as Progress from "@radix-ui/react-progress";
+import { Trash } from "@phosphor-icons/react";
 import type { RecentBook } from "../../types";
 import { t } from "../../lib/i18n";
 
@@ -28,15 +29,6 @@ function EpubIcon() {
       <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" fill="currentColor" opacity="0.15" />
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" stroke="currentColor" strokeWidth="1.5" fill="none" />
       <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" stroke="currentColor" strokeWidth="1.5" fill="none" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
     </svg>
   );
 }
@@ -109,7 +101,7 @@ export function BookCard({ book, onOpen, onRemove }: BookListItemProps) {
       <ContextMenu.Portal>
         <ContextMenu.Content className="context-menu">
           <ContextMenu.Item className="context-menu-item context-menu-item-danger" onSelect={handleRemove}>
-            <TrashIcon />
+            <Trash size={14} />
             <span>{t("home.removeFromRecent")}</span>
           </ContextMenu.Item>
         </ContextMenu.Content>

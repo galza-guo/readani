@@ -1,3 +1,4 @@
+import { BracketsAngle } from "@phosphor-icons/react";
 import openRouterLogo from "../../assets/provider-logos/openrouter.png";
 import deepSeekLogo from "../../assets/provider-logos/deepseek.png";
 import ollamaLogo from "../../assets/provider-logos/ollama.png";
@@ -33,27 +34,6 @@ const PROVIDER_LOGOS: Partial<Record<TranslationProviderKind, string>> = {
   bigmodel: bigModelLogo,
 };
 
-function CustomProviderIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={className}
-      fill="none"
-      focusable="false"
-      viewBox="0 0 24 24"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M5.5 8.5 3.9 12l1.6 3.5M18.5 8.5 20.1 12l-1.6 3.5M10.1 7l-2.2 10M13.9 7l2.2 10"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  );
-}
-
 function LogoImage({
   className,
   src,
@@ -79,5 +59,5 @@ export function ProviderBrandIcon({ providerKind, className }: ProviderBrandIcon
     return <LogoImage className={className} src={logo} />;
   }
 
-  return <CustomProviderIcon className={className} />;
+  return <BracketsAngle className={className} />;
 }

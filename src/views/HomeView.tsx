@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import * as ContextMenu from "@radix-ui/react-context-menu";
+import { BookOpen, Info, GearSix, Trash } from "@phosphor-icons/react";
 import { ExpandableIconButton } from "../components/reader/ExpandableIconButton";
 import { ThemeToggleButton } from "../components/ThemeToggleButton";
 import { UpdateActionButton } from "../components/UpdateActionButton";
@@ -22,25 +23,6 @@ type HomeViewProps = {
   onInstallUpdate?: () => void;
 };
 
-function AboutIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 10v6" strokeLinecap="round" />
-      <circle cx="12" cy="7" r="1" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function SettingsIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  );
-}
-
 function PdfIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -57,25 +39,6 @@ function EpubIcon() {
       <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" fill="#27ae60" opacity="0.15" />
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" stroke="#27ae60" strokeWidth="1.5" fill="none" />
       <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" stroke="#27ae60" strokeWidth="1.5" fill="none" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
-  );
-}
-
-function UploadIcon() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
     </svg>
   );
 }
@@ -163,7 +126,7 @@ export function HomeView({
               labelDirection="left"
               onClick={onOpenAbout}
             >
-              <AboutIcon />
+              <Info size={18} />
             </ExpandableIconButton>
             <ThemeToggleButton
               theme={theme}
@@ -178,7 +141,7 @@ export function HomeView({
               labelDirection="left"
               onClick={onOpenSettings}
             >
-              <SettingsIcon />
+              <GearSix size={18} />
             </ExpandableIconButton>
           </div>
           {showTranslationSetupCallout ? (
@@ -215,7 +178,7 @@ export function HomeView({
 
           {/* Drop zone */}
           <div className="home-dropzone" onClick={onOpenFile}>
-            <UploadIcon />
+            <BookOpen size={24} />
             <div className="home-dropzone-text">
               <span className="home-dropzone-title type-section-title">{t("home.openPdfOrEpub")}</span>
               <span className="home-dropzone-hint">{t("home.clickToBrowse")}</span>
@@ -254,14 +217,14 @@ export function HomeView({
                               title={t("home.removeFromRecent")}
                               type="button"
                             >
-                              <TrashIcon />
+                              <Trash size={14} />
                             </button>
                           </div>
                         </ContextMenu.Trigger>
                         <ContextMenu.Portal>
                           <ContextMenu.Content className="context-menu">
                             <ContextMenu.Item className="context-menu-item context-menu-item-danger" onSelect={() => handleRemove(book)}>
-                              <TrashIcon />
+                              <Trash size={14} />
                               <span>{t("home.remove")}</span>
                             </ContextMenu.Item>
                           </ContextMenu.Content>
