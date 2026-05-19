@@ -457,7 +457,6 @@ export function SettingsDialogContent({
     ? getPresetApiKeyFieldState({
         apiKeyConfigured: editingPreset.apiKeyConfigured,
         apiKeyInput: editingPresetApiKeyInput,
-        isEditing: apiKeyEditingPresetId === editingPreset.id,
       })
     : undefined;
   const editingPresetModels = editingPreset ? presetModels[editingPreset.id] ?? [] : [];
@@ -870,11 +869,9 @@ export function SettingsDialogContent({
                           isEditing ? "is-expanded" : ""
                         } ${isActive ? "is-selected" : ""}`}
                       >
-                        {isActive ? (
-                          <span className="settings-preset-active-icon">
-                            <CheckFat size={16} weight="fill" />
-                          </span>
-                        ) : null}
+                        <span className="settings-preset-active-icon">
+                          <CheckFat size={16} weight="fill" />
+                        </span>
                         <div className="settings-preset-row">
                           <button
                             className="settings-preset-main"
@@ -947,24 +944,21 @@ export function SettingsDialogContent({
                             {rowStatus ? (
                               <span className={rowStatus.className}>{rowStatus.label}</span>
                             ) : null}
-                            <button
+                            <ExpandableIconButton
                               aria-expanded={isEditing}
-                              aria-label={isEditing ? t("settings.collapseProvider") : t("settings.expandProvider")}
-                              className="btn btn-icon-only btn-quiet-action settings-preset-chevron-button"
+                              aria-label={isEditing ? t("common.collapse") : t("common.expand")}
+                              className="btn-quiet-action"
+                              expanded={isEditing}
+                              label={isEditing ? t("common.collapse") : t("common.expand")}
+                              labelDirection="left"
                               onClick={() => {
                                 void Promise.resolve(
                                   onEditingPresetChange(isEditing ? null : preset.id)
                                 ).catch(() => {});
                               }}
-                              type="button"
                             >
-                              <span
-                                aria-hidden="true"
-                                className={`settings-preset-chevron ${isEditing ? "is-open" : ""}`}
-                              >
-                                <CaretDown size={16} weight="bold" />
-                              </span>
-                            </button>
+                              <CaretDown size={16} weight="bold" />
+                            </ExpandableIconButton>
                           </div>
                         </div>
 
@@ -1046,14 +1040,12 @@ export function SettingsDialogContent({
 
                             {editingPresetShowsApiKeyField ? (
                               <div className="settings-item">
-                                <div className="settings-inline-row">
-                                  <Label.Root className="settings-label type-field-label" htmlFor="preset-api-key">
-                                    {t("settings.apiKey")}
-                                  </Label.Root>
-                                  {editingPreset.apiKeyConfigured && !editingPresetApiKeyInput.trim() ? (
-                                    <span className="settings-field-status status-ok">{t("settings.apiKeySaved")}</span>
-                                  ) : null}
-                                </div>
+                                <Label.Root
+                                  className="settings-label type-field-label"
+                                  htmlFor="preset-api-key"
+                                >
+                                  {t("settings.apiKey")}
+                                </Label.Root>
                                 <input
                                   id="preset-api-key"
                                   className={editingPresetApiKeyState?.showsSavedMask ? "input input-masked" : "input"}

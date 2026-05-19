@@ -3315,13 +3315,22 @@ body.is-resizing-split-y * {
   flex-shrink: 0;
   position: absolute;
   left: -26px;
-  top: 12px;
+  top: 16px;
+  opacity: 0;
+}
+
+.settings-preset-item:hover > .settings-preset-active-icon {
+  opacity: 0.3;
+}
+
+.settings-preset-item.is-selected > .settings-preset-active-icon {
+  opacity: 1;
 }
 
 .settings-preset-item {
   position: relative;
   width: 100%;
-  padding: 10px 0 10px 14px;
+  padding: 10px 14px;
   background: transparent;
   color: var(--ink);
   display: block;
@@ -3330,7 +3339,6 @@ body.is-resizing-split-y * {
 }
 
 .settings-preset-item:hover {
-  background: rgba(0, 0, 0, 0.015);
 }
 
 .settings-preset-item.is-selected {
@@ -3354,7 +3362,6 @@ body.is-resizing-split-y * {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
   border: 0;
   padding: 0;
   background: transparent;
@@ -3461,34 +3468,6 @@ body.is-resizing-split-y * {
 
 .settings-preset-status.is-fading {
   opacity: 0;
-}
-
-.settings-preset-chevron-button {
-  flex-shrink: 0;
-}
-
-.settings-preset-editor {
-  display: grid;
-  gap: 10px;
-  margin-top: 12px;
-  padding-top: 12px;
-  padding-left: 10px;
-}
-
-.settings-preset-chevron {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ink-muted);
-  flex-shrink: 0;
-  transition:
-    transform 0.18s ease,
-    color 0.18s ease;
-}
-
-.settings-preset-chevron.is-open {
-  transform: rotate(180deg);
-  color: var(--ink);
 }
 
 .settings-toolbar {
@@ -4347,7 +4326,8 @@ body.is-resizing-split-y * {
 
 .input-masked::placeholder {
   font-family: var(--font-mono);
-  letter-spacing: 0.12em;
+  letter-spacing: 0;
+  text-align: center;
 }
 
 /* Radix Tooltip Styles */
@@ -4664,10 +4644,13 @@ body.is-resizing-split-y * {
 }
 
 .expandable-icon-button:hover .expandable-icon-button__icon svg,
-.expandable-icon-button:focus-visible .expandable-icon-button__icon svg,
-.expandable-icon-button[data-expanded="true"] .expandable-icon-button__icon svg {
+.expandable-icon-button:focus-visible .expandable-icon-button__icon svg {
   opacity: 1;
   transform: scale(1.03);
+}
+
+.expandable-icon-button[data-expanded="true"] .expandable-icon-button__icon svg {
+  transform: rotate(180deg);
 }
 
 .update-action-button {
