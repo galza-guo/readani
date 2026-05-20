@@ -737,10 +737,6 @@ function AppContent() {
   );
 
   useEffect(() => {
-    sessionFallbackPresetIdRef.current = sessionFallbackPresetId;
-  }, [sessionFallbackPresetId]);
-
-  useEffect(() => {
     let isMounted = true;
     let unlistenProgress: (() => void) | undefined;
     let unlistenFailure: (() => void) | undefined;

@@ -123,6 +123,26 @@ export function useSettingsManager({ showToast }: UseSettingsManagerParams) {
   const presetSavePromisesRef = useRef<Record<string, Promise<void>>>({});
   const settingsPersistQueueRef = useRef<Promise<void>>(Promise.resolve());
 
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  useEffect(() => {
+    settingsDraftRef.current = settingsDraft;
+  }, [settingsDraft]);
+
+  useEffect(() => {
+    sessionFallbackPresetIdRef.current = sessionFallbackPresetId;
+  }, [sessionFallbackPresetId]);
+
+  useEffect(() => {
+    presetApiKeyDraftsRef.current = presetApiKeyDrafts;
+  }, [presetApiKeyDrafts]);
+
+  useEffect(() => {
+    presetSaveStatusByIdRef.current = presetSaveStatusById;
+  }, [presetSaveStatusById]);
+
   // Locale change listener
   useEffect(() => {
     const handleLanguageChange = () => {
