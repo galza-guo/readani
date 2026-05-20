@@ -280,12 +280,12 @@ function TranslationPresetControl({
           className="translation-pane-menu-item translation-pane-preset-trigger"
           type="button"
           disabled={!canSwitch}
-          aria-label="Switch provider or model"
+          aria-label={t("translation.switchPreset")}
           aria-expanded={open}
           title={
             canSwitch
-              ? "Switch provider or model"
-              : "Only one provider/model is configured"
+              ? t("translation.switchPreset")
+              : t("translation.onlyOnePresetConfigured")
           }
         >
           <span className="translation-pane-menu-item-text">
@@ -750,7 +750,7 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
             <div className="pdf-segment-translation">{translationText}</div>
             <div className="pdf-segment-row-actions">
               <button
-                className="pdf-segment-annotate-btn"
+                className="pdf-segment-action-btn pdf-segment-annotate-btn"
                 type="button"
                 tabIndex={showInlineActions ? 0 : -1}
                 onClick={(event) => {
@@ -763,14 +763,14 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
                 <AnnotateIcon />
               </button>
               <button
-                className="pdf-segment-copy-btn"
+                className="pdf-segment-action-btn pdf-segment-copy-btn"
                 type="button"
                 disabled={!canCopyTranslation}
                 tabIndex={showTranslationCopy ? 0 : -1}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onCopyText(para.translation?.trim() ?? "", "Translation");
-                }}
+                onCopyText(para.translation?.trim() ?? "", t("translation.labelTranslation"));
+              }}
                 title={t("translation.copyTranslation")}
                 aria-label={t("translation.copyTranslation")}
               >
@@ -801,7 +801,7 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
               <div className="pdf-segment-row-actions">
                 {!translationEnabled ? (
                   <button
-                    className="pdf-segment-annotate-btn"
+                    className="pdf-segment-action-btn pdf-segment-annotate-btn"
                     type="button"
                     tabIndex={showInlineActions ? 0 : -1}
                     onClick={(event) => {
@@ -815,16 +815,16 @@ const PdfSegmentCard = memo(function PdfSegmentCard({
                   </button>
                 ) : null}
                 <button
-                  className="pdf-segment-copy-btn"
+                  className="pdf-segment-action-btn pdf-segment-copy-btn"
                   type="button"
                   disabled={!canCopySource || !sourceVisible}
                   tabIndex={showSourceCopy ? 0 : -1}
                   onClick={(event) => {
                     event.stopPropagation();
-                    onCopyText(para.source, "Original text");
-                  }}
-                  title={t("translation.copyOriginalText")}
-                  aria-label={t("translation.copyOriginalText")}
+                  onCopyText(para.source, t("translation.labelOriginalText"));
+                }}
+                title={t("translation.copyOriginalText")}
+                aria-label={t("translation.copyOriginalText")}
                 >
                   <CopyIcon />
                 </button>
@@ -976,7 +976,7 @@ const ParagraphBlock = memo(function ParagraphBlock({
         </div>
         <div className="pdf-segment-row-actions">
           <button
-            className="pdf-segment-annotate-btn"
+            className="pdf-segment-action-btn pdf-segment-annotate-btn"
             type="button"
             tabIndex={showInlineActions ? 0 : -1}
             onClick={(event) => {
@@ -989,13 +989,13 @@ const ParagraphBlock = memo(function ParagraphBlock({
             <AnnotateIcon />
           </button>
           <button
-            className="pdf-segment-copy-btn"
+            className="pdf-segment-action-btn pdf-segment-copy-btn"
             type="button"
             disabled={!canCopySource}
             tabIndex={showSourceCopy ? 0 : -1}
             onClick={(event) => {
               event.stopPropagation();
-              onCopyText(para.source, "Original text");
+              onCopyText(para.source, t("translation.labelOriginalText"));
             }}
             title={t("translation.copyOriginalText")}
             aria-label={t("translation.copyOriginalText")}
@@ -1060,7 +1060,7 @@ const ParagraphBlock = memo(function ParagraphBlock({
           </div>
           <div className="pdf-segment-row-actions">
             <button
-              className="pdf-segment-annotate-btn"
+              className="pdf-segment-action-btn pdf-segment-annotate-btn"
               type="button"
               tabIndex={showInlineActions ? 0 : -1}
               onClick={(event) => {
@@ -1089,7 +1089,7 @@ const ParagraphBlock = memo(function ParagraphBlock({
           <div className="paragraph-translation">{translationText}</div>
           <div className="pdf-segment-row-actions">
             <button
-              className="pdf-segment-annotate-btn"
+              className="pdf-segment-action-btn pdf-segment-annotate-btn"
               type="button"
               tabIndex={showInlineActions ? 0 : -1}
               onClick={(event) => {
@@ -1102,22 +1102,22 @@ const ParagraphBlock = memo(function ParagraphBlock({
               <AnnotateIcon />
             </button>
             <button
-              className="pdf-segment-copy-btn"
+              className="pdf-segment-action-btn pdf-segment-copy-btn"
               type="button"
               disabled={!canCopyTranslation}
               tabIndex={showTranslationCopy ? 0 : -1}
               onClick={(event) => {
                 event.stopPropagation();
-                onCopyText(para.translation?.trim() ?? "", "Translation");
+                onCopyText(para.translation?.trim() ?? "", t("translation.labelTranslation"));
               }}
-              title={t("translation.copyTranslation")}
-              aria-label={t("translation.copyTranslation")}
-            >
-              <CopyIcon />
-            </button>
+                title={t("translation.copyTranslation")}
+                aria-label={t("translation.copyTranslation")}
+              >
+                <CopyIcon />
+              </button>
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
       {annotation ? (
         <AnnotationCommentRow
           annotation={annotation}
@@ -1348,8 +1348,8 @@ const TranslationProgressBar = memo(function TranslationProgressBar({
   );
 
   const tooltipContent = isDragging
-    ? `Page ${dragPage}`
-    : `${progressLabel} · Page ${hoverPage} of ${statusMap.length}`;
+    ? t("translation.pageNumberOfTotal", { page: String(dragPage), count: String(statusMap.length) })
+    : `${progressLabel} · ${t("translation.pageNumberOfTotal", { page: String(hoverPage), count: String(statusMap.length) })}`;
 
   const markerLeft = ((currentPage - 1) / statusMap.length) * 100;
 
@@ -1377,7 +1377,7 @@ const TranslationProgressBar = memo(function TranslationProgressBar({
       aria-valuemin={1}
       aria-valuemax={statusMap.length}
       aria-valuenow={currentPage}
-      aria-label={`Page navigation, page ${currentPage} of ${statusMap.length}`}
+      aria-label={t("translation.pageNavAriaLabel", { current: String(currentPage), count: String(statusMap.length) })}
     >
       {statusMap.map((status, index) => (
         <span
@@ -1459,7 +1459,7 @@ function TranslationPaneFooter({
           <TranslationProgressBar
             statusMap={statusMap}
             currentPage={currentPage}
-            progressLabel={progressLabel ?? "Page navigation"}
+            progressLabel={progressLabel ?? t("translation.pageNavigation")}
             isNeutral={!translationEnabled}
             onSeekPage={onSeekPage}
           />
@@ -1565,9 +1565,9 @@ function PdfTranslationPane({
     loadingMessage ??
     pageTranslation?.activityMessage ??
     (pageTranslation?.status === "queued"
-      ? "Queued for translation..."
+      ? t("translation.queuedForTranslation")
       : pageTranslation?.status === "loading"
-        ? "Translating this page..."
+        ? t("translation.translatingThisPage")
         : null);
   const translatableParagraphs = getTranslatablePdfParagraphs(page);
   const alignmentState = getPdfAlignmentState(page);
@@ -1775,21 +1775,21 @@ function PdfTranslationPane({
               type="button"
               onClick={() => handleCopySelected("translation")}
             >
-              translation
+              {t("translation.copyToolbarTranslation")}
             </button>
             <button
               className="pdf-selection-toolbar-btn"
               type="button"
               onClick={() => handleCopySelected("original")}
             >
-              original
+              {t("translation.copyToolbarOriginal")}
             </button>
             <button
               className="pdf-selection-toolbar-btn"
               type="button"
               onClick={() => handleCopySelected("both")}
             >
-              both
+              {t("translation.copyToolbarBoth")}
             </button>
           </div>
         ) : null}
@@ -1804,13 +1804,13 @@ function PdfTranslationPane({
               }
             }}
             title={
-              selectedPids.length > 0 ? "Highlight selected" : t("translation.annotationMode")
+              selectedPids.length > 0 ? t("translation.highlightSelected") : t("translation.annotationMode")
             }
             aria-label={
-              selectedPids.length > 0 ? "Highlight selected" : t("translation.annotationMode")
+              selectedPids.length > 0 ? t("translation.highlightSelected") : t("translation.annotationMode")
             }
             label={
-              selectedPids.length > 0 ? "Highlight selected" : t("translation.annotationMode")
+              selectedPids.length > 0 ? t("translation.highlightSelected") : t("translation.annotationMode")
             }
             labelDirection="left"
             expanded={annotationModeEnabled || selectedPids.length > 0}
@@ -1838,9 +1838,7 @@ function PdfTranslationPane({
         <div className="page-translation-shell">
           {pageTranslation?.status === "unavailable" ? (
             <div className="page-translation-empty">
-              This page does not contain any usable text yet. Please OCR it
-              first, then reopen it in{" "}
-              <span className="page-translation-empty-brand">readani</span>.
+              {t("translation.unavailablePageOcr")}
             </div>
           ) : !translationEnabled ? (
             translatableParagraphs.length > 0 ? (

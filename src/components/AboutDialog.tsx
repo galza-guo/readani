@@ -59,7 +59,7 @@ export function AboutDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="dialog-overlay" />
+        <Dialog.Overlay className="dialog-overlay app-scrim" />
         <Dialog.Content className="dialog-content dialog-content-about">
           <div className="about-dialog-header">
             <div className="about-dialog-hero-copy">

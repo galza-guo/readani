@@ -434,7 +434,7 @@ export function PdfViewer({
                 step={PDF_ZOOM_SLIDER_STEP}
                 value={sliderValue}
                 onChange={handleZoomSliderChange}
-                aria-label="PDF zoom"
+                aria-label={t("reader.pdfZoomSlider")}
               />
               <div className="pdf-zoom-readout">{displayedZoomPercent}%</div>
             </div>

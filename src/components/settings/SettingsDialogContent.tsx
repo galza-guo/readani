@@ -664,7 +664,7 @@ export function SettingsDialogContent({
 		<Tooltip.Provider delayDuration={250}>
 			<Tabs.Root className="settings-tabs" defaultValue="general">
 				<Tabs.List
-					aria-label="Settings sections"
+					aria-label={t("reader.settingsSections")}
 					className="panel-toggle-group settings-tabs-list"
 				>
 					<Tabs.Trigger
@@ -816,7 +816,7 @@ export function SettingsDialogContent({
 									{ACCENT_COLORS.map((color) => (
 										<button
 											key={color}
-											aria-label={color}
+											aria-label={t("reader.accentColorSwatch", { color })}
 											aria-pressed={settings.accentColor === color}
 											className={`accent-color-swatch ${settings.accentColor === color ? "is-active" : ""}`}
 											data-accent={color}
@@ -1836,7 +1836,7 @@ export function SettingsDialogContent({
 				}}
 			>
 				<Dialog.Portal>
-					<Dialog.Overlay className="dialog-overlay dialog-overlay--compact" />
+					<Dialog.Overlay className="dialog-overlay dialog-overlay--compact app-scrim" />
 					<Dialog.Content
 						className="dialog-content dialog-content--compact"
 						aria-describedby={undefined}

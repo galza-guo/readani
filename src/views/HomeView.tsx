@@ -169,10 +169,13 @@ export function HomeView({
             <span className="home-dropzone-shortcut">{t("home.shortcutHint")}</span>
           </div>
           {openingDocumentTitle ? (
-            <div className="home-opening-status" aria-live="polite" role="status">
-              <span className="home-opening-status-dot" aria-hidden="true" />
-              <span>{t("home.openingDocument", { title: openingDocumentTitle })}</span>
-            </div>
+            <>
+              <div className="home-opening-scrim app-scrim" aria-hidden="true" />
+              <div className="home-opening-status" aria-live="polite" role="status">
+                <span className="home-opening-status-dot" aria-hidden="true" />
+                <span>{t("home.openingDocument", { title: openingDocumentTitle })}</span>
+              </div>
+            </>
           ) : null}
           {/* Recent files */}
           {loading ? (

@@ -7213,11 +7213,11 @@ function AppContent() {
                 className="split-resize-handle"
                 role="separator"
                 aria-orientation="vertical"
-                aria-label={`Resize navigation and ${
-                  nextColumnAfterNavigation === "original"
+                aria-label={t("reader.resizeNavigationPanels", {
+                  next: nextColumnAfterNavigation === "original"
                     ? "original"
-                    : "right rail"
-                } panels`}
+                    : "right rail",
+                })}
                 data-dragging={
                   activeColumnResizeKey ===
                   `navigation:${nextColumnAfterNavigation}`

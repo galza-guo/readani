@@ -27,7 +27,7 @@ export function ConfirmationDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="dialog-overlay" />
+        <Dialog.Overlay className="dialog-overlay app-scrim" />
         <Dialog.Content className="dialog-content">
           <Dialog.Title className="dialog-title type-title-large">{title}</Dialog.Title>
           <Dialog.Description className="dialog-description type-meta">

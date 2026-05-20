@@ -785,10 +785,16 @@ body.is-resizing-split-y * {
 
 .document-page-label,
 .pdf-page-jump-label,
-.pdf-page-jump-total,
 .pdf-zoom-readout {
   font-size: var(--type-size-label);
   font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.pdf-page-jump-total {
+  font-size: var(--type-size-label);
+  font-weight: 400;
+  font-style: italic;
   color: var(--ink-muted);
 }
 
@@ -1744,48 +1750,7 @@ body.is-resizing-split-y * {
   overflow: hidden;
 }
 
-.pdf-segment-copy-btn {
-  width: 26px;
-  height: 26px;
-  border: none;
-  background: transparent;
-  color: var(--ink-subtle);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 2px;
-  flex: none;
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    color 0.15s ease,
-    opacity 0.15s ease;
-}
-
-.pdf-segment-row.is-copy-hovered .pdf-segment-copy-btn {
-  opacity: 0.62;
-  pointer-events: auto;
-}
-
-.pdf-segment-copy-btn:hover,
-.pdf-segment-copy-btn:focus-visible {
-  color: var(--ink);
-  opacity: 1;
-  outline: none;
-}
-
-.pdf-segment-copy-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.pdf-segment-copy-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.pdf-segment-annotate-btn {
+.pdf-segment-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1805,19 +1770,23 @@ body.is-resizing-split-y * {
     color 0.15s;
 }
 
-.pdf-segment-row.is-copy-hovered .pdf-segment-annotate-btn,
-.pdf-segment-annotate-btn:hover,
-.pdf-segment-annotate-btn:focus-visible {
+.pdf-segment-row.is-copy-hovered .pdf-segment-action-btn {
   opacity: 1;
 }
 
-.pdf-segment-annotate-btn:hover,
-.pdf-segment-annotate-btn:focus-visible {
+.pdf-segment-action-btn:hover,
+.pdf-segment-action-btn:focus-visible {
+  opacity: 1;
   background: var(--color-surface-hover, rgba(0, 0, 0, 0.06));
   color: var(--color-text-secondary, #555);
 }
 
-.pdf-segment-annotate-btn svg {
+.pdf-segment-action-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pdf-segment-action-btn svg {
   width: 14px;
   height: 14px;
 }
@@ -2799,13 +2768,17 @@ body.is-resizing-split-y * {
   z-index: 1002;
 }
 
+.app-scrim {
+  background: rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: overlayFadeIn 0.15s ease;
+}
+
 .dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
   z-index: 1000;
-  animation: overlayFadeIn 0.15s ease;
 }
 
 @keyframes overlayFadeIn {
@@ -5179,6 +5152,12 @@ body.is-resizing-split-y * {
 
 .home-dropzone:hover svg {
   color: var(--accent);
+}
+
+.home-opening-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
 }
 
 .home-opening-status {

@@ -22,7 +22,7 @@ export function SettingsDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="dialog-overlay" />
+        <Dialog.Overlay className="dialog-overlay app-scrim" />
         <Dialog.Content
           className="dialog-content dialog-content-settings"
           onOpenAutoFocus={(event) => {

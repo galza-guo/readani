@@ -159,8 +159,11 @@ describe("HomeView layout", () => {
   });
 
   test("shows an immediate opening affordance after a document is selected", () => {
+    const scrimRule = appCss.match(/\.app-scrim\s*\{([^}]*)\}/)?.[1] ?? "";
     const openingRule =
       appCss.match(/\.home-opening-status\s*\{([^}]*)\}/)?.[1] ?? "";
+    const openingScrimRule =
+      appCss.match(/\.home-opening-scrim\s*\{([^}]*)\}/)?.[1] ?? "";
     const html = renderToStaticMarkup(
       <HomeView
         onOpenBook={() => {}}
@@ -173,8 +176,13 @@ describe("HomeView layout", () => {
       />
     );
 
+    expect(html).toContain("home-opening-scrim app-scrim");
     expect(html).toContain("home-opening-status");
     expect(html).toContain("Opening Long PDF");
+    expect(scrimRule).toContain("backdrop-filter: blur(4px)");
+    expect(scrimRule).toContain("rgba(0, 0, 0, 0.18)");
+    expect(openingScrimRule).toContain("position: absolute");
+    expect(openingScrimRule).toContain("inset: 0");
     expect(openingRule).toContain("position: absolute");
     expect(openingRule).not.toContain("margin-top");
     expect(openingRule).not.toContain("align-self");

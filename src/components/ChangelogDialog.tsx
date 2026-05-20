@@ -189,7 +189,7 @@ export function ChangelogDialog({ open, onOpenChange }: ChangelogDialogProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="dialog-overlay dialog-overlay-changelog" />
+        <Dialog.Overlay className="dialog-overlay dialog-overlay-changelog app-scrim" />
         <Dialog.Content className="dialog-content dialog-content-changelog">
           <div className="changelog-dialog-header">
             <div className="changelog-dialog-hero-copy">
