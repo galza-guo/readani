@@ -53,7 +53,6 @@ import {
 } from "./lib/documentIdentity";
 import {
   inspectDocument,
-  loadPdfPageSize,
   releasePdfDocument,
   yieldToBrowserPaint,
   isStructurallySimilarRecentCandidate,
@@ -61,11 +60,8 @@ import {
   type DocumentInspection,
 } from "./lib/documentLoading";
 import { hashBuffer } from "./lib/hash";
-import { extractPageParagraphs } from "./lib/textExtraction";
 import { useAnnotations } from "./hooks/useAnnotations";
 import {
-  normalizePdfOutline,
-  resolvePdfDestinationPage,
   type PdfNavTab,
   type PdfOutlineLink,
   type PdfPageTurnDirection,
@@ -81,6 +77,7 @@ import {
 } from "./lib/epubPagination";
 import { useSettingsManager } from "./hooks/useSettingsManager";
 import { useTranslationQueue } from "./hooks/useTranslationQueue";
+import { loadPdfFromPath as loadPdfFromPathImpl, type LoadPdfContext } from "./lib/loadPdfDocument";
 import { usePdfExtractionCache } from "./hooks/usePdfExtractionCache";
 import { getDocumentProgressSnapshot } from "./lib/readingProgress";
 import { clampPdfManualScale, type PdfZoomMode } from "./lib/readerLayout";
@@ -89,20 +86,8 @@ import { getReaderStatusLabel } from "./lib/readerStatus";
 import { getPdfJsWorkerPort } from "./lib/pdfWorker";
 import { clampPage } from "./lib/pageQueue";
 import {
-  applyCachedPdfExtractionPages,
-  type CachedPdfExtractionPage,
-} from "./lib/pdfExtractionHydration";
-import {
-  buildPdfExtractionPlan,
-  chunkPageNumbers,
-  getPdfStartupHydrationPages,
-} from "./lib/pdfExtractionQueue";
-import {
-  createProgressivePdfPageSizes,
-  mergeProgressivePdfPageSize,
   type PdfPageSizeEntry,
 } from "./lib/pdfPageSizes";
-import { getErrorMessage } from "./lib/errorMessage";
 import { TRANSLATION_SETUP_REQUIRED_MESSAGE } from "./lib/providerErrors";
 import {
   getPresetById,
@@ -127,11 +112,6 @@ pdfjsLib.GlobalWorkerOptions.workerPort = getPdfJsWorkerPort();
 const ZOOM_LEVELS = [0.75, 1, 1.25, 1.5, 2];
 const PDF_KEYBOARD_ZOOM_STEP = 0.05;
 const PDF_EXTRACTION_HYDRATION_BATCH_SIZE = 24;
-
-type CachedPdfExtractionStatus = {
-  cachedPageCount: number;
-  isComplete: boolean;
-};
 
 type PendingReconnectResolution = {
   mode: "similar" | "different";
@@ -618,424 +598,85 @@ function AppContent() {
     !currentEpubPageHasTranslation;
   const dialogSettings = settingsDraft ?? settings;
 
+  const pdfLoadContext = useMemo<LoadPdfContext>(() => ({
+    pdfOutlineRequestIdRef,
+    pdfLoadRequestIdRef,
+    queuePdfExtractionCachePage,
+    flushPendingPdfExtractionCache,
+    resetTranslationQueueForNewDocument,
+    wordTranslationClearSelection: wordTranslationHook.handleClearSelectionTranslation,
+    wordTranslationClearWord: wordTranslationHook.handleClearWordTranslation,
+    setAppView,
+    setCurrentFilePath,
+    setCurrentFileType,
+    setEpubData,
+    setEpubToc,
+    setEpubCurrentChapter,
+    setPendingEpubNavigationHref,
+    setLoadingProgress,
+    setDocumentStatusMessage,
+    setTranslationStatusMessage,
+    setPdfDoc,
+    setPdfOutline,
+    setPages,
+    setPageTranslations,
+    setPageSizes,
+    setPdfZoomMode,
+    setPdfManualScale,
+    setResolvedPdfScale,
+    setPdfScrollAnchor,
+    setPendingEpubScroll,
+    setScrollToTranslationPage,
+    setHoverPid,
+    setActivePid,
+    setCurrentBookTitle,
+    setDocId,
+    setCurrentPage,
+    extractionCacheVersion: PDF_EXTRACTION_CACHE_VERSION,
+    hydrationBatchSize: PDF_EXTRACTION_HYDRATION_BATCH_SIZE,
+  }), [
+    pdfOutlineRequestIdRef,
+    pdfLoadRequestIdRef,
+    queuePdfExtractionCachePage,
+    flushPendingPdfExtractionCache,
+    resetTranslationQueueForNewDocument,
+    wordTranslationHook.handleClearSelectionTranslation,
+    wordTranslationHook.handleClearWordTranslation,
+    setAppView,
+    setCurrentFilePath,
+    setCurrentFileType,
+    setEpubData,
+    setEpubToc,
+    setEpubCurrentChapter,
+    setPendingEpubNavigationHref,
+    setLoadingProgress,
+    setDocumentStatusMessage,
+    setTranslationStatusMessage,
+    setPdfDoc,
+    setPdfOutline,
+    setPages,
+    setPageTranslations,
+    setPageSizes,
+    setPdfZoomMode,
+    setPdfManualScale,
+    setResolvedPdfScale,
+    setPdfScrollAnchor,
+    setPendingEpubScroll,
+    setScrollToTranslationPage,
+    setHoverPid,
+    setActivePid,
+    setCurrentBookTitle,
+    setDocId,
+    setCurrentPage,
+    PDF_EXTRACTION_CACHE_VERSION,
+    PDF_EXTRACTION_HYDRATION_BATCH_SIZE,
+  ]);
+
   const loadPdfFromPath = useCallback(
-    async (
-      filePath: string,
-      startPage?: number,
-      identity?: LoadDocumentIdentity,
-    ) => {
-      const outlineRequestId = ++pdfOutlineRequestIdRef.current;
-      const loadRequestId = ++pdfLoadRequestIdRef.current;
-      let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
-      let loadedDoc: PDFDocumentProxy | null = null;
-      let committedDoc = false;
-      let failedStage = "prepare PDF";
-      const isStaleLoad = () => pdfLoadRequestIdRef.current !== loadRequestId;
-
-      flushPendingPdfExtractionCache();
-      setAppView("reader");
-      setCurrentFilePath(filePath);
-      setCurrentFileType("pdf");
-      setEpubData(null);
-      setEpubToc([]);
-      setEpubCurrentChapter("");
-      setPendingEpubNavigationHref(null);
-      setLoadingProgress(0);
-      setDocumentStatusMessage(getReaderStatusLabel("loading-document"));
-      setTranslationStatusMessage(null);
-      setPdfDoc(null);
-      setPdfOutline([]);
-      setPages([]);
-      setPageTranslations({});
-      setPageSizes([]);
-      setPdfZoomMode("fit-width");
-      setPdfManualScale(1);
-      setResolvedPdfScale(1);
-      setPdfScrollAnchor("top");
-      setPendingEpubScroll(null);
-      setScrollToTranslationPage(null);
-      wordTranslationHook.handleClearSelectionTranslation();
-      wordTranslationHook.handleClearWordTranslation();
-      setHoverPid(null);
-      setActivePid(null);
-      resetTranslationQueueForNewDocument();
-      await yieldToBrowserPaint();
-
-      try {
-        failedStage = "read PDF file";
-        setLoadingProgress(5);
-        const bytes = await readDocumentBytes(filePath);
-        const buffer = bytes.buffer.slice(0);
-        const hash = await hashBuffer(buffer);
-        const resolvedIdentity = resolveLoadedDocumentIdentity({
-          hash,
-          filePath,
-          identity,
-        });
-        const nextDocId = resolvedIdentity.docId;
-
-        if (isStaleLoad()) {
-          return;
-        }
-
-        failedStage = "parse PDF";
-        setLoadingProgress(15);
-        loadingTask = pdfjsLib.getDocument({ data: bytes });
-        const doc = await loadingTask.promise;
-        loadedDoc = doc;
-
-        if (isStaleLoad()) {
-          return;
-        }
-
-        const initialCurrentPage = clampPage(startPage || 1, doc.numPages);
-
-        failedStage = "inspect opening PDF page";
-        setLoadingProgress(25);
-        const openingPageSize = await loadPdfPageSize(doc, initialCurrentPage);
-
-        if (isStaleLoad()) {
-          return;
-        }
-
-        const sizes = createProgressivePdfPageSizes({
-          totalPages: doc.numPages,
-          pageNumber: initialCurrentPage,
-          size: openingPageSize,
-        });
-        const initialPages: PageDoc[] = Array.from(
-          { length: doc.numPages },
-          (_, index) => ({
-            page: index + 1,
-            paragraphs: [],
-            isExtracted: false,
-          }),
-        );
-
-        // Extract filename and title from path
-        const fileName = getDocumentFileName(filePath);
-        const title = resolvedIdentity.title;
-        setCurrentBookTitle(title);
-
-        setPdfDoc(doc);
-        committedDoc = true;
-        void doc
-          .getOutline()
-          .then((outline) =>
-            normalizePdfOutline(outline as any, {
-              getPageNumberFromDest: (dest) =>
-                resolvePdfDestinationPage(dest, doc),
-            }),
-          )
-          .then((normalizedOutline) => {
-            if (pdfOutlineRequestIdRef.current !== outlineRequestId) {
-              return;
-            }
-            setPdfOutline(normalizedOutline);
-          })
-          .catch((error) => {
-            console.error("Failed to load PDF outline:", error);
-          });
-        setPageSizes(sizes);
-        setDocId(nextDocId);
-        setCurrentPage(initialCurrentPage);
-        setDocumentStatusMessage(getReaderStatusLabel("extracting-text"));
-        setPages(initialPages);
-
-        void invoke("add_recent_book", {
-          id: nextDocId,
-          filePath: filePath,
-          fileName: fileName,
-          fileType: "pdf",
-          title: title,
-          author: null,
-          coverImage: null,
-          totalPages: doc.numPages,
-        }).catch((error) => {
-          console.error("Failed to add to recent books:", error);
-        });
-
-        const remainingSizePages = buildPdfExtractionPlan({
-          totalPages: doc.numPages,
-          currentPage: initialCurrentPage,
-          extractedPages: [initialCurrentPage],
-        });
-
-        void (async () => {
-          for (const pageNumber of remainingSizePages) {
-            if (isStaleLoad()) {
-              return;
-            }
-
-            try {
-              const size = await loadPdfPageSize(doc, pageNumber);
-              if (isStaleLoad()) {
-                return;
-              }
-
-              setPageSizes((prev) =>
-                mergeProgressivePdfPageSize(prev, pageNumber, size),
-              );
-            } catch (error) {
-              console.error(`Failed to inspect PDF page ${pageNumber}:`, error);
-            }
-
-            await new Promise<void>((resolve) => {
-              window.setTimeout(resolve, 0);
-            });
-          }
-        })();
-
-        let cachedExtractionStatus: CachedPdfExtractionStatus | null = null;
-        try {
-          failedStage = "read extraction cache status";
-          cachedExtractionStatus = (await invoke(
-            "get_cached_pdf_extraction_status",
-            {
-              docId: nextDocId,
-              extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
-              totalPages: doc.numPages,
-            },
-          )) as CachedPdfExtractionStatus;
-        } catch (error) {
-          console.warn(
-            "Failed to read cached PDF extraction status, continuing without cache:",
-            error,
-          );
-        }
-
-        if (isStaleLoad()) {
-          return;
-        }
-
-        if (cachedExtractionStatus?.isComplete) {
-          try {
-            failedStage = "hydrate cached extraction pages";
-            const startupHydrationPages = getPdfStartupHydrationPages({
-              totalPages: doc.numPages,
-              currentPage: initialCurrentPage,
-              radius: 1,
-            });
-
-            const cachedExtractionPages = (await invoke(
-              "get_cached_pdf_extraction_pages",
-              {
-                docId: nextDocId,
-                extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
-                pages: startupHydrationPages,
-              },
-            )) as CachedPdfExtractionPage[];
-
-            if (isStaleLoad()) {
-              return;
-            }
-
-            setPages(
-              applyCachedPdfExtractionPages(initialPages, cachedExtractionPages),
-            );
-            setLoadingProgress(null);
-            setDocumentStatusMessage(null);
-
-            const hydratedPages = new Set(
-              cachedExtractionPages.map((page) => page.page),
-            );
-            const remainingPages = buildPdfExtractionPlan({
-              totalPages: doc.numPages,
-              currentPage: initialCurrentPage,
-              extractedPages: Array.from(hydratedPages),
-            });
-            const remainingPageBatches = chunkPageNumbers(
-              remainingPages,
-              PDF_EXTRACTION_HYDRATION_BATCH_SIZE,
-            );
-
-            void (async () => {
-              for (const batch of remainingPageBatches) {
-                if (isStaleLoad()) {
-                  return;
-                }
-
-                const nextBatch = (await invoke(
-                  "get_cached_pdf_extraction_pages",
-                  {
-                    docId: nextDocId,
-                    extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
-                    pages: batch,
-                  },
-                )) as CachedPdfExtractionPage[];
-
-                if (isStaleLoad()) {
-                  return;
-                }
-
-                setPages((prev) =>
-                  applyCachedPdfExtractionPages(prev, nextBatch),
-                );
-
-                await new Promise<void>((resolve) => {
-                  window.setTimeout(resolve, 0);
-                });
-              }
-            })().catch((error) => {
-              console.error("Failed to hydrate cached PDF extraction pages:", error);
-            });
-
-            return;
-          } catch (error) {
-            console.warn(
-              "Failed to hydrate cached PDF extraction pages, falling back to live extraction:",
-              error,
-            );
-            setPages(initialPages);
-            setDocumentStatusMessage(getReaderStatusLabel("extracting-text"));
-            setLoadingProgress(50);
-          }
-        }
-
-        const startupHydrationPages = getPdfStartupHydrationPages({
-          totalPages: doc.numPages,
-          currentPage: initialCurrentPage,
-          radius: 1,
-        });
-
-        let cachedExtractionPages: CachedPdfExtractionPage[] = [];
-        try {
-          failedStage = "read nearby extraction cache pages";
-          cachedExtractionPages = (await invoke(
-            "get_cached_pdf_extraction_pages",
-            {
-              docId: nextDocId,
-              extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
-              pages: startupHydrationPages,
-            },
-          )) as CachedPdfExtractionPage[];
-        } catch (error) {
-          console.warn(
-            "Failed to read nearby cached PDF extraction pages, continuing with live extraction:",
-            error,
-          );
-        }
-
-        if (isStaleLoad()) {
-          return;
-        }
-
-        const hydratedPages = applyCachedPdfExtractionPages(
-          initialPages,
-          cachedExtractionPages,
-        );
-        setPages(hydratedPages);
-
-        const extractedPages = hydratedPages
-          .filter((page) => page.isExtracted)
-          .map((page) => page.page);
-        const extractionPlan = buildPdfExtractionPlan({
-          totalPages: doc.numPages,
-          currentPage: initialCurrentPage,
-          extractedPages,
-        });
-
-        const extractAndCachePage = async (pageNumber: number) => {
-          const page = await doc.getPage(pageNumber);
-          try {
-            if (isStaleLoad()) {
-              return false;
-            }
-
-            failedStage = `extract text from page ${pageNumber}`;
-
-            const { paragraphs, watermarks } = await extractPageParagraphs(
-              page,
-              nextDocId,
-              pageNumber - 1,
-            );
-
-            if (isStaleLoad()) {
-              return false;
-            }
-
-            const extractedPage: CachedPdfExtractionPage = {
-              page: pageNumber,
-              paragraphs,
-              watermarks,
-            };
-
-            setPages((prev) =>
-              applyCachedPdfExtractionPages(prev, [extractedPage]),
-            );
-            queuePdfExtractionCachePage(nextDocId, extractedPage);
-
-            return true;
-          } catch (error) {
-            console.error(`Failed to extract PDF page ${pageNumber}:`, error);
-            return false;
-          } finally {
-            page.cleanup();
-          }
-        };
-
-        const currentPageAlreadyCached = extractedPages.includes(initialCurrentPage);
-        if (currentPageAlreadyCached) {
-          setLoadingProgress(null);
-          setDocumentStatusMessage(null);
-        } else {
-          await extractAndCachePage(initialCurrentPage);
-          if (isStaleLoad()) {
-            return;
-          }
-          setLoadingProgress(null);
-          setDocumentStatusMessage(null);
-        }
-
-        const remainingPages = extractionPlan.filter(
-          (pageNumber) => pageNumber !== initialCurrentPage,
-        );
-        void (async () => {
-          for (const pageNumber of remainingPages) {
-            if (isStaleLoad()) {
-              flushPendingPdfExtractionCache();
-              return;
-            }
-
-            await extractAndCachePage(pageNumber);
-            await new Promise<void>((resolve) => {
-              window.setTimeout(resolve, 0);
-            });
-          }
-
-          flushPendingPdfExtractionCache();
-        })();
-      } catch (error) {
-        if (isStaleLoad()) {
-          return;
-        }
-
-        const detail = getErrorMessage(error);
-        console.error(`Failed to load PDF during ${failedStage}:`, error);
-        setLoadingProgress(null);
-        setDocumentStatusMessage(
-          `Failed to load PDF during ${failedStage}: ${detail}`,
-        );
-      } finally {
-        if (!committedDoc) {
-          if (loadedDoc) {
-            releasePdfDocument(loadedDoc);
-          } else if (loadingTask) {
-            try {
-              loadingTask.destroy();
-            } catch {
-              // Ignore loading-task teardown failures during cancellation.
-            }
-          }
-        }
-      }
+    async (filePath: string, startPage?: number, identity?: LoadDocumentIdentity) => {
+      await loadPdfFromPathImpl(filePath, pdfLoadContext, startPage, identity);
     },
-    [
-      flushPendingPdfExtractionCache,
-      queuePdfExtractionCachePage,
-      releasePdfDocument,
-      resetTranslationQueueForNewDocument,
-    ],
+    [pdfLoadContext],
   );
 
   const loadEpubFromPath = useCallback(
