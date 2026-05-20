@@ -137,6 +137,12 @@ import {
   chunkPageNumbers,
   getPdfStartupHydrationPages,
 } from "./lib/pdfExtractionQueue";
+import {
+  createProgressivePdfPageSizes,
+  mergeProgressivePdfPageSize,
+  type PdfPageSize,
+  type PdfPageSizeEntry,
+} from "./lib/pdfPageSizes";
 import { getErrorMessage } from "./lib/errorMessage";
 import {
   getPdfBackgroundTranslationMessage,
@@ -312,6 +318,19 @@ async function inspectDocument(filePath: string): Promise<DocumentInspection> {
   }
 
   return inspectPdfDocument(filePath, bytes, docId);
+}
+
+async function loadPdfPageSize(
+  doc: PDFDocumentProxy,
+  pageNumber: number,
+): Promise<PdfPageSize> {
+  const page = await doc.getPage(pageNumber);
+  try {
+    const viewport = page.getViewport({ scale: 1 });
+    return { width: viewport.width, height: viewport.height };
+  } finally {
+    page.cleanup();
+  }
 }
 
 function isStructurallySimilarRecentCandidate(
@@ -584,9 +603,7 @@ function AppContent() {
   const [epubTotalPages, setEpubTotalPages] = useState<number>(1);
   const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
   const [pdfOutline, setPdfOutline] = useState<PdfOutlineLink[]>([]);
-  const [pageSizes, setPageSizes] = useState<
-    { width: number; height: number }[]
-  >([]);
+  const [pageSizes, setPageSizes] = useState<PdfPageSizeEntry[]>([]);
   const [pages, setPages] = useState<PageDoc[]>([]);
   const [pageTranslations, setPageTranslations] = useState<
     Record<number, PageTranslationState>
@@ -2410,54 +2427,34 @@ function AppContent() {
           return;
         }
 
-        failedStage = "inspect PDF pages";
-        setLoadingProgress(25);
-        const sizes: { width: number; height: number }[] = [];
-        for (let i = 1; i <= doc.numPages; i += 1) {
-          const page = await doc.getPage(i);
-          try {
-            if (isStaleLoad()) {
-              return;
-            }
+        const initialCurrentPage = clampPage(startPage || 1, doc.numPages);
 
-            const viewport = page.getViewport({ scale: 1 });
-            sizes.push({ width: viewport.width, height: viewport.height });
-            setLoadingProgress(25 + Math.round((i / doc.numPages) * 25));
-          } finally {
-            page.cleanup();
-          }
+        failedStage = "inspect opening PDF page";
+        setLoadingProgress(25);
+        const openingPageSize = await loadPdfPageSize(doc, initialCurrentPage);
+
+        if (isStaleLoad()) {
+          return;
         }
 
-        const initialPages: PageDoc[] = sizes.map((_, index) => ({
-          page: index + 1,
-          paragraphs: [],
-          isExtracted: false,
-        }));
+        const sizes = createProgressivePdfPageSizes({
+          totalPages: doc.numPages,
+          pageNumber: initialCurrentPage,
+          size: openingPageSize,
+        });
+        const initialPages: PageDoc[] = Array.from(
+          { length: doc.numPages },
+          (_, index) => ({
+            page: index + 1,
+            paragraphs: [],
+            isExtracted: false,
+          }),
+        );
 
         // Extract filename and title from path
         const fileName = getDocumentFileName(filePath);
         const title = resolvedIdentity.title;
         setCurrentBookTitle(title);
-
-        // Add to recent books
-        try {
-          await invoke("add_recent_book", {
-            id: nextDocId,
-            filePath: filePath,
-            fileName: fileName,
-            fileType: "pdf",
-            title: title,
-            author: null,
-            coverImage: null,
-            totalPages: doc.numPages,
-          });
-        } catch (error) {
-          console.error("Failed to add to recent books:", error);
-        }
-
-        if (isStaleLoad()) {
-          return;
-        }
 
         setPdfDoc(doc);
         committedDoc = true;
@@ -2480,10 +2477,53 @@ function AppContent() {
           });
         setPageSizes(sizes);
         setDocId(nextDocId);
-        const initialCurrentPage = clampPage(startPage || 1, doc.numPages);
         setCurrentPage(initialCurrentPage);
         setDocumentStatusMessage(getReaderStatusLabel("extracting-text"));
         setPages(initialPages);
+
+        void invoke("add_recent_book", {
+          id: nextDocId,
+          filePath: filePath,
+          fileName: fileName,
+          fileType: "pdf",
+          title: title,
+          author: null,
+          coverImage: null,
+          totalPages: doc.numPages,
+        }).catch((error) => {
+          console.error("Failed to add to recent books:", error);
+        });
+
+        const remainingSizePages = buildPdfExtractionPlan({
+          totalPages: doc.numPages,
+          currentPage: initialCurrentPage,
+          extractedPages: [initialCurrentPage],
+        });
+
+        void (async () => {
+          for (const pageNumber of remainingSizePages) {
+            if (isStaleLoad()) {
+              return;
+            }
+
+            try {
+              const size = await loadPdfPageSize(doc, pageNumber);
+              if (isStaleLoad()) {
+                return;
+              }
+
+              setPageSizes((prev) =>
+                mergeProgressivePdfPageSize(prev, pageNumber, size),
+              );
+            } catch (error) {
+              console.error(`Failed to inspect PDF page ${pageNumber}:`, error);
+            }
+
+            await new Promise<void>((resolve) => {
+              window.setTimeout(resolve, 0);
+            });
+          }
+        })();
 
         let cachedExtractionStatus: CachedPdfExtractionStatus | null = null;
         try {

@@ -2,6 +2,7 @@ import { t } from "../lib/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { Virtuoso } from "react-virtuoso";
+import type { PdfPageSize, PdfPageSizeEntry } from "../lib/pdfPageSizes";
 
 const THUMBNAIL_WIDTH = 132;
 const THUMBNAIL_CACHE_LIMIT = 48;
@@ -13,7 +14,7 @@ function isCancelledRenderError(error: unknown) {
 type PdfThumbnailListProps = {
   docId: string;
   pdfDoc: PDFDocumentProxy;
-  pageSizes: { width: number; height: number }[];
+  pageSizes: PdfPageSizeEntry[];
   currentPage: number;
   onNavigate: (page: number) => void;
 };
@@ -21,7 +22,7 @@ type PdfThumbnailListProps = {
 type PdfThumbnailItemProps = {
   pdfDoc: PDFDocumentProxy;
   pageNumber: number;
-  pageSize?: { width: number; height: number };
+  pageSize?: PdfPageSize;
   isActive: boolean;
   cachedThumbnail?: string;
   onThumbnailReady: (pageNumber: number, dataUrl: string) => void;
@@ -166,7 +167,7 @@ export function PdfThumbnailList({
             <PdfThumbnailItem
               pdfDoc={pdfDoc}
               pageNumber={pageNumber}
-              pageSize={pageSizes[pageNumber - 1]}
+              pageSize={pageSizes[pageNumber - 1] ?? undefined}
               isActive={pageNumber === currentPage}
               cachedThumbnail={thumbnailUrls[pageNumber]}
               onThumbnailReady={handleThumbnailReady}

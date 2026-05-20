@@ -24,6 +24,7 @@ import {
   resolvePdfScale,
   type PdfZoomMode,
 } from "../lib/readerLayout";
+import type { PdfPageSizeEntry } from "../lib/pdfPageSizes";
 import type { Paragraph } from "../types";
 import { DocumentStatusSurface } from "./document/DocumentStatusSurface";
 import { PdfPage } from "./PdfPage";
@@ -35,7 +36,7 @@ const PDF_ZOOM_SLIDER_STEP = 0.05;
 
 type PdfViewerProps = {
   pdfDoc: PDFDocumentProxy;
-  pageSizes: { width: number; height: number }[];
+  pageSizes: PdfPageSizeEntry[];
   currentPage: number;
   zoomMode: PdfZoomMode;
   manualScale: number;

@@ -4,12 +4,13 @@ import * as Tabs from "@radix-ui/react-tabs";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { PdfThumbnailList } from "./PdfThumbnailList";
 import type { PdfNavTab, PdfOutlineLink } from "../lib/pdfNavigation";
+import type { PdfPageSizeEntry } from "../lib/pdfPageSizes";
 import { t } from "../lib/i18n";
 
 type PdfNavigationSidebarProps = {
   docId: string;
   pdfDoc: PDFDocumentProxy;
-  pageSizes: { width: number; height: number }[];
+  pageSizes: PdfPageSizeEntry[];
   currentPage: number;
   outline: PdfOutlineLink[];
   activeTab: PdfNavTab;
