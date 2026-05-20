@@ -13,9 +13,6 @@ import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { NavItem } from "epubjs";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type Update } from "@tauri-apps/plugin-updater";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -41,6 +38,8 @@ import { PanelToggleGroup } from "./components/reader/PanelToggleGroup";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { ThemeToggleButton } from "./components/ThemeToggleButton";
 import { ToastProvider, useToast } from "./components/toast/ToastProvider";
+import { useAppUpdates } from "./hooks/useAppUpdates";
+import { useTheme } from "./hooks/useTheme";
 import { AnnotationsPanel } from "./components/AnnotationsPanel";
 import { HomeView } from "./views/HomeView";
 import {
@@ -154,7 +153,6 @@ import {
   getFriendlyProviderError,
   getTranslateAllSlowModeErrorAction,
 } from "./lib/providerErrors";
-import { READANI_RELEASES_URL } from "./lib/release";
 import {
   bumpRequestVersion,
   dequeueNextPage,
@@ -179,7 +177,6 @@ import {
   TRANSLATE_ALL_SLOW_MODE_PAUSE_MS,
 } from "./lib/translateAllSlowMode";
 import type {
-  AccentColor,
   BatchTranslationResult,
   BookTranslationPreference,
   FileType,
@@ -402,16 +399,6 @@ const FRONTEND_TIMEOUT_MS = 95_000;
 type AppView = "home" | "reader";
 const APP_WINDOW_TITLE = "readani";
 
-type UpdateCheckSource = "automatic" | "manual";
-
-type UpdateState =
-  | { phase: "idle" }
-  | { phase: "checking" }
-  | { phase: "downloading"; version: string }
-  | { phase: "ready"; version: string }
-  | { phase: "installing"; version: string }
-  | { phase: "error"; message: string };
-
 const PRESET_AUTOSAVE_DELAY_MS = 700;
 const FALLBACK_PROGRESS_EVENT = "translation-fallback-progress";
 const FALLBACK_FAILURE_EVENT = "translation-fallback-failure";
@@ -454,22 +441,6 @@ function getFriendlyPresetTestResult(
     message: friendlyError.message,
     detail: getProviderErrorDetail(rawError),
   };
-}
-
-function getUpdateErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  if (typeof error === "string") {
-    return error;
-  }
-
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return "Unknown error";
-  }
 }
 
 function invokeWithTimeout<T>(
@@ -743,11 +714,14 @@ function AppContent() {
   const [activeRailResizeKey, setActiveRailResizeKey] = useState<string | null>(
     null,
   );
-  const [updateState, setUpdateState] = useState<UpdateState>({
-    phase: "idle",
-  });
+  const {
+    showReadyUpdateAction,
+    aboutUpdateStatusMessage,
+    handleCheckForUpdates,
+    handleInstallUpdate,
+    handleOpenLatestRelease,
+  } = useAppUpdates(showToast);
 
-  // Annotation state
   const [annotations, setAnnotations] = useState<SentenceAnnotation[]>([]);
   const [annotationModeEnabled, setAnnotationModeEnabled] = useState(false);
   const [noteEditingAnnotationId, setNoteEditingAnnotationId] = useState<
@@ -818,8 +792,6 @@ function AppContent() {
   const pdfExtractionCacheFlushTimerRef = useRef<number | null>(null);
   const pdfExtractionCacheFlushQueueRef = useRef<Promise<void>>(Promise.resolve());
   const epubScrollRequestIdRef = useRef(0);
-  const autoUpdateCheckStartedRef = useRef(false);
-  const pendingUpdateRef = useRef<Update | null>(null);
   const readerShellRef = useRef<HTMLDivElement | null>(null);
   const readerHeaderRef = useRef<HTMLDivElement | null>(null);
   const columnRefs = useRef<Record<ReaderColumnKey, HTMLElement | null>>({
@@ -1145,147 +1117,6 @@ function AppContent() {
       unlistenFailure?.();
     };
   }, [showToast]);
-
-  const clearPendingUpdate = useCallback(() => {
-    const currentUpdate = pendingUpdateRef.current;
-    pendingUpdateRef.current = null;
-
-    if (currentUpdate) {
-      void currentUpdate.close().catch(() => {
-        // Ignore updater resource cleanup failures.
-      });
-    }
-  }, []);
-
-  const storePendingUpdate = useCallback((update: Update) => {
-    const previousUpdate = pendingUpdateRef.current;
-    pendingUpdateRef.current = update;
-
-    if (previousUpdate && previousUpdate !== update) {
-      void previousUpdate.close().catch(() => {
-        // Ignore updater resource cleanup failures.
-      });
-    }
-  }, []);
-
-  const handleCheckForUpdates = useCallback(
-    async (source: UpdateCheckSource) => {
-      if (updateState.phase === "checking") {
-        return;
-      }
-
-      if (updateState.phase === "downloading") {
-        if (source === "manual") {
-          showToast({ message: t("update.alreadyDownloading") });
-        }
-        return;
-      }
-
-      if (updateState.phase === "ready") {
-        if (source === "manual") {
-          showToast({
-            message: t("update.readyToInstall"),
-            tone: "success",
-          });
-        }
-        return;
-      }
-
-      if (updateState.phase === "installing") {
-        return;
-      }
-
-      setUpdateState({ phase: "checking" });
-
-      try {
-        const update = await check();
-
-        if (!update) {
-          clearPendingUpdate();
-          setUpdateState({ phase: "idle" });
-
-          if (source === "manual") {
-            showToast({
-              message: t("update.latestVersion"),
-              tone: "success",
-            });
-          }
-          return;
-        }
-
-        storePendingUpdate(update);
-        setUpdateState({ phase: "downloading", version: update.version });
-        showToast({ message: t("update.foundUpdate") });
-        await update.download();
-        setUpdateState({ phase: "ready", version: update.version });
-      } catch (error) {
-        clearPendingUpdate();
-        const message = getUpdateErrorMessage(error);
-        setUpdateState({ phase: "error", message });
-
-        if (source === "manual") {
-          showToast({
-            message: t("update.failedMessage", { message }),
-            tone: "error",
-            durationMs: 5200,
-          });
-        } else {
-          console.error("Background updater failed:", error);
-        }
-      }
-    },
-    [clearPendingUpdate, showToast, storePendingUpdate, updateState.phase],
-  );
-
-  const handleInstallUpdate = useCallback(async () => {
-    const update = pendingUpdateRef.current;
-
-    if (!update || updateState.phase !== "ready") {
-      return;
-    }
-
-    setUpdateState({ phase: "installing", version: update.version });
-
-    try {
-      await update.install();
-      await relaunch();
-    } catch (error) {
-      const message = getUpdateErrorMessage(error);
-      setUpdateState({ phase: "ready", version: update.version });
-      showToast({
-        message: t("update.failedMessage", { message }),
-        tone: "error",
-        durationMs: 5200,
-      });
-    }
-  }, [showToast, updateState.phase]);
-
-  const handleOpenLatestRelease = useCallback(async () => {
-    try {
-      await openUrl(READANI_RELEASES_URL);
-    } catch (error) {
-      showToast({
-        message: t("update.failedMessage", { message: getUpdateErrorMessage(error) }),
-        tone: "error",
-        durationMs: 5200,
-      });
-    }
-  }, [showToast]);
-
-  useEffect(() => {
-    if (autoUpdateCheckStartedRef.current) {
-      return;
-    }
-
-    autoUpdateCheckStartedRef.current = true;
-    void handleCheckForUpdates("automatic");
-  }, [handleCheckForUpdates]);
-
-  useEffect(() => {
-    return () => {
-      clearPendingUpdate();
-    };
-  }, [clearPendingUpdate]);
 
   const releasePdfDocument = useCallback((doc: PDFDocumentProxy | null) => {
     if (!doc) {
@@ -1697,25 +1528,6 @@ function AppContent() {
     translationProgress.isFullyTranslated,
   ]);
 
-  const showReadyUpdateAction = updateState.phase === "ready";
-
-  const aboutUpdateStatusMessage = useMemo(() => {
-    switch (updateState.phase) {
-      case "checking":
-        return t("update.checking");
-      case "downloading":
-        return t("update.downloadingVersion", { version: updateState.version });
-      case "ready":
-        return t("update.updateReady", { version: updateState.version });
-      case "installing":
-        return t("update.installingVersion", { version: updateState.version });
-      case "error":
-        return `Last update error: ${updateState.message}`;
-      default:
-        return null;
-    }
-  }, [updateState]);
-
   const currentPdfPagePayload = useMemo(() => {
     if (currentFileType !== "pdf" || pages.length === 0) {
       return null;
@@ -2056,78 +1868,7 @@ function AppContent() {
     persistPdfNavPrefs();
   }, [pdfNavTab, persistPdfNavPrefs]);
 
-  useEffect(() => {
-    const root = document.documentElement;
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-
-    const resolveTheme = () => {
-      const systemTheme = mediaQuery.matches ? "dark" : "light";
-      const resolved =
-        settings.theme === "system" ? systemTheme : settings.theme;
-      root.dataset.theme = resolved;
-      root.style.colorScheme = resolved;
-    };
-
-    resolveTheme();
-
-    if (settings.theme === "system") {
-      if (mediaQuery.addEventListener) {
-        mediaQuery.addEventListener("change", resolveTheme);
-        return () => mediaQuery.removeEventListener("change", resolveTheme);
-      }
-      mediaQuery.addListener(resolveTheme);
-      return () => mediaQuery.removeListener(resolveTheme);
-    }
-
-    return undefined;
-  }, [settings.theme]);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    const accent = settings.accentColor;
-    const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const isDark = settings.theme === "dark" || (settings.theme === "system" && systemDark);
-
-    const palette: Record<AccentColor, { light: [string, string, string, string, string, string, string]; dark: [string, string, string, string, string, string, string] }> = {
-      blue: {
-        light: ["#007aff", "#0066d6", "#0055b3", "rgba(0, 122, 255, 0.1)", "rgba(0, 122, 255, 0.12)", "rgba(0, 122, 255, 0.2)", "rgba(0, 122, 255, 0.06)"],
-        dark: ["#0a84ff", "#409cff", "#64b5ff", "rgba(10, 132, 255, 0.2)", "rgba(10, 132, 255, 0.15)", "rgba(10, 132, 255, 0.25)", "rgba(10, 132, 255, 0.12)"],
-      },
-      purple: {
-        light: ["#7c3aed", "#6d28d9", "#5b21b6", "rgba(124, 58, 237, 0.1)", "rgba(124, 58, 237, 0.12)", "rgba(124, 58, 237, 0.2)", "rgba(124, 58, 237, 0.06)"],
-        dark: ["#a78bfa", "#8b5cf6", "#7c3aed", "rgba(167, 139, 250, 0.2)", "rgba(167, 139, 250, 0.15)", "rgba(167, 139, 250, 0.25)", "rgba(167, 139, 250, 0.12)"],
-      },
-      pink: {
-        light: ["#ec4899", "#db2777", "#be185d", "rgba(236, 72, 153, 0.1)", "rgba(236, 72, 153, 0.12)", "rgba(236, 72, 153, 0.2)", "rgba(236, 72, 153, 0.06)"],
-        dark: ["#f472b6", "#ec4899", "#db2777", "rgba(244, 114, 182, 0.2)", "rgba(244, 114, 182, 0.15)", "rgba(244, 114, 182, 0.25)", "rgba(244, 114, 182, 0.12)"],
-      },
-      red: {
-        light: ["#ef4444", "#dc2626", "#b91c1c", "rgba(239, 68, 68, 0.1)", "rgba(239, 68, 68, 0.12)", "rgba(239, 68, 68, 0.2)", "rgba(239, 68, 68, 0.06)"],
-        dark: ["#f87171", "#ef4444", "#dc2626", "rgba(248, 113, 113, 0.2)", "rgba(248, 113, 113, 0.15)", "rgba(248, 113, 113, 0.25)", "rgba(248, 113, 113, 0.12)"],
-      },
-      orange: {
-        light: ["#f97316", "#ea580c", "#c2410c", "rgba(249, 115, 22, 0.1)", "rgba(249, 115, 22, 0.12)", "rgba(249, 115, 22, 0.2)", "rgba(249, 115, 22, 0.06)"],
-        dark: ["#fb923c", "#f97316", "#ea580c", "rgba(251, 146, 60, 0.2)", "rgba(251, 146, 60, 0.15)", "rgba(251, 146, 60, 0.25)", "rgba(251, 146, 60, 0.12)"],
-      },
-      green: {
-        light: ["#22c55e", "#16a34a", "#15803d", "rgba(34, 197, 94, 0.1)", "rgba(34, 197, 94, 0.12)", "rgba(34, 197, 94, 0.2)", "rgba(34, 197, 94, 0.06)"],
-        dark: ["#4ade80", "#22c55e", "#16a34a", "rgba(74, 222, 128, 0.2)", "rgba(74, 222, 128, 0.15)", "rgba(74, 222, 128, 0.25)", "rgba(74, 222, 128, 0.12)"],
-      },
-      teal: {
-        light: ["#14b8a6", "#0d9488", "#0f766e", "rgba(20, 184, 166, 0.1)", "rgba(20, 184, 166, 0.12)", "rgba(20, 184, 166, 0.2)", "rgba(20, 184, 166, 0.06)"],
-        dark: ["#2dd4bf", "#14b8a6", "#0d9488", "rgba(45, 212, 191, 0.2)", "rgba(45, 212, 191, 0.15)", "rgba(45, 212, 191, 0.25)", "rgba(45, 212, 191, 0.12)"],
-      },
-    };
-
-    const v = isDark ? palette[accent].dark : palette[accent].light;
-    root.style.setProperty("--accent", v[0]);
-    root.style.setProperty("--accent-hover", v[1]);
-    root.style.setProperty("--accent-strong", v[2]);
-    root.style.setProperty("--accent-muted", v[3]);
-    root.style.setProperty("--highlight", v[4]);
-    root.style.setProperty("--highlight-strong", v[5]);
-    root.style.setProperty("--sentence-active", v[6]);
-  }, [settings.accentColor, settings.theme]);
+  useTheme(settings.theme, settings.accentColor);
 
   useEffect(() => {
     const shell = readerShellRef.current;
