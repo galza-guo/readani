@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { hasPresetTranslationContext } from "../lib/appSettings";
@@ -331,20 +331,27 @@ export function useTranslationQueue(
 
   // --- Derived values from book preferences ---
 
-  const currentBookTranslationResolution =
-    resolveBookTranslationPreferenceLocal({
+  const currentBookTranslationResolution = useMemo(
+    () =>
+      resolveBookTranslationPreferenceLocal({
       docId,
       preferences: bookTranslationPreferences,
       defaultLanguage: settingsRef.current.defaultLanguage,
-    });
+      }),
+    [bookTranslationPreferences, docId, settingsRef.current.defaultLanguage],
+  );
   const currentBookTranslationPreference =
     currentBookTranslationResolution.preference;
   const translationEnabled = currentBookTranslationPreference.enabled;
   const currentTargetLanguage = currentBookTranslationPreference.targetLanguage;
-  const resolvedCurrentTargetLanguageLocal = resolveTargetLanguage(
-    currentTargetLanguage,
-    settingsRef.current.appLanguage,
-    systemLocale,
+  const resolvedCurrentTargetLanguageLocal = useMemo(
+    () =>
+      resolveTargetLanguage(
+        currentTargetLanguage,
+        settingsRef.current.appLanguage,
+        systemLocale,
+      ),
+    [currentTargetLanguage, settingsRef.current.appLanguage, systemLocale],
   );
 
   // --- Helper callbacks ---
@@ -550,25 +557,36 @@ export function useTranslationQueue(
 
   // --- Computed values ---
 
-  const pageTranslationProgress = getPageTranslationProgress({ pages });
+  const pageTranslationProgress = useMemo(
+    () => getPageTranslationProgress({ pages }),
+    [pages],
+  );
 
-  const pageProgressMap =
-    currentFileType === "pdf" && pages.length > 0
-      ? getPageProgressMap(pages, pageTranslations, {
-          foregroundQueue: foregroundPageTranslateQueueRef.current,
-          inFlightPage: pageTranslationInFlightPage,
-        })
-      : [];
+  const pageProgressMap = useMemo(
+    () =>
+      currentFileType === "pdf" && pages.length > 0
+        ? getPageProgressMap(pages, pageTranslations, {
+            foregroundQueue: foregroundPageTranslateQueueRef.current,
+            inFlightPage: pageTranslationInFlightPage,
+          })
+        : [],
+    [currentFileType, pageTranslationInFlightPage, pages, pageTranslations],
+  );
 
-  const epubSectionTranslationProgress =
-    getEpubSectionTranslationProgress(pages);
+  const epubSectionTranslationProgress = useMemo(
+    () => getEpubSectionTranslationProgress(pages),
+    [pages],
+  );
 
-  const translationProgress =
-    currentFileType === "pdf"
-      ? pageTranslationProgress
-      : epubSectionTranslationProgress;
+  const translationProgress = useMemo(
+    () =>
+      currentFileType === "pdf"
+        ? pageTranslationProgress
+        : epubSectionTranslationProgress,
+    [currentFileType, epubSectionTranslationProgress, pageTranslationProgress],
+  );
 
-  const translationProgressLabel = (() => {
+  const translationProgressLabel = useMemo(() => {
     if (!translationEnabled) {
       return null;
     }
@@ -589,9 +607,9 @@ export function useTranslationQueue(
       totalCount: String(translationProgress.totalCount),
       unitLabel: translationProgress.unitLabel,
     });
-  })();
+  }, [allPdfPagesExtracted, currentFileType, translationEnabled, translationProgress]);
 
-  const translateAllActionLabel = (() => {
+  const translateAllActionLabel = useMemo(() => {
     if (!translationEnabled) {
       return t("translation.progressTranslationOff");
     }
@@ -609,9 +627,15 @@ export function useTranslationQueue(
     }
 
     return getFullBookActionLabel(translationProgress);
-  })();
+  }, [
+    isTranslateAllRunning,
+    isTranslateAllStopRequested,
+    translateAllUsageLimitPaused,
+    translationEnabled,
+    translationProgress,
+  ]);
 
-  const translateAllProgressDetail = (() => {
+  const translateAllProgressDetail = useMemo(() => {
     if (!isTranslateAllRunning) {
       return {
         label: null,
@@ -715,21 +739,36 @@ export function useTranslationQueue(
         : t("translation.progressTranslatingSections"),
       state: "running" as const,
     };
-  })();
+  }, [
+    currentFileType,
+    isTranslateAllRunning,
+    isTranslateAllStopRequested,
+    pageTranslationInFlightPage,
+    translateAllUsageLimitPaused,
+    translateAllWaitState,
+    translateAllWaitTick,
+    translationProgress.isFullyTranslated,
+  ]);
 
   // --- PDF loading message ---
 
-  const currentPdfPagePayload =
-    currentFileType !== "pdf" || pages.length === 0
-      ? null
-      : buildPageTranslationPayload(pages, currentPage);
+  const currentPdfPagePayload = useMemo(
+    () =>
+      currentFileType !== "pdf" || pages.length === 0
+        ? null
+        : buildPageTranslationPayload(pages, currentPage),
+    [currentFileType, currentPage, pages],
+  );
 
   const currentPdfTranslation =
     currentFileType === "pdf" ? pageTranslations[currentPage] : undefined;
-  const currentPdfPageDoc =
-    currentFileType === "pdf"
-      ? pages.find((entry) => entry.page === currentPage)
-      : undefined;
+  const currentPdfPageDoc = useMemo(
+    () =>
+      currentFileType === "pdf"
+        ? pages.find((entry) => entry.page === currentPage)
+        : undefined,
+    [currentFileType, currentPage, pages],
+  );
 
   const showPdfSetupPrompt =
     settingsLoaded &&
@@ -744,24 +783,42 @@ export function useTranslationQueue(
     (currentPdfTranslation?.status === "setup-required" ||
       !activePresetHasTranslationContext);
 
-  const currentPdfLoadingMessage =
-    currentFileType !== "pdf"
-      ? null
-      : getPdfPageLoadingMessage({
-          currentPage,
-          currentPageDoc: currentPdfPageDoc,
-          currentPageTranslation: currentPdfTranslation,
-          inFlightPage: pageTranslationInFlightPage,
-        });
+  const currentPdfLoadingMessage = useMemo(
+    () =>
+      currentFileType !== "pdf"
+        ? null
+        : getPdfPageLoadingMessage({
+            currentPage,
+            currentPageDoc: currentPdfPageDoc,
+            currentPageTranslation: currentPdfTranslation,
+            inFlightPage: pageTranslationInFlightPage,
+          }),
+    [
+      currentFileType,
+      currentPage,
+      currentPdfPageDoc,
+      currentPdfTranslation,
+      pageTranslationInFlightPage,
+    ],
+  );
 
-  const pdfBackgroundTranslationMessage =
-    currentFileType === "pdf" && !currentPdfLoadingMessage
-      ? getPdfBackgroundTranslationMessage({
-          currentPage,
-          inFlightPage: pageTranslationInFlightPage,
-          isTranslateAllRunning,
-        })
-      : null;
+  const pdfBackgroundTranslationMessage = useMemo(() => {
+    if (currentFileType !== "pdf" || currentPdfLoadingMessage) {
+      return null;
+    }
+
+    return getPdfBackgroundTranslationMessage({
+      currentPage,
+      inFlightPage: pageTranslationInFlightPage,
+      isTranslateAllRunning,
+    });
+  }, [
+    currentFileType,
+    currentPage,
+    currentPdfLoadingMessage,
+    isTranslateAllRunning,
+    pageTranslationInFlightPage,
+  ]);
 
   const pdfProgressDetailLabel =
     translateAllProgressDetail.label ?? pdfBackgroundTranslationMessage;
