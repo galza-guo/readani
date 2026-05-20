@@ -41,7 +41,7 @@ describe("ExpandableIconButton", () => {
 
   test("hides the label without reserving space until hover or focus", () => {
     const buttonRule = appCss.match(/\.expandable-icon-button\s*\{([^}]*)\}/)?.[1] ?? "";
-    const labelRule = appCss.match(/\.expandable-icon-button__label\s*\{([^}]*)\}/)?.[1] ?? "";
+    const labelRule = appCss.match(/\n\.expandable-icon-button__label\s*\{([^}]*)\}/)?.[1] ?? "";
 
     expect(buttonRule).toContain("overflow: hidden");
     expect(buttonRule).toContain("min-width: 32px");

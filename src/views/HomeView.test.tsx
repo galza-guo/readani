@@ -66,7 +66,7 @@ describe("HomeView layout", () => {
     expect(fileNameRule).toContain("font-size: var(--type-size-label)");
     expect(fileNameRule).toContain("font-weight: 500");
 
-    expect(shortcutRule).toContain("font-size: 11px");
+    expect(shortcutRule).toContain("font-size: 13px");
     expect(shortcutRule).toContain("color: var(--ink-subtle)");
     expect(shortcutRule).not.toContain("background:");
     expect(shortcutRule).not.toContain("padding:");
@@ -156,5 +156,27 @@ describe("HomeView layout", () => {
 
     expect(html).toContain("Translation is not set up yet.");
     expect(html).toContain("Open Settings to add a provider.");
+  });
+
+  test("shows an immediate opening affordance after a document is selected", () => {
+    const openingRule =
+      appCss.match(/\.home-opening-status\s*\{([^}]*)\}/)?.[1] ?? "";
+    const html = renderToStaticMarkup(
+      <HomeView
+        onOpenBook={() => {}}
+        onOpenFile={() => {}}
+        onOpenAbout={() => {}}
+        onOpenSettings={() => {}}
+        openingDocumentTitle="Long PDF"
+        theme="system"
+        onThemeToggle={() => {}}
+      />
+    );
+
+    expect(html).toContain("home-opening-status");
+    expect(html).toContain("Opening Long PDF");
+    expect(openingRule).toContain("position: absolute");
+    expect(openingRule).not.toContain("margin-top");
+    expect(openingRule).not.toContain("align-self");
   });
 });

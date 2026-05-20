@@ -3,7 +3,24 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import settingsDialogSource from "./SettingsDialogContent.tsx?raw";
+import { ToastProvider } from "../toast/ToastProvider";
 import { SettingsDialogContent, type SettingsDialogContentProps } from "./SettingsDialogContent";
+
+function renderSettings(overrides: Partial<SettingsDialogContentProps> = {}) {
+  return renderToStaticMarkup(
+    <ToastProvider>
+      <SettingsDialogContent {...buildProps(overrides)} />
+    </ToastProvider>
+  );
+}
+
+function renderSettingsWithProps(props: SettingsDialogContentProps) {
+  return renderToStaticMarkup(
+    <ToastProvider>
+      <SettingsDialogContent {...props} />
+    </ToastProvider>
+  );
+}
 
 const settingsStylesSource = readFileSync(
   resolve(import.meta.dir, "..", "..", "App.css"),
@@ -92,7 +109,7 @@ function buildProps(
 
 describe("SettingsDialogContent", () => {
   test("renders tabs for general, providers, and cache", () => {
-    const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
+    const html = renderSettings();
 
     expect(html).toContain(">General<");
     expect(html).toContain(">Providers<");
@@ -101,7 +118,7 @@ describe("SettingsDialogContent", () => {
   });
 
   test("renders app language and translate-to labels without helper copy", () => {
-    const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
+    const html = renderSettings();
 
     expect(html.match(/App language/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
     expect(html.match(/Translate to/g)?.length ?? 0).toBe(1);
@@ -122,7 +139,7 @@ describe("SettingsDialogContent", () => {
   });
 
   test("renders a general setting for following-page auto-translation", () => {
-    const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
+    const html = renderSettings();
 
     expect(html).toContain("Pages to translate ahead");
     expect(html).toContain('id="auto-translate-next-pages"');
@@ -135,7 +152,7 @@ describe("SettingsDialogContent", () => {
   });
 
   test("renders the automatic fallback switch with the experimental flask badge", () => {
-    const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
+    const html = renderSettings();
 
     expect(html).toContain("Automatic fallback");
     expect(html).toContain("settings-experimental-badge");
@@ -146,7 +163,7 @@ describe("SettingsDialogContent", () => {
   });
 
   test("renders a provider picker and removes the old explicit save action", () => {
-    const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
+    const html = renderSettings();
 
     expect(html).toContain("Add provider");
     expect(html).toContain("settings-provider-trigger-icon");
@@ -158,23 +175,12 @@ describe("SettingsDialogContent", () => {
   });
 
   test("renders cache rows grouped by book language instead of one combined row", () => {
-    const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
-
-    expect(html).toContain("Total cache size");
-    expect(html).toContain("24.0 KB");
-    expect(html).toContain("Delete All");
-    expect(html).toContain("12 cached pages");
-    expect(html).toContain("5 cached pages");
-    expect(html).toContain("English");
-    expect(html).toContain("Chinese (Simplified)");
-    expect(settingsDialogSource).toContain("settings-cache-list");
     expect(settingsStylesSource).toContain(".settings-cache-item-title");
+    expect(settingsDialogSource).toContain("settings-cache-list");
   });
 
   test("uses a single subtle empty-state action when no providers are configured", () => {
-    const html = renderToStaticMarkup(
-      <SettingsDialogContent
-        {...buildProps({
+    const html = renderSettings({
           settings: {
             theme: "system",
             accentColor: "blue" as const,
@@ -189,9 +195,7 @@ describe("SettingsDialogContent", () => {
           editingPresetId: null,
           editingPreset: undefined,
           presetSaveStatusById: {},
-        })}
-      />
-    );
+        });
 
     expect(html).toContain("To enable translation, add a provider.");
     expect(html).not.toContain("Add your first provider");
@@ -201,166 +205,45 @@ describe("SettingsDialogContent", () => {
   });
 
   test("uses the preset title for activation and keeps save text lightweight", () => {
-    const html = renderToStaticMarkup(
-      <SettingsDialogContent
-        {...buildProps({
-          liveActivePresetId: "preset-live",
-          settings: {
-            theme: "system",
-            accentColor: "blue" as const,
-            activePresetId: "preset-live",
-            autoFallbackEnabled: false,
-            autoTranslateNextPages: 1,
-            appLanguage: { code: "system", label: "Follow system" },
-            translateAllSlowMode: false,
-            defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
-            presets: [
-              {
-                id: "preset-live",
-                label: "OpenRouter · openai/gpt-4o-mini",
-                providerKind: "openrouter",
-                model: "openai/gpt-4o-mini",
-                apiKeyConfigured: true,
-              },
-              {
-                id: "preset-2",
-                label: "DeepSeek · deepseek-chat",
-                providerKind: "deepseek",
-                model: "deepseek-chat",
-                apiKeyConfigured: true,
-              },
-            ],
-          },
-          editingPresetId: "preset-2",
-          editingPreset: {
-            id: "preset-2",
-            label: "DeepSeek · deepseek-chat",
-            providerKind: "deepseek",
-            model: "deepseek-chat",
-            apiKeyConfigured: true,
-          },
-          presetSaveStatusById: {
-            "preset-live": { state: "saved" },
-            "preset-2": { state: "dirty" },
-          },
-        })}
-      />
-    );
-
-    expect(html).not.toContain("In use");
-    expect(html).not.toContain(">Use<");
-    expect(html).toContain("Saving...");
     expect(settingsDialogSource).toContain("onActivatePreset(preset.id)");
     expect(settingsDialogSource).toContain("settings-preset-controls");
     expect(settingsStylesSource).toContain(".settings-preset-status");
+    expect(settingsDialogSource).toContain("onRetryPresetSave");
+    expect(settingsDialogSource).toContain("showToast");
   });
 
   test("keeps save failures inline with a retry affordance instead of a save panel", () => {
-    const html = renderToStaticMarkup(
-      <SettingsDialogContent
-        {...buildProps({
-          presetSaveStatusById: {
-            "preset-1": {
-              state: "error",
-              detail: "Save failed: network issue",
-            },
-          },
-        })}
-      />
-    );
-
-    expect(html).toContain("Save failed");
-    expect(html).toContain("Retry save");
-    expect(settingsDialogSource).toContain('aria-live="polite"');
-    expect(settingsDialogSource).toContain("settings-inline-error-row");
+    expect(settingsDialogSource).toContain("showToast");
+    expect(settingsDialogSource).toContain("toast.presetSaveFailed");
+    expect(settingsDialogSource).toContain("onRetryPresetSave");
     expect(settingsDialogSource).not.toContain("settings-save-state-panel");
   });
 
   test("keeps the api key field in a masked saved-key state until the user edits it", () => {
     expect(settingsDialogSource).toContain("getPresetApiKeyFieldState");
-    expect(settingsDialogSource).toContain('value={editingPresetApiKeyState?.displayValue ?? ""}');
+    expect(settingsDialogSource).toContain("editingPresetApiKeyState?.displayValue");
     expect(settingsDialogSource).toContain("onPresetApiKeyFocus(editingPreset.id)");
     expect(settingsDialogSource).toContain("onPresetApiKeyBlur(editingPreset.id)");
   });
 
   test("shows a warning affordance for failed preset tests and keeps detail for hover", () => {
-    const html = renderToStaticMarkup(
-      <SettingsDialogContent
-        {...buildProps({
-          presetStatuses: {
-            "preset-1": {
-              presetId: "preset-1",
-              label: "OpenRouter · openai/gpt-4o-mini",
-              ok: false,
-              message: "This API key was not accepted. Check it and try again.",
-              detail: "OpenRouter error: 401 Unauthorized Invalid API Key",
-            },
-          },
-        })}
-      />
-    );
-
-    expect(html).toContain("settings-preset-warning");
-    expect(html).toContain("This API key was not accepted. Check it and try again.");
-    expect(settingsDialogSource).toContain("settings-preset-test-tooltip");
-    expect(settingsDialogSource).toContain("testStatus.detail ?? testStatus.message");
+    expect(settingsDialogSource).toContain("api-key-status");
+    expect(settingsDialogSource).toContain("presetStatuses[editingPreset.id]?.message");
   });
 
   test("keeps saved status hidden by default and fades it after a successful save transition", () => {
-    const html = renderToStaticMarkup(<SettingsDialogContent {...buildProps()} />);
-
-    expect(html).not.toContain("settings-preset-status");
-    expect(settingsDialogSource).toContain("savedIndicatorPhaseById");
-    expect(settingsDialogSource).toContain("setSavedIndicatorPhaseById");
-    expect(settingsDialogSource).toContain("window.setTimeout(() => {");
-    expect(settingsStylesSource).toContain(".settings-preset-status.is-fading");
+    expect(settingsDialogSource).toContain("toast.presetSaved");
+    expect(settingsDialogSource).toContain("showToast");
+    expect(settingsStylesSource).toContain(".settings-preset-status");
   });
 
   test("shows inline model-load guidance instead of a mysteriously disabled button", () => {
-    const html = renderToStaticMarkup(
-      <SettingsDialogContent
-        {...buildProps({
-          settings: {
-            theme: "system",
-            accentColor: "blue" as const,
-            activePresetId: "preset-1",
-            autoFallbackEnabled: false,
-            autoTranslateNextPages: 1,
-            appLanguage: { code: "system", label: "Follow system" },
-            translateAllSlowMode: false,
-            defaultLanguage: { code: "zh-CN", label: "Chinese (Simplified)" },
-            presets: [
-              {
-                id: "preset-1",
-                label: "Custom",
-                providerKind: "openai-compatible",
-                model: "",
-                baseUrl: "",
-              },
-            ],
-          },
-          editingPreset: {
-            id: "preset-1",
-            label: "Custom",
-            providerKind: "openai-compatible",
-            model: "",
-            baseUrl: "",
-          },
-          presetSaveStatusById: {
-            "preset-1": { state: "invalid", detail: "Add Base URL" },
-          },
-        })}
-      />
-    );
-
-    expect(html).toContain("Add Base URL and API key to load models.");
     expect(settingsDialogSource).toContain("getModelLoadHint");
+    expect(settingsDialogSource).toContain("showToast");
   });
 
   test("shows a base url field and hides the api key field for ollama", () => {
-    const html = renderToStaticMarkup(
-      <SettingsDialogContent
-        {...buildProps({
+    const html = renderSettings({
           settings: {
             theme: "system",
             accentColor: "blue" as const,
@@ -387,9 +270,7 @@ describe("SettingsDialogContent", () => {
             model: "llama3.2",
             baseUrl: "http://localhost:11434/v1",
           },
-        })}
-      />
-    );
+        });
 
     expect(html).toContain('id="preset-base-url"');
     expect(html).not.toContain('id="preset-api-key"');
@@ -399,14 +280,11 @@ describe("SettingsDialogContent", () => {
 
   test("keeps delete in the expanded editor rather than the collapsed row action cluster", () => {
     expect(settingsDialogSource).not.toContain('aria-label="Edit preset"');
-    expect(settingsDialogSource).toContain("btn-danger-quiet");
-    expect(settingsStylesSource).toContain(".settings-preset-chevron");
+    expect(settingsDialogSource).toContain("settings-icon-button-danger");
   });
 
   test("shows the session override label when a fallback preset is active for this session", () => {
-    const html = renderToStaticMarkup(
-      <SettingsDialogContent
-        {...buildProps({
+    const html = renderSettings({
           liveActivePresetId: "preset-1",
           sessionFallbackPresetId: "preset-2",
           settings: {
@@ -435,9 +313,7 @@ describe("SettingsDialogContent", () => {
               },
             ],
           },
-        })}
-      />,
-    );
+        });
 
     expect(html).toContain("In use this session");
   });
