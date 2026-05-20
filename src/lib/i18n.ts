@@ -374,6 +374,7 @@ const EN_MESSAGES = {
   "translation.progressStoppingAfterBatch": "Stopping after current batch",
   "translation.progressRetranslatingSections": "Retranslating sections",
   "translation.progressTranslatingSections": "Translating sections",
+  "translation.progressCountOfTotal": "{translatedCount}/{totalCount} {unitLabel} translated",
   "toast.openSettings": "Open Settings",
   "update.alreadyDownloading": "Update is already downloading.",
   "update.checking": "Checking for updates.",

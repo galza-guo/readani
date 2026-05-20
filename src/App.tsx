@@ -1549,7 +1549,11 @@ function AppContent() {
       return t("translation.progressFullyTranslated");
     }
 
-    return `${translationProgress.translatedCount}/${translationProgress.totalCount} ${translationProgress.unitLabel} translated`;
+    return t("translation.progressCountOfTotal", {
+      translatedCount: String(translationProgress.translatedCount),
+      totalCount: String(translationProgress.totalCount),
+      unitLabel: translationProgress.unitLabel,
+    });
   }, [allPdfPagesExtracted, currentFileType, translationEnabled, translationProgress]);
 
   const translateAllActionLabel = useMemo(() => {
