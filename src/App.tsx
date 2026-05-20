@@ -333,6 +333,18 @@ async function loadPdfPageSize(
   }
 }
 
+async function yieldToBrowserPaint() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.setTimeout(resolve, 0);
+    });
+  });
+}
+
 function isStructurallySimilarRecentCandidate(
   book: RecentBook,
   candidate: DocumentInspection,
@@ -599,6 +611,9 @@ function AppContent() {
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
   const [currentBookTitle, setCurrentBookTitle] = useState<string | null>(null);
   const [currentFileType, setCurrentFileType] = useState<FileType>("pdf");
+  const [openingDocumentTitle, setOpeningDocumentTitle] = useState<string | null>(
+    null,
+  );
   const [epubData, setEpubData] = useState<Uint8Array | null>(null);
   const [epubTotalPages, setEpubTotalPages] = useState<number>(1);
   const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
@@ -2399,6 +2414,7 @@ function AppContent() {
       setPageTranslationInFlightPage(null);
       pdfTranslationSessionRef.current += 1;
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      await yieldToBrowserPaint();
 
       try {
         failedStage = "read PDF file";
@@ -2819,6 +2835,7 @@ function AppContent() {
       pageTranslatingRef.current = false;
       setPageTranslationInFlightPage(null);
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      await yieldToBrowserPaint();
 
       try {
         const bytes = await readDocumentBytes(filePath);
@@ -3106,16 +3123,26 @@ function AppContent() {
     const selection = await chooseDocumentPath();
     if (!selection) return;
 
+    setOpeningDocumentTitle(getDocumentTitleFromPath(selection));
+    await yieldToBrowserPaint();
+
     const ext = selection.split(".").pop()?.toLowerCase();
-    if (ext === "epub") {
-      await loadEpubFromPath(selection);
-    } else {
-      await loadPdfFromPath(selection);
+    try {
+      if (ext === "epub") {
+        await loadEpubFromPath(selection);
+      } else {
+        await loadPdfFromPath(selection);
+      }
+    } finally {
+      setOpeningDocumentTitle(null);
     }
   }, [chooseDocumentPath, loadPdfFromPath, loadEpubFromPath]);
 
   const handleOpenBook = useCallback(
     async (book: RecentBook) => {
+      setOpeningDocumentTitle(book.title);
+      await yieldToBrowserPaint();
+
       try {
         if (book.fileType === "epub") {
           await loadEpubFromPath(book.filePath, book.lastPage, {
@@ -3132,6 +3159,8 @@ function AppContent() {
       } catch (error) {
         console.warn("Recent book path could not be opened:", error);
         setMissingRecentBook(book);
+      } finally {
+        setOpeningDocumentTitle(null);
       }
     },
     [loadEpubFromPath, loadPdfFromPath],
@@ -7074,6 +7103,7 @@ function AppContent() {
         showUpdateAction={showReadyUpdateAction}
         theme={settings.theme}
         onThemeToggle={handleThemeToggle}
+        openingDocumentTitle={openingDocumentTitle}
       />
     ) : (
       <Tooltip.Provider delayDuration={300}>

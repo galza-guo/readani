@@ -1003,7 +1003,8 @@ body.is-resizing-split-y * {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .document-status-activity {
+  .document-status-activity,
+  .home-opening-status-dot {
     animation: none;
   }
 }
@@ -5043,6 +5044,7 @@ body.is-resizing-split-y * {
 
 /* Home View Styles */
 .home {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -5183,6 +5185,38 @@ body.is-resizing-split-y * {
 
 .home-dropzone:hover svg {
   color: var(--accent);
+}
+
+.home-opening-status {
+  position: absolute;
+  left: 50%;
+  top: min(430px, calc(50% + 72px));
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, calc(100% - 48px));
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--ink-muted);
+  box-shadow: var(--shadow);
+  font-size: var(--type-size-meta);
+  font-weight: 600;
+  line-height: 1.3;
+  pointer-events: none;
+}
+
+.home-opening-status-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: document-status-pulse 1.25s ease-out infinite;
 }
 
 .home-dropzone-text {

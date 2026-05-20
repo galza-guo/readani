@@ -121,6 +121,7 @@ const EN_MESSAGES = {
   "home.languageBarriersRemoved": "Language barriers removed.",
   "home.minutesAgo": "{count}m ago",
   "home.openPdfOrEpub": "Open PDF or EPUB",
+  "home.openingDocument": "Opening {title}",
   "home.openSettings": "Open Settings to add a provider.",
   "home.recent": "Recent",
   "home.remove": "Remove",

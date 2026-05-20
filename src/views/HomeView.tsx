@@ -22,6 +22,7 @@ type HomeViewProps = {
   onThemeToggle: () => void;
   showUpdateAction?: boolean;
   onInstallUpdate?: () => void;
+  openingDocumentTitle?: string | null;
 };
 
 function formatRelativeTime(dateString: string): string {
@@ -50,6 +51,7 @@ export function HomeView({
   onThemeToggle,
   showUpdateAction = false,
   onInstallUpdate,
+  openingDocumentTitle = null,
 }: HomeViewProps) {
   const [books, setBooks] = useState<RecentBook[]>([]);
   const [loading, setLoading] = useState(true);
@@ -166,6 +168,12 @@ export function HomeView({
             </div>
             <span className="home-dropzone-shortcut">{t("home.shortcutHint")}</span>
           </div>
+          {openingDocumentTitle ? (
+            <div className="home-opening-status" aria-live="polite" role="status">
+              <span className="home-opening-status-dot" aria-hidden="true" />
+              <span>{t("home.openingDocument", { title: openingDocumentTitle })}</span>
+            </div>
+          ) : null}
           {/* Recent files */}
           {loading ? (
             <div className="home-loading"><div className="home-spinner" /></div>
