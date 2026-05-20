@@ -1546,7 +1546,7 @@ function AppContent() {
     }
 
     if (translationProgress.isFullyTranslated) {
-      return "Fully translated";
+      return t("translation.progressFullyTranslated");
     }
 
     return `${translationProgress.translatedCount}/${translationProgress.totalCount} ${translationProgress.unitLabel} translated`;
@@ -1554,19 +1554,19 @@ function AppContent() {
 
   const translateAllActionLabel = useMemo(() => {
     if (!translationEnabled) {
-      return "Translation Off";
+      return t("translation.progressTranslationOff");
     }
 
     if (translateAllUsageLimitPaused) {
-      return "Continue";
+      return t("translation.progressContinue");
     }
 
     if (isTranslateAllStopRequested) {
-      return "Stopping...";
+      return t("translation.progressStopping");
     }
 
     if (isTranslateAllRunning) {
-      return "Stop Translating All";
+      return t("translation.progressStopTranslatingAll");
     }
 
     return getFullBookActionLabel(translationProgress);
@@ -1589,7 +1589,7 @@ function AppContent() {
     if (translateAllWaitState) {
       if (translateAllWaitState.kind === "usage-limit") {
         return {
-          label: "Paused — out of credits or quota.",
+          label: t("translation.progressPausedOutOfCredits"),
           state: "paused" as const,
         };
       }
@@ -1605,7 +1605,9 @@ function AppContent() {
 
       if (translateAllWaitState.kind === "slow-pause") {
         return {
-          label: `Slow mode pause. Continuing in ${remainingSeconds}s`,
+          label: t("translation.progressSlowModePause", {
+            remainingSeconds: String(remainingSeconds),
+          }),
           state: "waiting" as const,
         };
       }
@@ -1625,15 +1627,20 @@ function AppContent() {
       return {
         label:
           currentFileType === "pdf" && translateAllWaitState.page !== null
-            ? `Rate limit hit on page ${translateAllWaitState.page}. Retrying in ${remainingSeconds}s`
-            : `Rate limit hit. Retrying in ${remainingSeconds}s`,
+            ? t("translation.progressRateLimitHitPage", {
+                page: String(translateAllWaitState.page),
+                remainingSeconds: String(remainingSeconds),
+              })
+            : t("translation.progressRateLimitHit", {
+                remainingSeconds: String(remainingSeconds),
+              }),
         state: "waiting" as const,
       };
     }
 
     if (translateAllUsageLimitPaused) {
       return {
-        label: "Paused — out of credits or quota.",
+        label: t("translation.progressPausedOutOfCredits"),
         state: "paused" as const,
       };
     }
@@ -1643,8 +1650,10 @@ function AppContent() {
         return {
           label:
             pageTranslationInFlightPage !== null
-              ? `Stopping after page ${pageTranslationInFlightPage}`
-              : "Stopping",
+              ? t("translation.progressStoppingAfterPage", {
+                  page: String(pageTranslationInFlightPage),
+                })
+              : t("translation.progressStoppingSimple"),
           state: "stopping" as const,
         };
       }
@@ -1652,23 +1661,25 @@ function AppContent() {
       return {
         label:
           pageTranslationInFlightPage !== null
-            ? `Translating page ${pageTranslationInFlightPage}`
-            : "Preparing pages",
+            ? t("translation.progressTranslatingPage", {
+                page: String(pageTranslationInFlightPage),
+              })
+            : t("translation.progressPreparingPages"),
         state: "running" as const,
       };
     }
 
     if (isTranslateAllStopRequested) {
       return {
-        label: "Stopping after current batch",
+        label: t("translation.progressStoppingAfterBatch"),
         state: "stopping" as const,
       };
     }
 
     return {
       label: translationProgress.isFullyTranslated
-        ? "Retranslating sections"
-        : "Translating sections",
+        ? t("translation.progressRetranslatingSections")
+        : t("translation.progressTranslatingSections"),
       state: "running" as const,
     };
   }, [
@@ -3374,7 +3385,7 @@ function AppContent() {
   const showTranslationSetupToast = useCallback(() => {
     showToast({
       message: TRANSLATION_SETUP_REQUIRED_MESSAGE,
-      actionLabel: "Open Settings",
+      actionLabel: t("toast.openSettings"),
       onAction: handleOpenSettings,
       durationMs: 4200,
     });
