@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -43,24 +42,10 @@ import { useWordTranslation } from "./hooks/useWordTranslation";
 import { AnnotationsPanel } from "./components/AnnotationsPanel";
 import { HomeView } from "./views/HomeView";
 import {
-  canPersistPresetDraft,
-  createDefaultSettings,
-  createPresetDraft,
-  getActivePreset,
   resolveTargetLanguage,
   getDefaultModelForProvider,
-  getPresetMissingRequirement,
-  getPresetSaveStatus,
-  getNextThemeMode,
   getPresetValidationState,
   hasPresetTranslationContext,
-  hasUsableLiveTranslationSetup,
-  isPresetUnchangedFromSavedState,
-  normalizeSettingsFromStorage,
-  normalizePresetDraft,
-  providerUsesApiKey,
-  serializePresetForCommand,
-  serializeSettingsForCommand,
 } from "./lib/appSettings";
 import {
   resolveBookTranslationPreference,
@@ -72,9 +57,8 @@ import {
   type LoadDocumentIdentity,
 } from "./lib/documentIdentity";
 import { extractPageParagraphs } from "./lib/textExtraction";
-import { resolveAnnotations } from "./lib/annotationMatching";
-import type { ResolvedSentenceAnnotation } from "./lib/annotationMatching";
-import { hashBuffer, hashString } from "./lib/hash";
+import { hashBuffer } from "./lib/hash";
+import { useAnnotations } from "./hooks/useAnnotations";
 import {
   buildPdfPageTranslatedText,
   getTranslatablePdfParagraphs,
@@ -91,7 +75,7 @@ import {
   loadPdfNavigationPrefs,
   savePdfNavigationPrefs,
 } from "./lib/pdfNavigationPrefs";
-import { canListModels } from "./lib/providerForm";
+import { useSettingsManager } from "./hooks/useSettingsManager";
 import { getDocumentProgressSnapshot } from "./lib/readingProgress";
 import { clampPdfManualScale, type PdfZoomMode } from "./lib/readerLayout";
 import { formatPageCountLabel } from "./lib/pageCountLabel";
@@ -127,9 +111,17 @@ import {
 import {
   TRANSLATION_SETUP_REQUIRED_MESSAGE,
   getProviderErrorDetail,
-  getFriendlyProviderError,
   getTranslateAllSlowModeErrorAction,
 } from "./lib/providerErrors";
+import {
+  clearPageTranslationsForTargetLanguageChange,
+  getFallbackFailureStatusMessage,
+  getFriendlyFallbackError,
+  getPresetById,
+  invokeWithTimeout,
+  sanitizeEpubPagesForPresetChange,
+  sanitizePdfTranslationsForPresetChange,
+} from "./lib/translationHelpers";
 import {
   bumpRequestVersion,
   dequeueNextPage,
@@ -159,27 +151,16 @@ import type {
   FileType,
   PageDoc,
   PageTranslationState,
-  PresetSaveStatus,
-  PresetTestResult,
   RecentBook,
-  Rect,
   TranslationFallbackTrace,
-  TranslationCacheSummary,
-  TranslationPreset,
-  TranslationProviderKind,
-  SentenceAnnotation,
   TranslationSettings,
 } from "./types";
-import { setLocale, t } from "./lib/i18n";
+import { t } from "./lib/i18n";
 import "./lib/locales/index";
 import "./App.css";
 
 pdfjsLib.GlobalWorkerOptions.workerPort = getPdfJsWorkerPort();
 (window as any).pdfjsLib = pdfjsLib;
-
-const DEFAULT_SETTINGS: TranslationSettings = {
-  ...createDefaultSettings(),
-};
 
 const ZOOM_LEVELS = [0.75, 1, 1.25, 1.5, 2];
 const PDF_KEYBOARD_ZOOM_STEP = 0.05;
@@ -208,14 +189,6 @@ type PendingReconnectResolution = {
   book: RecentBook;
   candidate: DocumentInspection;
 };
-
-function getSystemLocalePreference() {
-  if (typeof navigator === "undefined") {
-    return "en";
-  }
-
-  return navigator.languages?.[0] ?? navigator.language ?? "en";
-}
 
 function getDocumentFileType(filePath: string): FileType {
   return filePath.split(".").pop()?.toLowerCase() === "epub" ? "epub" : "pdf";
@@ -372,7 +345,6 @@ const FRONTEND_TIMEOUT_MS = 95_000;
 type AppView = "home" | "reader";
 const APP_WINDOW_TITLE = "readani";
 
-const PRESET_AUTOSAVE_DELAY_MS = 700;
 const FALLBACK_PROGRESS_EVENT = "translation-fallback-progress";
 const FALLBACK_FAILURE_EVENT = "translation-fallback-failure";
 const BOOK_TRANSLATION_PREFS_STORAGE_KEY = "readani.bookTranslationPrefs.v1";
@@ -398,147 +370,6 @@ type FallbackRequestContext =
       kind: "epub-batch";
       requestId: number;
     };
-
-function getFriendlyPresetTestResult(
-  result: PresetTestResult,
-): PresetTestResult {
-  if (result.ok) {
-    return result;
-  }
-
-  const rawError = result.detail ?? result.message;
-  const friendlyError = getFriendlyProviderError(rawError);
-
-  return {
-    ...result,
-    message: friendlyError.message,
-    detail: getProviderErrorDetail(rawError),
-  };
-}
-
-function invokeWithTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  timeoutMessage: string,
-) {
-  let timeoutId: number | undefined;
-  const timeoutPromise = new Promise<T>((_, reject) => {
-    timeoutId = window.setTimeout(
-      () => reject(new Error(timeoutMessage)),
-      timeoutMs,
-    );
-  });
-
-  return Promise.race([promise, timeoutPromise]).finally(() => {
-    if (timeoutId !== undefined) {
-      window.clearTimeout(timeoutId);
-    }
-  });
-}
-
-function hasLoadedPdfTranslation(translation?: PageTranslationState) {
-  return Boolean(
-    translation?.status === "done" && translation.translatedText?.trim(),
-  );
-}
-
-function sanitizePdfTranslationsForPresetChange(
-  translations: Record<number, PageTranslationState>,
-) {
-  return Object.fromEntries(
-    Object.entries(translations).map(([page, translation]) => {
-      if (translation.status === "unavailable") {
-        return [page, translation];
-      }
-
-      if (hasLoadedPdfTranslation(translation)) {
-        return [
-          page,
-          {
-            ...translation,
-            status: "done" as const,
-            activityMessage: undefined,
-            error: undefined,
-          },
-        ];
-      }
-
-      return [
-        page,
-        {
-          ...translation,
-          status: "idle" as const,
-          activityMessage: undefined,
-          error: undefined,
-        },
-      ];
-    }),
-  ) as Record<number, PageTranslationState>;
-}
-
-function sanitizeEpubPagesForPresetChange(pages: PageDoc[]) {
-  return pages.map((page) => ({
-    ...page,
-    paragraphs: page.paragraphs.map((paragraph) => {
-      if (paragraph.status !== "loading") {
-        return paragraph;
-      }
-
-      return {
-        ...paragraph,
-        status: paragraph.translation?.trim()
-          ? ("done" as const)
-          : ("idle" as const),
-      };
-    }),
-  }));
-}
-
-function clearPageTranslationsForTargetLanguageChange(pages: PageDoc[]) {
-  return pages.map((page) => ({
-    ...page,
-    paragraphs: page.paragraphs.map((paragraph) => ({
-      ...paragraph,
-      translation: undefined,
-      status: "idle" as const,
-    })),
-  }));
-}
-
-function getPresetById(presets: TranslationPreset[], presetId?: string | null) {
-  if (!presetId) {
-    return null;
-  }
-
-  return presets.find((preset) => preset.id === presetId) ?? null;
-}
-
-function getFallbackAttemptSummary(trace?: TranslationFallbackTrace) {
-  if (!trace || trace.attemptCount <= 1) {
-    return undefined;
-  }
-
-  return `Tried ${trace.attemptCount} presets.`;
-}
-
-function getFriendlyFallbackError(
-  trace?: TranslationFallbackTrace,
-  error?: unknown,
-) {
-  return getFriendlyProviderError(trace?.lastError ?? error);
-}
-
-function getFallbackFailureStatusMessage(
-  trace?: TranslationFallbackTrace,
-  error?: unknown,
-) {
-  const summary = getFallbackAttemptSummary(trace);
-  const friendlyError = getFriendlyFallbackError(trace, error);
-
-  return summary
-    ? `${summary} ${friendlyError.message}`
-    : friendlyError.message;
-}
 
 export default function App() {
   return (
@@ -577,22 +408,66 @@ function AppContent() {
   const [pdfZoomMode, setPdfZoomMode] = useState<PdfZoomMode>("fit-width");
   const [pdfManualScale, setPdfManualScale] = useState<number>(1);
   const [resolvedPdfScale, setResolvedPdfScale] = useState<number>(1);
-  const [settings, setSettings] =
-    useState<TranslationSettings>(DEFAULT_SETTINGS);
-  const [systemLocale, setSystemLocale] = useState(() =>
-    getSystemLocalePreference(),
-  );
+  const sm = useSettingsManager({ showToast });
+  const {
+    settings,
+    settingsDraft,
+    settingsLoaded,
+    settingsOpen,
+    settingsCloseConfirmOpen,
+    setSettingsCloseConfirmOpen,
+    settingsClosePending,
+    sessionFallbackPresetId,
+    setSessionFallbackPresetId,
+    systemLocale,
+    translationCacheSummary,
+    translationCacheLoading,
+    translationCacheActionTarget,
+    editingPresetId,
+    apiKeyEditingPresetId,
+    setApiKeyEditingPresetId,
+    presetApiKeyDrafts,
+    presetStatuses,
+    presetSaveStatusById,
+    presetTestRunningId,
+    presetModelsLoadingById,
+    presetModels,
+    presetModelMessages,
+    testAllPresetsRunning,
+    effectivePreset,
+    activePresetHasTranslationContext,
+    activePresetHasLiveSetup,
+    settingsRef,
+    settingsDraftRef,
+    sessionFallbackPresetIdRef,
+    getEffectivePreset,
+    persistSettings,
+    updateSettingsDraftState,
+    handleThemeToggle,
+    handleOpenSettings,
+    handleSettingsOpenChange,
+    handleEditingPresetChange,
+    handleActivatePreset,
+    handleAddPreset,
+    handleDeletePreset,
+    handlePresetChange,
+    handlePresetApiKeyInputChange,
+    handlePresetApiKeyBlur,
+    flushPresetAutosave,
+    handleTestPreset,
+    handleTestAllPresets,
+    handleFetchPresetModels,
+    handleClearAllTranslationCache,
+    handleClearCachedBookTranslations,
+    discardUnsavedSettingsAndClose,
+    collectBlockingUnsavedPresetIds,
+    showTranslationSetupToast,
+  } = sm;
+
   const [bookTranslationPreferences, setBookTranslationPreferences] =
     useState<Record<string, BookTranslationPreference>>(() =>
       loadBookTranslationPreferences(),
     );
-  const [settingsDraft, setSettingsDraft] =
-    useState<TranslationSettings | null>(null);
-  const [, forceLocaleRender] = useState(0);
-  const [sessionFallbackPresetId, setSessionFallbackPresetId] = useState<
-    string | null
-  >(null);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [hoverPid, setHoverPid] = useState<string | null>(null);
   const [activePid, setActivePid] = useState<string | null>(null);
   const [documentStatusMessage, setDocumentStatusMessage] = useState<
@@ -602,49 +477,11 @@ function AppContent() {
     string | null
   >(null);
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [missingRecentBook, setMissingRecentBook] = useState<RecentBook | null>(
     null,
   );
   const [pendingReconnectResolution, setPendingReconnectResolution] =
     useState<PendingReconnectResolution | null>(null);
-  const [settingsCloseConfirmOpen, setSettingsCloseConfirmOpen] =
-    useState(false);
-  const [settingsClosePending, setSettingsClosePending] = useState(false);
-  const [translationCacheSummary, setTranslationCacheSummary] =
-    useState<TranslationCacheSummary | null>(null);
-  const [translationCacheLoading, setTranslationCacheLoading] = useState(false);
-  const [translationCacheActionTarget, setTranslationCacheActionTarget] =
-    useState<string | "all" | null>(null);
-  const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
-  const [apiKeyEditingPresetId, setApiKeyEditingPresetId] = useState<
-    string | null
-  >(null);
-  const [presetApiKeyDrafts, setPresetApiKeyDrafts] = useState<
-    Record<string, string>
-  >({});
-  const [presetStatuses, setPresetStatuses] = useState<
-    Record<string, PresetTestResult | undefined>
-  >({});
-  const [presetSaveStatusById, setPresetSaveStatusById] = useState<
-    Record<string, PresetSaveStatus>
-  >({});
-  const [presetTestRunningId, setPresetTestRunningId] = useState<string | null>(
-    null,
-  );
-  const [presetModelsLoadingById, setPresetModelsLoadingById] = useState<
-    Record<string, boolean>
-  >({});
-  const [presetModels, setPresetModels] = useState<Record<string, string[]>>(
-    {},
-  );
-  const [presetModelMessages, setPresetModelMessages] = useState<
-    Record<string, string | undefined>
-  >({});
-  const [presetModelAutoLoadAttempts, setPresetModelAutoLoadAttempts] =
-    useState<Record<string, boolean>>({});
-  const [testAllPresetsRunning, setTestAllPresetsRunning] =
-    useState<boolean>(false);
   const [scrollToTranslationPage, setScrollToTranslationPage] = useState<
     number | null
   >(null);
@@ -680,43 +517,41 @@ function AppContent() {
     handleOpenLatestRelease,
   } = useAppUpdates(showToast);
 
-  const [annotations, setAnnotations] = useState<SentenceAnnotation[]>([]);
-  const [annotationModeEnabled, setAnnotationModeEnabled] = useState(false);
-  const [noteEditingAnnotationId, setNoteEditingAnnotationId] = useState<
-    string | null
-  >(null);
-  const [pendingAnnotationDeletion, setPendingAnnotationDeletion] =
-    useState<SentenceAnnotation | null>(null);
-  const [annotationsPanelOpen, setAnnotationsPanelOpen] = useState(false);
+  const {
+    annotationModeEnabled,
+    setAnnotationModeEnabled,
+    noteEditingAnnotationId,
+    setNoteEditingAnnotationId,
+    pendingAnnotationDeletion,
+    setPendingAnnotationDeletion,
+    annotationsPanelOpen,
+    setAnnotationsPanelOpen,
+    resolvedAnnotations,
+    savedHighlightPids,
+    deleteSentenceAnnotation,
+    requestDeleteSentenceAnnotation,
+    ensureSentenceHighlight,
+    toggleSentenceHighlight,
+    highlightSelectedSentences,
+    saveSentenceNote,
+    resetAnnotationUi,
+  } = useAnnotations({ docId, pages, currentPage });
 
   const pagesRef = useRef<PageDoc[]>([]);
   const pageTranslationsRef = useRef<Record<number, PageTranslationState>>({});
-  const settingsRef = useRef(settings);
   const currentTargetLanguageRef = useRef(
     resolveTargetLanguage(
-      DEFAULT_SETTINGS.defaultLanguage,
-      DEFAULT_SETTINGS.appLanguage,
+      settings.defaultLanguage,
+      settings.appLanguage,
       systemLocale,
     ),
   );
   const translationEnabledRef = useRef(true);
-  const settingsDraftRef = useRef<TranslationSettings | null>(settingsDraft);
-  const sessionFallbackPresetIdRef = useRef<string | null>(
-    sessionFallbackPresetId,
-  );
-  const presetApiKeyDraftsRef =
-    useRef<Record<string, string>>(presetApiKeyDrafts);
-  const presetSaveStatusByIdRef =
-    useRef<Record<string, PresetSaveStatus>>(presetSaveStatusById);
   const docIdRef = useRef(docId);
   const epubViewerRef = useRef<EpubViewerHandle>(null);
   const translationRequestId = useRef(0);
   const translatingRef = useRef(false);
   const debounceRef = useRef<number | undefined>(undefined);
-  const presetAutosaveTimerRef = useRef<number | null>(null);
-  const presetAutosavePresetIdRef = useRef<string | null>(null);
-  const presetSavePromisesRef = useRef<Record<string, Promise<void>>>({});
-  const settingsPersistQueueRef = useRef<Promise<void>>(Promise.resolve());
   const translateQueueRef = useRef<string[]>([]);
   const forceFreshSentenceTranslationIdsRef = useRef<Set<string>>(new Set());
   const foregroundPageTranslateQueueRef = useRef<number[]>([]);
@@ -751,47 +586,6 @@ function AppContent() {
   const epubScrollRequestIdRef = useRef(0);
   const readerHeaderRef = useRef<HTMLDivElement | null>(null);
   const didMountPdfNavPrefsRef = useRef(false);
-  const resolvedAnnotationsRef = useRef<ResolvedSentenceAnnotation[]>([]);
-
-  useEffect(() => {
-    const handleLanguageChange = () => {
-      setSystemLocale(getSystemLocalePreference());
-    };
-
-    window.addEventListener("languagechange", handleLanguageChange);
-    return () => {
-      window.removeEventListener("languagechange", handleLanguageChange);
-    };
-  }, []);
-
-  const resolvedAnnotations = useMemo(
-    () => resolveAnnotations(annotations, pages),
-    [annotations, pages],
-  );
-
-  // Keep ref in sync
-  resolvedAnnotationsRef.current = resolvedAnnotations;
-
-  // Compute saved annotation pids for the current page (for PDF overlay)
-  const savedHighlightPids = useMemo(() => {
-    return resolvedAnnotations
-      .filter(
-        (a) =>
-          a.page === currentPage &&
-          a.resolvedStatus === "attached" &&
-          a.livePid,
-      )
-      .map((a) => a.livePid!);
-  }, [resolvedAnnotations, currentPage]);
-
-  const getEffectivePreset = useCallback(
-    (sourceSettings: TranslationSettings = settingsRef.current) =>
-      getPresetById(
-        sourceSettings.presets,
-        sessionFallbackPresetIdRef.current,
-      ) ?? getActivePreset(sourceSettings),
-    [],
-  );
 
   const showFallbackSuccessToast = useCallback(
     (trace: TranslationFallbackTrace) => {
@@ -882,14 +676,6 @@ function AppContent() {
     pageTranslationsRef.current = pageTranslations;
   }, [pageTranslations]);
 
-  useEffect(() => {
-    settingsRef.current = settings;
-  }, [settings]);
-
-  useEffect(() => {
-    settingsDraftRef.current = settingsDraft;
-  }, [settingsDraft]);
-
   const clearPdfExtractionCacheFlushTimer = useCallback(() => {
     if (pdfExtractionCacheFlushTimerRef.current !== null) {
       window.clearTimeout(pdfExtractionCacheFlushTimerRef.current);
@@ -953,14 +739,6 @@ function AppContent() {
   useEffect(() => {
     sessionFallbackPresetIdRef.current = sessionFallbackPresetId;
   }, [sessionFallbackPresetId]);
-
-  useEffect(() => {
-    presetApiKeyDraftsRef.current = presetApiKeyDrafts;
-  }, [presetApiKeyDrafts]);
-
-  useEffect(() => {
-    presetSaveStatusByIdRef.current = presetSaveStatusById;
-  }, [presetSaveStatusById]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1090,20 +868,6 @@ function AppContent() {
     docIdRef.current = docId;
   }, [docId]);
 
-  // Load annotations when docId changes
-  useEffect(() => {
-    if (!docId) {
-      setAnnotations([]);
-      return;
-    }
-    invoke("get_annotations", { docId })
-      .then((result) => {
-        setAnnotations(result as SentenceAnnotation[]);
-      })
-      .catch(() => {
-        setAnnotations([]);
-      });
-  }, [docId]);
 
   useEffect(() => {
     isTranslateAllRunningRef.current = isTranslateAllRunning;
@@ -1551,63 +1315,6 @@ function AppContent() {
       .catch((error) => console.error("Failed to update window title:", error));
   }, [appView, currentBookTitle]);
 
-  useEffect(() => {
-    invoke<TranslationSettings>("get_app_settings")
-      .then((loadedSettings) => {
-        const normalizedSettings = normalizeSettingsFromStorage(
-          loadedSettings,
-          getSystemLocalePreference(),
-        );
-        setSettings(normalizedSettings);
-        setSettingsLoaded(true);
-      })
-      .catch((error) => {
-        console.error("Failed to load app settings:", error);
-        setSettingsLoaded(true);
-      });
-  }, []);
-
-  const effectiveAppLanguage = settingsDraft?.appLanguage ?? settings.appLanguage;
-
-  // Sync appLanguage → i18n locale, including live preview while Settings is open.
-  useLayoutEffect(() => {
-    const appCode = effectiveAppLanguage.code;
-    if (appCode === "system" || appCode === "app-language") {
-      setLocale(systemLocale || "en");
-    } else {
-      setLocale(appCode);
-    }
-
-    forceLocaleRender((version) => version + 1);
-  }, [effectiveAppLanguage.code, systemLocale]);
-
-  useEffect(() => {
-    if (
-      sessionFallbackPresetId &&
-      !getPresetById(settings.presets, sessionFallbackPresetId)
-    ) {
-      setSessionFallbackPresetId(null);
-    }
-  }, [sessionFallbackPresetId, settings.presets]);
-
-  const savedActivePreset = useMemo(
-    () => getActivePreset(settings),
-    [settings],
-  );
-  const effectivePreset = useMemo(
-    () =>
-      getPresetById(settings.presets, sessionFallbackPresetId) ??
-      savedActivePreset,
-    [savedActivePreset, sessionFallbackPresetId, settings.presets],
-  );
-  const activePresetHasTranslationContext = useMemo(
-    () => hasPresetTranslationContext(effectivePreset),
-    [effectivePreset],
-  );
-  const activePresetHasLiveSetup = useMemo(
-    () => hasUsableLiveTranslationSetup(effectivePreset),
-    [effectivePreset],
-  );
   const currentPdfTranslation =
     currentFileType === "pdf" ? pageTranslations[currentPage] : undefined;
   const currentPdfPageDoc =
@@ -1686,66 +1393,6 @@ function AppContent() {
     translationStatusMessage === TRANSLATION_SETUP_REQUIRED_MESSAGE &&
     !currentEpubPageHasTranslation;
   const dialogSettings = settingsDraft ?? settings;
-
-  const buildPersistableSettings = useCallback(
-    (nextSettings: TranslationSettings) =>
-      serializeSettingsForCommand({
-        ...nextSettings,
-        presets: nextSettings.presets.map((preset) => {
-          const draftApiKey = presetApiKeyDraftsRef.current[preset.id]?.trim();
-          return draftApiKey && providerUsesApiKey(preset.providerKind)
-            ? { ...preset, apiKey: draftApiKey }
-            : preset;
-        }),
-      }),
-    [],
-  );
-
-  const persistSettings = useCallback(
-    async (nextSettings: TranslationSettings) => {
-      const runPersist = async () => {
-        const saved = (await invoke("save_app_settings", {
-          settings: buildPersistableSettings(nextSettings),
-        })) as TranslationSettings;
-        const normalizedSettings = normalizeSettingsFromStorage(
-          saved,
-          systemLocale,
-        );
-        setSettings(normalizedSettings);
-        return normalizedSettings;
-      };
-
-      const queuedPersist = settingsPersistQueueRef.current.then(
-        runPersist,
-        runPersist,
-      );
-      settingsPersistQueueRef.current = queuedPersist.then(
-        () => undefined,
-        () => undefined,
-      );
-
-      return queuedPersist;
-    },
-    [buildPersistableSettings],
-  );
-
-  const getPresetDraft = useCallback((preset: TranslationPreset) => {
-    const draftApiKey = presetApiKeyDraftsRef.current[preset.id]?.trim();
-    return serializePresetForCommand(
-      draftApiKey && providerUsesApiKey(preset.providerKind)
-        ? { ...preset, apiKey: draftApiKey }
-        : preset,
-    );
-  }, []);
-
-  const handleThemeToggle = useCallback(() => {
-    const nextSettings = {
-      ...settings,
-      theme: getNextThemeMode(settings.theme),
-    };
-    setSettings(nextSettings);
-    void persistSettings(nextSettings);
-  }, [persistSettings, settings]);
 
   const loadPdfFromPath = useCallback(
     async (
@@ -2599,17 +2246,14 @@ function AppContent() {
     pageTranslationInFlightRef.current = null;
     pageTranslatingRef.current = false;
     setPageTranslationInFlightPage(null);
-    // Clear annotation UI when switching documents
-    setNoteEditingAnnotationId(null);
-    setPendingAnnotationDeletion(null);
-    setAnnotationModeEnabled(false);
-    setAnnotationsPanelOpen(false);
+    resetAnnotationUi();
   }, [
     currentPage,
     docId,
     epubTotalPages,
     flushPendingPdfExtractionCache,
     pdfDoc,
+    resetAnnotationUi,
     resetTranslateAllSlowModeRuntime,
   ]);
 
@@ -2634,793 +2278,6 @@ function AppContent() {
       .join("\n\n");
   }, [pages, currentPage]);
 
-  const updateSettingsDraftState = useCallback(
-    (nextSettings: TranslationSettings | null) => {
-      settingsDraftRef.current = nextSettings;
-      setSettingsDraft(nextSettings);
-    },
-    [],
-  );
-
-  const updatePresetSaveStatus = useCallback(
-    (presetId: string, status: PresetSaveStatus) => {
-      setPresetSaveStatusById((prev) => {
-        const next = {
-          ...prev,
-          [presetId]: status,
-        };
-        presetSaveStatusByIdRef.current = next;
-        return next;
-      });
-    },
-    [],
-  );
-
-  const clearPresetSaveStatus = useCallback((presetId: string) => {
-    setPresetSaveStatusById((prev) => {
-      const { [presetId]: _removed, ...rest } = prev;
-      presetSaveStatusByIdRef.current = rest;
-      return rest;
-    });
-  }, []);
-
-  const buildInitialPresetSaveStatuses = useCallback(
-    (sourceSettings: TranslationSettings) => {
-      return Object.fromEntries(
-        sourceSettings.presets.map((preset) => [
-          preset.id,
-          getPresetSaveStatus(preset, ""),
-        ]),
-      );
-    },
-    [],
-  );
-
-  const clearPendingPresetAutosave = useCallback(() => {
-    if (presetAutosaveTimerRef.current !== null) {
-      window.clearTimeout(presetAutosaveTimerRef.current);
-      presetAutosaveTimerRef.current = null;
-    }
-    presetAutosavePresetIdRef.current = null;
-  }, []);
-
-  const resetSettingsDialogState = useCallback(() => {
-    clearPendingPresetAutosave();
-    updateSettingsDraftState(null);
-    setTranslationCacheSummary(null);
-    setTranslationCacheLoading(false);
-    setTranslationCacheActionTarget(null);
-    setEditingPresetId(null);
-    setApiKeyEditingPresetId(null);
-    setPresetApiKeyDrafts({});
-    setPresetStatuses({});
-    setPresetTestRunningId(null);
-    setPresetSaveStatusById({});
-    presetSaveStatusByIdRef.current = {};
-    setPresetModelsLoadingById({});
-    setPresetModels({});
-    setPresetModelMessages({});
-    setPresetModelAutoLoadAttempts({});
-    setSettingsClosePending(false);
-    setSettingsCloseConfirmOpen(false);
-  }, [clearPendingPresetAutosave, updateSettingsDraftState]);
-
-  const refreshTranslationCacheSummary = useCallback(async () => {
-    setTranslationCacheLoading(true);
-
-    try {
-      const summary = (await invoke(
-        "get_translation_cache_summary",
-        {},
-      )) as TranslationCacheSummary;
-      setTranslationCacheSummary(summary);
-    } catch (error) {
-      console.error("Failed to load translation cache summary:", error);
-      showToast({
-        message: t("toast.couldNotLoadTranslationCache"),
-        tone: "error",
-        durationMs: 4200,
-      });
-    } finally {
-      setTranslationCacheLoading(false);
-    }
-  }, [showToast]);
-
-  const handleOpenSettings = useCallback(() => {
-    clearPendingPresetAutosave();
-    updateSettingsDraftState(settings);
-    setEditingPresetId(null);
-    setApiKeyEditingPresetId(null);
-    setPresetApiKeyDrafts({});
-    setPresetStatuses({});
-    setPresetTestRunningId(null);
-    const nextSaveStatuses = buildInitialPresetSaveStatuses(settings);
-    presetSaveStatusByIdRef.current = nextSaveStatuses;
-    setPresetSaveStatusById(nextSaveStatuses);
-    setPresetModelsLoadingById({});
-    setPresetModels({});
-    setPresetModelMessages({});
-    setPresetModelAutoLoadAttempts({});
-    setSettingsClosePending(false);
-    setSettingsCloseConfirmOpen(false);
-    setSettingsOpen(true);
-  }, [
-    buildInitialPresetSaveStatuses,
-    clearPendingPresetAutosave,
-    settings,
-    updateSettingsDraftState,
-  ]);
-
-  useEffect(() => {
-    if (!settingsOpen) {
-      return;
-    }
-
-    void refreshTranslationCacheSummary();
-  }, [refreshTranslationCacheSummary, settingsOpen]);
-
-  const showTranslationSetupToast = useCallback(() => {
-    showToast({
-      message: TRANSLATION_SETUP_REQUIRED_MESSAGE,
-      actionLabel: t("toast.openSettings"),
-      onAction: handleOpenSettings,
-      durationMs: 4200,
-    });
-  }, [handleOpenSettings, showToast]);
-
-  const getDraftPresetById = useCallback((presetId: string) => {
-    const sourceSettings = settingsDraftRef.current ?? settingsRef.current;
-    return sourceSettings.presets.find((preset) => preset.id === presetId);
-  }, []);
-
-  const syncSavedPresetIntoDraft = useCallback(
-    (savedSettings: TranslationSettings, presetId: string) => {
-      updateSettingsDraftState(
-        (() => {
-          const currentDraft = settingsDraftRef.current;
-          if (!currentDraft) {
-            return currentDraft;
-          }
-
-          const savedPreset = savedSettings.presets.find(
-            (preset) => preset.id === presetId,
-          );
-          const nextPresets = savedPreset
-            ? currentDraft.presets.some((preset) => preset.id === presetId)
-              ? currentDraft.presets.map((preset) =>
-                  preset.id === presetId ? savedPreset : preset,
-                )
-              : [...currentDraft.presets, savedPreset]
-            : currentDraft.presets.filter((preset) => preset.id !== presetId);
-
-          return {
-            ...currentDraft,
-            presets: nextPresets,
-          };
-        })(),
-      );
-    },
-    [updateSettingsDraftState],
-  );
-
-  const clearPresetLocalArtifacts = useCallback(
-    (presetId: string) => {
-      if (presetAutosavePresetIdRef.current === presetId) {
-        clearPendingPresetAutosave();
-      }
-
-      setPresetStatuses((prev) => {
-        const { [presetId]: _removed, ...rest } = prev;
-        return rest;
-      });
-      setPresetApiKeyDrafts((prev) => {
-        const { [presetId]: _removed, ...rest } = prev;
-        return rest;
-      });
-      setPresetModels((prev) => {
-        const { [presetId]: _removed, ...rest } = prev;
-        return rest;
-      });
-      setPresetModelsLoadingById((prev) => {
-        const { [presetId]: _removed, ...rest } = prev;
-        return rest;
-      });
-      setPresetModelMessages((prev) => {
-        const { [presetId]: _removed, ...rest } = prev;
-        return rest;
-      });
-      setPresetModelAutoLoadAttempts((prev) => {
-        const { [presetId]: _removed, ...rest } = prev;
-        return rest;
-      });
-      clearPresetSaveStatus(presetId);
-    },
-    [clearPendingPresetAutosave, clearPresetSaveStatus],
-  );
-
-  const handleFetchPresetModels = useCallback(
-    async (presetId: string, options?: { auto?: boolean }) => {
-      const draftPreset = getDraftPresetById(presetId);
-      if (!draftPreset) {
-        return;
-      }
-
-      if (options?.auto) {
-        setPresetModelAutoLoadAttempts((prev) => ({
-          ...prev,
-          [presetId]: true,
-        }));
-      }
-
-      setPresetModelsLoadingById((prev) => ({
-        ...prev,
-        [presetId]: true,
-      }));
-      setPresetModelMessages((prev) => ({
-        ...prev,
-        [presetId]: undefined,
-      }));
-
-      try {
-        const models = (await invoke("list_preset_models", {
-          preset: getPresetDraft(draftPreset),
-        })) as string[];
-
-        setPresetModels((prev) => ({
-          ...prev,
-          [presetId]: models,
-        }));
-      } catch (error) {
-        console.error("Failed to fetch preset models:", error);
-        const friendlyError = getFriendlyProviderError(error);
-        setPresetModelMessages((prev) => ({
-          ...prev,
-          [presetId]:
-            friendlyError.kind === "unknown"
-              ? "Could not load models. You can still type one manually."
-              : friendlyError.message,
-        }));
-      } finally {
-        setPresetModelsLoadingById((prev) => ({
-          ...prev,
-          [presetId]: false,
-        }));
-      }
-    },
-    [getDraftPresetById, getPresetDraft],
-  );
-
-  const persistPresetDraft = useCallback(
-    async (presetId: string, options?: { clearApiKeyAfterSave?: boolean }) => {
-      const existingPromise = presetSavePromisesRef.current[presetId];
-      if (existingPromise) {
-        return existingPromise;
-      }
-
-      const draftPreset = getDraftPresetById(presetId);
-      if (!draftPreset) {
-        return;
-      }
-
-      const apiKeyInput = presetApiKeyDraftsRef.current[presetId] ?? "";
-      if (!canPersistPresetDraft(draftPreset, apiKeyInput)) {
-        updatePresetSaveStatus(presetId, {
-          state: "invalid",
-          detail: getPresetMissingRequirement(draftPreset, apiKeyInput),
-        });
-        return;
-      }
-
-      const savePromise = (async () => {
-        updatePresetSaveStatus(presetId, { state: "saving" });
-
-        try {
-          const nextSettings = (() => {
-            const liveSettings = settingsRef.current;
-            const nextPresets = liveSettings.presets.some(
-              (preset) => preset.id === presetId,
-            )
-              ? liveSettings.presets.map((preset) =>
-                  preset.id === presetId ? draftPreset : preset,
-                )
-              : [...liveSettings.presets, draftPreset];
-
-            return {
-              ...liveSettings,
-              presets: nextPresets,
-            };
-          })();
-
-          const savedSettings = await persistSettings(nextSettings);
-          const savedPreset =
-            savedSettings.presets.find((preset) => preset.id === presetId) ??
-            draftPreset;
-
-          syncSavedPresetIntoDraft(savedSettings, presetId);
-
-          const shouldMaskApiKey = Boolean(
-            options?.clearApiKeyAfterSave &&
-            presetApiKeyDraftsRef.current[presetId]?.trim(),
-          );
-
-          if (shouldMaskApiKey) {
-            setPresetApiKeyDrafts((prev) => {
-              const { [presetId]: _removed, ...rest } = prev;
-              return rest;
-            });
-          }
-
-          updatePresetSaveStatus(
-            presetId,
-            getPresetSaveStatus(
-              savedPreset,
-              shouldMaskApiKey
-                ? ""
-                : (presetApiKeyDraftsRef.current[presetId] ?? ""),
-            ),
-          );
-
-          const canLoadModels = canListModels({
-            kind: savedPreset.providerKind,
-            baseUrl: savedPreset.baseUrl,
-            apiKey: shouldMaskApiKey
-              ? ""
-              : (presetApiKeyDraftsRef.current[presetId] ?? ""),
-            apiKeyConfigured: savedPreset.apiKeyConfigured,
-          });
-
-          if (
-            canLoadModels &&
-            !savedPreset.model.trim() &&
-            !presetModels[presetId]?.length &&
-            !presetModelsLoadingById[presetId] &&
-            !presetModelAutoLoadAttempts[presetId]
-          ) {
-            void handleFetchPresetModels(presetId, { auto: true });
-          }
-        } catch (error) {
-          console.error("Failed to save preset:", error);
-          updatePresetSaveStatus(presetId, {
-            state: "error",
-            detail: `Save failed: ${getFriendlyProviderError(error).message}`,
-          });
-        } finally {
-          delete presetSavePromisesRef.current[presetId];
-        }
-      })();
-
-      presetSavePromisesRef.current[presetId] = savePromise;
-      return savePromise;
-    },
-    [
-      getDraftPresetById,
-      handleFetchPresetModels,
-      persistSettings,
-      presetModelAutoLoadAttempts,
-      presetModels,
-      presetModelsLoadingById,
-      syncSavedPresetIntoDraft,
-      updatePresetSaveStatus,
-    ],
-  );
-
-  const flushPresetAutosave = useCallback(
-    async (presetId: string, options?: { clearApiKeyAfterSave?: boolean }) => {
-      if (presetAutosavePresetIdRef.current === presetId) {
-        clearPendingPresetAutosave();
-      }
-
-      const inFlight = presetSavePromisesRef.current[presetId];
-      if (inFlight) {
-        await inFlight;
-        return;
-      }
-
-      await persistPresetDraft(presetId, options);
-    },
-    [clearPendingPresetAutosave, persistPresetDraft],
-  );
-
-  const flushDirtyPresetSaves = useCallback(
-    async (options?: { clearBlurredApiKeyPresetId?: string }) => {
-      const sourceSettings = settingsDraftRef.current;
-      if (!sourceSettings) {
-        return;
-      }
-
-      if (presetAutosavePresetIdRef.current) {
-        await flushPresetAutosave(presetAutosavePresetIdRef.current, {
-          clearApiKeyAfterSave:
-            options?.clearBlurredApiKeyPresetId ===
-            presetAutosavePresetIdRef.current,
-        });
-      }
-
-      const dirtyPresetIds = sourceSettings.presets
-        .map((preset) => preset.id)
-        .filter(
-          (presetId) =>
-            presetSaveStatusByIdRef.current[presetId]?.state === "dirty",
-        );
-
-      for (const presetId of dirtyPresetIds) {
-        await persistPresetDraft(presetId, {
-          clearApiKeyAfterSave:
-            options?.clearBlurredApiKeyPresetId === presetId,
-        });
-      }
-    },
-    [flushPresetAutosave, persistPresetDraft],
-  );
-
-  const collectBlockingUnsavedPresetIds = useCallback(() => {
-    const currentDraft = settingsDraftRef.current;
-    if (!currentDraft) {
-      return [];
-    }
-
-    return currentDraft.presets
-      .filter((preset) => {
-        const saveStatus = presetSaveStatusByIdRef.current[preset.id];
-        const savedPreset = settingsRef.current.presets.find(
-          (candidate) => candidate.id === preset.id,
-        );
-        const unchanged = isPresetUnchangedFromSavedState({
-          preset,
-          savedPreset,
-          apiKeyInput: presetApiKeyDraftsRef.current[preset.id] ?? "",
-        });
-
-        return (
-          !unchanged &&
-          (saveStatus?.state === "invalid" || saveStatus?.state === "error")
-        );
-      })
-      .map((preset) => preset.id);
-  }, []);
-
-  const handleEditingPresetChange = useCallback(
-    async (presetId: string | null) => {
-      const previousEditingPresetId = editingPresetId;
-      if (previousEditingPresetId && previousEditingPresetId !== presetId) {
-        await flushPresetAutosave(previousEditingPresetId, {
-          clearApiKeyAfterSave:
-            apiKeyEditingPresetId === previousEditingPresetId,
-        });
-      }
-
-      setEditingPresetId(presetId);
-    },
-    [apiKeyEditingPresetId, editingPresetId, flushPresetAutosave],
-  );
-
-  const handleActivatePreset = useCallback(
-    async (presetId: string) => {
-      const draftPreset = getDraftPresetById(presetId);
-      if (!draftPreset) {
-        return;
-      }
-
-      const currentSaveState =
-        presetSaveStatusByIdRef.current[presetId]?.state ?? "pristine";
-      const shouldPersistDraftBeforeActivation =
-        currentSaveState !== "pristine" && currentSaveState !== "saved";
-
-      if (shouldPersistDraftBeforeActivation) {
-        await flushPresetAutosave(presetId, {
-          clearApiKeyAfterSave: apiKeyEditingPresetId === presetId,
-        });
-      }
-
-      const refreshedPreset = getDraftPresetById(presetId);
-      if (!refreshedPreset) {
-        return;
-      }
-
-      if (
-        !getPresetValidationState(
-          refreshedPreset,
-          presetApiKeyDraftsRef.current[presetId] ?? "",
-        ).isValid
-      ) {
-        return;
-      }
-
-      try {
-        const savedSettings = await persistSettings({
-          ...settingsRef.current,
-          activePresetId: presetId,
-        });
-        setSessionFallbackPresetId(null);
-
-        updateSettingsDraftState(
-          settingsDraftRef.current
-            ? {
-                ...settingsDraftRef.current,
-                activePresetId: savedSettings.activePresetId,
-              }
-            : settingsDraftRef.current,
-        );
-      } catch (error) {
-        console.error("Failed to activate preset:", error);
-        showToast({
-          message: t("toast.couldNotSwitchActiveProvider"),
-          tone: "error",
-          durationMs: 4200,
-        });
-      }
-    },
-    [
-      apiKeyEditingPresetId,
-      flushPresetAutosave,
-      getDraftPresetById,
-      persistSettings,
-      showToast,
-      updateSettingsDraftState,
-    ],
-  );
-
-  const handleAddPreset = useCallback(
-    (providerKind: TranslationProviderKind) => {
-      const sourceSettings = settingsDraftRef.current ?? settingsRef.current;
-      const nextPreset = normalizePresetDraft(
-        createPresetDraft(providerKind, sourceSettings.presets),
-        sourceSettings.presets,
-      );
-      const nextSettings = {
-        ...sourceSettings,
-        presets: [...sourceSettings.presets, nextPreset],
-      };
-
-      updateSettingsDraftState(nextSettings);
-      updatePresetSaveStatus(
-        nextPreset.id,
-        getPresetSaveStatus(nextPreset, ""),
-      );
-      setPresetStatuses((prev) => ({
-        ...prev,
-        [nextPreset.id]: undefined,
-      }));
-      setPresetModelMessages((prev) => ({
-        ...prev,
-        [nextPreset.id]: undefined,
-      }));
-      setEditingPresetId(nextPreset.id);
-
-      return nextPreset.id;
-    },
-    [updatePresetSaveStatus, updateSettingsDraftState],
-  );
-
-  const handleDeletePreset = useCallback(
-    async (presetId: string) => {
-      const liveSettings = settingsRef.current;
-      const currentDraft = settingsDraftRef.current ?? liveSettings;
-      const livePresetExists = liveSettings.presets.some(
-        (preset) => preset.id === presetId,
-      );
-
-      if (!livePresetExists) {
-        const nextDraft = {
-          ...currentDraft,
-          presets: currentDraft.presets.filter(
-            (preset) => preset.id !== presetId,
-          ),
-        };
-        updateSettingsDraftState(nextDraft);
-        clearPresetLocalArtifacts(presetId);
-        if (editingPresetId === presetId) {
-          setEditingPresetId(null);
-        }
-        return;
-      }
-
-      const nextLivePresets = liveSettings.presets.filter(
-        (preset) => preset.id !== presetId,
-      );
-      const nextActivePresetId =
-        liveSettings.activePresetId === presetId
-          ? (nextLivePresets[0]?.id ?? "")
-          : liveSettings.activePresetId;
-
-      try {
-        const savedSettings = await persistSettings({
-          ...liveSettings,
-          activePresetId: nextActivePresetId,
-          presets: nextLivePresets,
-        });
-
-        updateSettingsDraftState({
-          ...currentDraft,
-          activePresetId: savedSettings.activePresetId,
-          presets: currentDraft.presets.filter(
-            (preset) => preset.id !== presetId,
-          ),
-        });
-        clearPresetLocalArtifacts(presetId);
-        if (editingPresetId === presetId) {
-          setEditingPresetId(null);
-        }
-      } catch (error) {
-        console.error("Failed to delete preset:", error);
-        showToast({
-          message: t("toast.couldNotDeleteProvider"),
-          tone: "error",
-          durationMs: 4200,
-        });
-      }
-    },
-    [
-      clearPresetLocalArtifacts,
-      editingPresetId,
-      persistSettings,
-      showToast,
-      updateSettingsDraftState,
-    ],
-  );
-
-  const schedulePresetAutosave = useCallback(
-    (presetId: string) => {
-      clearPendingPresetAutosave();
-
-      const draftPreset = getDraftPresetById(presetId);
-      if (!draftPreset) {
-        return;
-      }
-
-      const apiKeyInput = presetApiKeyDraftsRef.current[presetId] ?? "";
-      if (!canPersistPresetDraft(draftPreset, apiKeyInput)) {
-        updatePresetSaveStatus(presetId, {
-          state: "invalid",
-          detail: getPresetMissingRequirement(draftPreset, apiKeyInput),
-        });
-        return;
-      }
-
-      updatePresetSaveStatus(presetId, { state: "dirty" });
-      presetAutosavePresetIdRef.current = presetId;
-      presetAutosaveTimerRef.current = window.setTimeout(() => {
-        presetAutosaveTimerRef.current = null;
-        presetAutosavePresetIdRef.current = null;
-        void persistPresetDraft(presetId);
-      }, PRESET_AUTOSAVE_DELAY_MS);
-    },
-    [
-      clearPendingPresetAutosave,
-      getDraftPresetById,
-      persistPresetDraft,
-      updatePresetSaveStatus,
-    ],
-  );
-
-  const handlePresetChange = useCallback(
-    (nextPreset: TranslationPreset) => {
-      const sourceSettings = settingsDraftRef.current ?? settingsRef.current;
-      const currentPreset = sourceSettings.presets.find(
-        (preset) => preset.id === nextPreset.id,
-      );
-      const providerChanged =
-        currentPreset?.providerKind !== undefined &&
-        currentPreset.providerKind !== nextPreset.providerKind;
-      const modelChanged =
-        currentPreset !== undefined &&
-        (currentPreset.model ?? "").trim() !== nextPreset.model.trim();
-      const shouldClearCustomLabel = providerChanged || modelChanged;
-      const baseUrlChanged =
-        (currentPreset?.baseUrl ?? "") !== (nextPreset.baseUrl ?? "");
-
-      const candidate = providerChanged
-        ? {
-            ...nextPreset,
-            model: "",
-            customLabel: undefined,
-            baseUrl:
-              nextPreset.providerKind === "openai-compatible"
-                ? nextPreset.baseUrl
-                : undefined,
-          }
-        : shouldClearCustomLabel
-          ? { ...nextPreset, customLabel: undefined }
-          : nextPreset;
-
-      const normalizedPreset = normalizePresetDraft(
-        candidate,
-        sourceSettings.presets,
-      );
-      const nextSettings = {
-        ...sourceSettings,
-        presets: sourceSettings.presets.map((preset) =>
-          preset.id === normalizedPreset.id ? normalizedPreset : preset,
-        ),
-      };
-
-      updateSettingsDraftState(nextSettings);
-      setPresetStatuses((prev) => ({
-        ...prev,
-        [normalizedPreset.id]: undefined,
-      }));
-      setPresetModelMessages((prev) => ({
-        ...prev,
-        [normalizedPreset.id]: undefined,
-      }));
-
-      if (providerChanged || baseUrlChanged) {
-        setPresetModels((prev) => {
-          const { [normalizedPreset.id]: _removed, ...rest } = prev;
-          return rest;
-        });
-        setPresetModelAutoLoadAttempts((prev) => {
-          const { [normalizedPreset.id]: _removed, ...rest } = prev;
-          return rest;
-        });
-      }
-
-      schedulePresetAutosave(normalizedPreset.id);
-    },
-    [schedulePresetAutosave, updateSettingsDraftState],
-  );
-
-  const handlePresetApiKeyInputChange = useCallback(
-    (presetId: string, apiKey: string) => {
-      setPresetApiKeyDrafts((prev) => ({
-        ...prev,
-        [presetId]: apiKey,
-      }));
-      setPresetStatuses((prev) => ({
-        ...prev,
-        [presetId]: undefined,
-      }));
-      setPresetModelMessages((prev) => ({
-        ...prev,
-        [presetId]: undefined,
-      }));
-      setPresetModelAutoLoadAttempts((prev) => {
-        const { [presetId]: _removed, ...rest } = prev;
-        return rest;
-      });
-
-      const draftPreset = getDraftPresetById(presetId);
-      if (!draftPreset) {
-        return;
-      }
-
-      const nextStatus = canPersistPresetDraft(draftPreset, apiKey)
-        ? { state: "dirty" as const }
-        : {
-            state: "invalid" as const,
-            detail: getPresetMissingRequirement(draftPreset, apiKey),
-          };
-      updatePresetSaveStatus(presetId, nextStatus);
-
-      clearPendingPresetAutosave();
-      if (nextStatus.state === "dirty") {
-        presetAutosavePresetIdRef.current = presetId;
-        presetAutosaveTimerRef.current = window.setTimeout(() => {
-          presetAutosaveTimerRef.current = null;
-          presetAutosavePresetIdRef.current = null;
-          void persistPresetDraft(presetId);
-        }, PRESET_AUTOSAVE_DELAY_MS);
-      }
-    },
-    [
-      clearPendingPresetAutosave,
-      getDraftPresetById,
-      persistPresetDraft,
-      updatePresetSaveStatus,
-    ],
-  );
-
-  const handlePresetApiKeyBlur = useCallback(
-    async (presetId: string) => {
-      setApiKeyEditingPresetId((current) =>
-        current === presetId ? null : current,
-      );
-      await flushDirtyPresetSaves({
-        clearBlurredApiKeyPresetId: presetId,
-      });
-    },
-    [flushDirtyPresetSaves],
-  );
 
   const handleReaderSettingsChange = useCallback(
     async (nextSettings: TranslationSettings) => {
@@ -3542,218 +2399,6 @@ function AppContent() {
     ],
   );
 
-  const handleClearAllTranslationCache = useCallback(async () => {
-    setTranslationCacheActionTarget("all");
-
-    try {
-      await invoke("clear_all_translation_cache");
-      wordTranslationHook.textTranslationCacheRef.current.clear();
-      await refreshTranslationCacheSummary();
-      showToast({
-        message: t("toast.cacheCleared"),
-        durationMs: 3200,
-      });
-    } catch (error) {
-      console.error("Failed to clear all translation cache:", error);
-      showToast({
-        message: t("toast.couldNotClearCache"),
-        tone: "error",
-        durationMs: 4200,
-      });
-    } finally {
-      setTranslationCacheActionTarget((current) =>
-        current === "all" ? null : current,
-      );
-    }
-  }, [refreshTranslationCacheSummary, showToast]);
-
-  const handleClearCachedBookTranslations = useCallback(
-    async (docId: string, title: string, languageCode: string) => {
-      const actionTarget = `${docId}:${languageCode}`;
-      setTranslationCacheActionTarget(actionTarget);
-
-      try {
-        await invoke("clear_cached_book_language_translations", {
-          docId,
-          languageCode,
-        });
-        await refreshTranslationCacheSummary();
-        showToast({
-          message: t("toast.deletedCachedPagesFor", { title }),
-          durationMs: 3200,
-        });
-      } catch (error) {
-        console.error("Failed to clear cached book translations:", error);
-        showToast({
-          message: t("toast.couldNotDeleteCachedPages"),
-          tone: "error",
-          durationMs: 4200,
-        });
-      } finally {
-        setTranslationCacheActionTarget((current) =>
-          current === actionTarget ? null : current,
-        );
-      }
-    },
-    [refreshTranslationCacheSummary, showToast],
-  );
-
-  const handleTestPreset = useCallback(
-    async (presetId: string) => {
-      const draftPreset = getDraftPresetById(presetId);
-      if (!draftPreset) {
-        return;
-      }
-      const sourceSettings = settingsDraftRef.current ?? settingsRef.current;
-      const targetLanguage = resolveTargetLanguage(
-        sourceSettings.defaultLanguage,
-        sourceSettings.appLanguage,
-        systemLocale,
-      );
-
-      setPresetTestRunningId(presetId);
-      setPresetStatuses((prev) => ({
-        ...prev,
-        [presetId]: undefined,
-      }));
-
-      try {
-        const result = (await invoke("test_translation_preset", {
-          preset: getPresetDraft(draftPreset),
-          targetLanguage,
-        })) as PresetTestResult;
-        const friendlyResult = getFriendlyPresetTestResult(result);
-        setPresetStatuses((prev) => ({
-          ...prev,
-          [friendlyResult.presetId]: friendlyResult,
-        }));
-        if (!friendlyResult.ok) {
-          showToast({
-            message: friendlyResult.message,
-            detail: friendlyResult.detail,
-            tone: "error",
-            durationMs: 5200,
-          });
-        }
-      } catch (error) {
-        console.error("Failed to test preset:", error);
-        const friendlyError = getFriendlyProviderError(error);
-        const detail = getProviderErrorDetail(error);
-        setPresetStatuses((prev) => ({
-          ...prev,
-          [presetId]: {
-            presetId,
-            label: draftPreset.label,
-            ok: false,
-            message: friendlyError.message,
-            detail,
-          },
-        }));
-        showToast({
-          message: friendlyError.message,
-          detail,
-          tone: "error",
-          durationMs: 5200,
-        });
-      } finally {
-        setPresetTestRunningId((current) =>
-          current === presetId ? null : current,
-        );
-      }
-    },
-    [getPresetDraft, getDraftPresetById, showToast, systemLocale],
-  );
-
-  const handleTestAllPresets = useCallback(async () => {
-    const sourceSettings = settingsDraftRef.current ?? settingsRef.current;
-    const targetLanguage = resolveTargetLanguage(
-      sourceSettings.defaultLanguage,
-      sourceSettings.appLanguage,
-      systemLocale,
-    );
-    setTestAllPresetsRunning(true);
-
-    try {
-      const results = (await invoke("test_all_translation_presets", {
-        presets: sourceSettings.presets.map((preset) => getPresetDraft(preset)),
-        targetLanguage,
-      })) as PresetTestResult[];
-      const friendlyResults = results.map(getFriendlyPresetTestResult);
-
-      setPresetStatuses((prev) => ({
-        ...prev,
-        ...Object.fromEntries(
-          friendlyResults.map((result) => [result.presetId, result]),
-        ),
-      }));
-      const failedResults = friendlyResults.filter((result) => !result.ok);
-      if (failedResults.length === 1) {
-        showToast({
-          message: failedResults[0].message,
-          detail: failedResults[0].detail,
-          tone: "error",
-          durationMs: 5200,
-        });
-      } else if (failedResults.length > 1) {
-        showToast({
-          message: t("toast.presetTestsFailed", { count: String(failedResults.length) }),
-          detail: t("toast.hoverWarningForDetails"),
-          tone: "error",
-          durationMs: 5600,
-        });
-      }
-    } catch (error) {
-      console.error("Failed to test all presets:", error);
-      showToast({
-        message: t("toast.couldNotTestAllPresets"),
-        detail: getProviderErrorDetail(error),
-        tone: "error",
-        durationMs: 5200,
-      });
-    } finally {
-      setTestAllPresetsRunning(false);
-    }
-  }, [getPresetDraft, showToast, systemLocale]);
-
-  const discardUnsavedSettingsAndClose = useCallback(() => {
-    setSettingsOpen(false);
-    resetSettingsDialogState();
-  }, [resetSettingsDialogState]);
-
-  const handleSettingsOpenChange = useCallback(
-    async (open: boolean) => {
-      if (open) {
-        if (!settingsOpen) {
-          handleOpenSettings();
-        }
-        return;
-      }
-
-      setSettingsClosePending(true);
-      try {
-        await flushDirtyPresetSaves({
-          clearBlurredApiKeyPresetId: apiKeyEditingPresetId ?? undefined,
-        });
-
-        if (collectBlockingUnsavedPresetIds().length > 0) {
-          setSettingsCloseConfirmOpen(true);
-          return;
-        }
-
-        discardUnsavedSettingsAndClose();
-      } finally {
-        setSettingsClosePending(false);
-      }
-    },
-    [
-      apiKeyEditingPresetId,
-      collectBlockingUnsavedPresetIds,
-      discardUnsavedSettingsAndClose,
-      flushDirtyPresetSaves,
-      handleOpenSettings,
-      settingsOpen,
-    ],
-  );
 
   useEffect(() => {
     if (
@@ -5631,192 +4276,6 @@ function AppContent() {
       }
     },
     [currentFileType, layout.readerPanels.original, requestTranslationScroll],
-  );
-
-  const deleteSentenceAnnotation = useCallback(
-    async (annotationId: string) => {
-      if (!docId) return;
-      try {
-        await invoke("delete_annotation", { docId, annotationId });
-        setAnnotations((prev) => prev.filter((a) => a.id !== annotationId));
-        if (noteEditingAnnotationId === annotationId) {
-          setNoteEditingAnnotationId(null);
-        }
-        setPendingAnnotationDeletion((current) =>
-          current?.id === annotationId ? null : current,
-        );
-      } catch {
-        // Silently ignore
-      }
-    },
-    [docId, noteEditingAnnotationId],
-  );
-
-  const requestDeleteSentenceAnnotation = useCallback(
-    (annotationId: string) => {
-      const existing = annotations.find((annotation) => annotation.id === annotationId);
-      if (!existing) {
-        return;
-      }
-
-      if (existing.note?.trim()) {
-        setPendingAnnotationDeletion(existing);
-        return;
-      }
-
-      void deleteSentenceAnnotation(annotationId);
-    },
-    [annotations, deleteSentenceAnnotation],
-  );
-
-  const ensureSentenceHighlight = useCallback(
-    async (para: {
-      pid: string;
-      page: number;
-      source: string;
-      sentenceIndex: number;
-      rects: Rect[];
-    }) => {
-      if (!docId) return;
-
-      const existing = resolvedAnnotationsRef.current.find(
-        (a) =>
-          a.docId === docId &&
-          a.page === para.page &&
-          a.resolvedStatus === "attached" &&
-          (a.livePid ?? a.pid) === para.pid,
-      );
-
-      if (existing) {
-        return existing;
-      }
-
-      const id = `${docId}-${para.page}-${para.pid}`;
-      const now = new Date().toISOString();
-      const newAnnotation: SentenceAnnotation = {
-        id,
-        docId,
-        page: para.page,
-        pid: para.pid,
-        sentenceIndex: para.sentenceIndex,
-        sourceSnapshot: para.source,
-        sourceHash: hashString(para.source),
-        rectsSnapshot: para.rects,
-        status: "attached",
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      try {
-        const saved = await invoke("upsert_annotation", {
-          annotation: newAnnotation,
-        });
-        setAnnotations((prev) => [
-          ...prev.filter((a) => a.id !== id),
-          saved as SentenceAnnotation,
-        ]);
-      } catch {
-        // Still add locally on error
-        setAnnotations((prev) => [
-          ...prev.filter((a) => a.id !== id),
-          newAnnotation,
-        ]);
-      }
-    },
-    [docId],
-  );
-
-  const toggleSentenceHighlight = useCallback(
-    async (para: {
-      pid: string;
-      page: number;
-      source: string;
-      sentenceIndex: number;
-      rects: Rect[];
-    }) => {
-      if (!docId) return;
-
-      const existing = resolvedAnnotationsRef.current.find(
-        (a) =>
-          a.docId === docId &&
-          a.page === para.page &&
-          a.resolvedStatus === "attached" &&
-          (a.livePid ?? a.pid) === para.pid,
-      );
-
-      if (existing) {
-        requestDeleteSentenceAnnotation(existing.id);
-        return existing;
-      }
-
-      return ensureSentenceHighlight(para);
-    },
-    [docId, ensureSentenceHighlight, requestDeleteSentenceAnnotation],
-  );
-
-  const highlightSelectedSentences = useCallback(
-    async (pids: string[]) => {
-      if (!docId || !pages) return;
-
-      for (const pid of pids) {
-        let para:
-          | {
-              pid: string;
-              page: number;
-              source: string;
-              sentenceIndex: number;
-              rects: Rect[];
-            }
-          | undefined;
-        for (const pageDoc of pages) {
-          const idx = pageDoc.paragraphs.findIndex((p) => p.pid === pid);
-          if (idx >= 0) {
-            const p = pageDoc.paragraphs[idx];
-            para = {
-              pid: p.pid,
-              page: p.page,
-              source: p.source,
-              sentenceIndex: idx,
-              rects: p.rects,
-            };
-            break;
-          }
-        }
-        if (para) {
-          await ensureSentenceHighlight(para);
-        }
-      }
-    },
-    [docId, ensureSentenceHighlight, pages],
-  );
-
-  const saveSentenceNote = useCallback(
-    async (annotationId: string, note: string) => {
-      const existing = annotations.find((a) => a.id === annotationId);
-      if (!existing) return;
-
-      const updated = {
-        ...existing,
-        note: note || undefined,
-        updatedAt: new Date().toISOString(),
-      };
-
-      try {
-        const saved = await invoke("upsert_annotation", {
-          annotation: updated,
-        });
-        setAnnotations((prev) =>
-          prev.map((a) =>
-            a.id === annotationId ? (saved as SentenceAnnotation) : a,
-          ),
-        );
-      } catch {
-        setAnnotations((prev) =>
-          prev.map((a) => (a.id === annotationId ? updated : a)),
-        );
-      }
-    },
-    [annotations],
   );
 
   const handleZoomChange = (nextScale: number) => {
