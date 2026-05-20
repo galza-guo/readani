@@ -39,6 +39,7 @@ import { ToastProvider, useToast } from "./components/toast/ToastProvider";
 import { useAppUpdates } from "./hooks/useAppUpdates";
 import { useTheme } from "./hooks/useTheme";
 import { useResizableLayout } from "./hooks/useResizableLayout";
+import { useWordTranslation } from "./hooks/useWordTranslation";
 import { AnnotationsPanel } from "./components/AnnotationsPanel";
 import { HomeView } from "./views/HomeView";
 import {
@@ -74,7 +75,6 @@ import { extractPageParagraphs } from "./lib/textExtraction";
 import { resolveAnnotations } from "./lib/annotationMatching";
 import type { ResolvedSentenceAnnotation } from "./lib/annotationMatching";
 import { hashBuffer, hashString } from "./lib/hash";
-import { LRUCache } from "./lib/lruCache";
 import {
   buildPdfPageTranslatedText,
   getTranslatablePdfParagraphs,
@@ -163,16 +163,12 @@ import type {
   PresetTestResult,
   RecentBook,
   Rect,
-  SelectionTranslation,
-  SelectionTranslationResult,
   TranslationFallbackTrace,
   TranslationCacheSummary,
   TranslationPreset,
   TranslationProviderKind,
   SentenceAnnotation,
   TranslationSettings,
-  WordLookupResult,
-  WordTranslation,
 } from "./types";
 import { setLocale, t } from "./lib/i18n";
 import "./lib/locales/index";
@@ -511,10 +507,10 @@ function clearPageTranslationsForTargetLanguageChange(pages: PageDoc[]) {
 
 function getPresetById(presets: TranslationPreset[], presetId?: string | null) {
   if (!presetId) {
-    return undefined;
+    return null;
   }
 
-  return presets.find((preset) => preset.id === presetId);
+  return presets.find((preset) => preset.id === presetId) ?? null;
 }
 
 function getFallbackAttemptSummary(trace?: TranslationFallbackTrace) {
@@ -652,10 +648,6 @@ function AppContent() {
   const [scrollToTranslationPage, setScrollToTranslationPage] = useState<
     number | null
   >(null);
-  const [wordTranslation, setWordTranslation] =
-    useState<WordTranslation | null>(null);
-  const [selectionTranslation, setSelectionTranslation] =
-    useState<SelectionTranslation | null>(null);
   const [loadingProgress, setLoadingProgress] = useState<number | null>(null);
   const [epubToc, setEpubToc] = useState<NavItem[]>([]);
   const [epubCurrentChapter, setEpubCurrentChapter] = useState<string>("");
@@ -699,7 +691,6 @@ function AppContent() {
 
   const pagesRef = useRef<PageDoc[]>([]);
   const pageTranslationsRef = useRef<Record<number, PageTranslationState>>({});
-  const textTranslationCacheRef = useRef(new LRUCache<string, string>(100));
   const settingsRef = useRef(settings);
   const currentTargetLanguageRef = useRef(
     resolveTargetLanguage(
@@ -834,6 +825,16 @@ function AppContent() {
     },
     [showToast],
   );
+
+  const wordTranslationHook = useWordTranslation({
+    getEffectivePreset,
+    settingsRef,
+    currentTargetLanguageRef,
+    translationEnabledRef,
+    pdfTranslationSessionRef,
+    showFallbackSuccessToast,
+    showToast,
+  });
 
   const persistPdfNavPrefs = useCallback(() => {
     savePdfNavigationPrefs({
@@ -1782,8 +1783,8 @@ function AppContent() {
       setPdfScrollAnchor("top");
       setPendingEpubScroll(null);
       setScrollToTranslationPage(null);
-      setSelectionTranslation(null);
-      setWordTranslation(null);
+      wordTranslationHook.handleClearSelectionTranslation();
+      wordTranslationHook.handleClearWordTranslation();
       setHoverPid(null);
       setActivePid(null);
       resetTranslateAllSlowModeRuntime();
@@ -2199,7 +2200,7 @@ function AppContent() {
       setPendingEpubNavigationHref(null);
       setPageSizes([]);
       setPageTranslations({});
-      setSelectionTranslation(null);
+      wordTranslationHook.handleClearSelectionTranslation();
       setHoverPid(null);
       setActivePid(null);
       setLoadingProgress(0);
@@ -2579,8 +2580,8 @@ function AppContent() {
     setCurrentBookTitle(null);
     setDocumentStatusMessage(null);
     setTranslationStatusMessage(null);
-    setSelectionTranslation(null);
-    setWordTranslation(null);
+    wordTranslationHook.handleClearSelectionTranslation();
+    wordTranslationHook.handleClearWordTranslation();
     setEpubToc([]);
     setEpubCurrentChapter("");
     setPendingEpubNavigationHref(null);
@@ -3481,7 +3482,7 @@ function AppContent() {
         );
 
         if (shouldResetForDefaultLanguageChange) {
-          textTranslationCacheRef.current.clear();
+          wordTranslationHook.textTranslationCacheRef.current.clear();
           translateQueueRef.current = [];
           foregroundPageTranslateQueueRef.current = [];
           backgroundPageTranslateQueueRef.current = [];
@@ -3490,8 +3491,8 @@ function AppContent() {
           pageTranslationInFlightRef.current = null;
           pageTranslatingRef.current = false;
           setPageTranslationInFlightPage(null);
-          setSelectionTranslation(null);
-          setWordTranslation(null);
+          wordTranslationHook.handleClearSelectionTranslation();
+          wordTranslationHook.handleClearWordTranslation();
           setTranslationStatusMessage(null);
           resetTranslateAllSlowModeRuntime();
           isTranslateAllRunningRef.current = false;
@@ -3546,7 +3547,7 @@ function AppContent() {
 
     try {
       await invoke("clear_all_translation_cache");
-      textTranslationCacheRef.current.clear();
+      wordTranslationHook.textTranslationCacheRef.current.clear();
       await refreshTranslationCacheSummary();
       showToast({
         message: t("toast.cacheCleared"),
@@ -3766,7 +3767,7 @@ function AppContent() {
   useEffect(() => {
     if (currentFileType !== "pdf") return;
     setPageTranslations({});
-    setSelectionTranslation(null);
+    wordTranslationHook.handleClearSelectionTranslation();
     resetTranslateAllSlowModeRuntime();
     isTranslateAllRunningRef.current = false;
     setIsTranslateAllRunning(false);
@@ -3792,7 +3793,7 @@ function AppContent() {
   useEffect(() => {
     if (currentFileType !== "pdf") return;
 
-    setSelectionTranslation(null);
+    wordTranslationHook.handleClearSelectionTranslation();
     setTranslationStatusMessage(null);
     resetTranslateAllSlowModeRuntime();
     isTranslateAllRunningRef.current = false;
@@ -4940,7 +4941,7 @@ function AppContent() {
         return next;
       });
 
-      textTranslationCacheRef.current.clear();
+      wordTranslationHook.textTranslationCacheRef.current.clear();
       translateQueueRef.current = [];
       foregroundPageTranslateQueueRef.current = [];
       backgroundPageTranslateQueueRef.current = [];
@@ -4949,8 +4950,8 @@ function AppContent() {
       pageTranslationInFlightRef.current = null;
       pageTranslatingRef.current = false;
       setPageTranslationInFlightPage(null);
-      setSelectionTranslation(null);
-      setWordTranslation(null);
+      wordTranslationHook.handleClearSelectionTranslation();
+      wordTranslationHook.handleClearWordTranslation();
       setTranslationStatusMessage(null);
       resetTranslateAllSlowModeRuntime();
       isTranslateAllRunningRef.current = false;
@@ -5119,64 +5120,6 @@ function AppContent() {
     translationProgress.isFullyTranslated,
   ]);
 
-  const handlePdfSelectionTranslate = useCallback(
-    async (selection: { text: string; position: { x: number; y: number } }) => {
-      if (!translationEnabledRef.current) {
-        return;
-      }
-
-      setSelectionTranslation({
-        text: selection.text,
-        position: selection.position,
-        isLoading: true,
-      });
-
-      const sessionId = pdfTranslationSessionRef.current;
-
-      try {
-        const currentPreset = getEffectivePreset(settingsRef.current);
-        if (!currentPreset || !hasPresetTranslationContext(currentPreset)) {
-          throw new Error("No active preset configured.");
-        }
-
-        const result = (await invoke("translate_selection_text", {
-          presetId: currentPreset.id,
-          model: currentPreset.model,
-          targetLanguage: currentTargetLanguageRef.current,
-          text: selection.text,
-        })) as SelectionTranslationResult;
-
-        if (sessionId !== pdfTranslationSessionRef.current) {
-          return;
-        }
-
-        setSelectionTranslation({
-          text: selection.text,
-          position: selection.position,
-          translation: result.translation,
-        });
-        showFallbackSuccessToast(result.fallbackTrace);
-      } catch (error) {
-        if (sessionId !== pdfTranslationSessionRef.current) {
-          return;
-        }
-
-        const friendlyError = getFriendlyProviderError(error);
-
-        setSelectionTranslation({
-          text: selection.text,
-          position: selection.position,
-          error: friendlyError.message,
-        });
-      }
-    },
-    [],
-  );
-
-  const handleClearSelectionTranslation = useCallback(() => {
-    setSelectionTranslation(null);
-  }, []);
-
   const handlePdfPageChange = useCallback(
     (nextPage: number, options?: { anchor?: "top" | "bottom" }) => {
       if (currentFileType !== "pdf" || pages.length === 0) return;
@@ -5187,7 +5130,7 @@ function AppContent() {
       setCurrentPage(clampedPage);
       setHoverPid(null);
       setActivePid(null);
-      setSelectionTranslation(null);
+      wordTranslationHook.handleClearSelectionTranslation();
     },
     [currentFileType, currentPage, pages.length],
   );
@@ -5875,107 +5818,6 @@ function AppContent() {
     },
     [annotations],
   );
-
-  const handleTranslateText = useCallback(
-    async (text: string, position: { x: number; y: number }) => {
-      if (!translationEnabledRef.current) return;
-      const normalizedText = text.toLowerCase().trim();
-      const isSingleWord = /^[a-zA-Z]+$/.test(text.trim());
-
-      // Check cache first
-      const cached = textTranslationCacheRef.current.get(normalizedText);
-      if (cached) {
-        try {
-          const parsed = JSON.parse(cached);
-          setWordTranslation({ word: text, ...parsed, position });
-        } catch {
-          setWordTranslation({
-            word: text,
-            definitions: [{ pos: "", meanings: cached }],
-            position,
-          });
-        }
-        return;
-      }
-
-      // Show loading state
-      setWordTranslation({
-        word: text,
-        definitions: [],
-        position,
-        isLoading: true,
-      });
-
-      try {
-        const currentSettings = settingsRef.current;
-        const currentPreset = getEffectivePreset(currentSettings);
-        if (!currentPreset || !hasPresetTranslationContext(currentPreset)) {
-          throw new Error("No active preset configured.");
-        }
-
-        if (isSingleWord) {
-          // Use dictionary lookup for single words
-          const result = (await invoke("openrouter_word_lookup", {
-            presetId: currentPreset.id,
-            model: currentPreset.model,
-            targetLanguage: currentTargetLanguageRef.current,
-            word: text,
-          })) as WordLookupResult;
-
-          // Cache the result
-          textTranslationCacheRef.current.set(
-            normalizedText,
-            JSON.stringify({
-              phonetic: result.phonetic,
-              definitions: result.definitions,
-            }),
-          );
-
-          setWordTranslation({
-            word: text,
-            phonetic: result.phonetic,
-            definitions: result.definitions || [],
-            position,
-          });
-          showFallbackSuccessToast(result.fallbackTrace);
-        } else {
-          // Use regular translation for phrases
-          const result = (await invoke("openrouter_translate", {
-            presetId: currentPreset.id,
-            model: currentPreset.model,
-            temperature: 0,
-            targetLanguage: currentTargetLanguageRef.current,
-            sentences: [{ sid: "text", text }],
-          })) as BatchTranslationResult;
-
-          const translation =
-            result.results[0]?.translation || "Translation failed";
-
-          // Cache the result
-          textTranslationCacheRef.current.set(normalizedText, translation);
-
-          setWordTranslation({
-            word: text,
-            definitions: [{ pos: "", meanings: translation }],
-            position,
-          });
-          showFallbackSuccessToast(result.fallbackTrace);
-        }
-      } catch (error) {
-        const friendlyError = getFriendlyProviderError(error);
-        setWordTranslation({
-          word: text,
-          definitions: [{ pos: "", meanings: friendlyError.message }],
-          position,
-        });
-      }
-    },
-    [getEffectivePreset, showFallbackSuccessToast],
-  );
-
-  const handleClearWordTranslation = useCallback(() => {
-    setWordTranslation(null);
-  }, []);
 
   const handleZoomChange = (nextScale: number) => {
     setScale(nextScale);
@@ -6705,8 +6547,8 @@ function AppContent() {
                     overlayProgress={
                       hasPdfExtractionOverlay ? loadingProgress : null
                     }
-                    onSelectionText={handlePdfSelectionTranslate}
-                    onClearSelection={handleClearSelectionTranslation}
+                    onSelectionText={wordTranslationHook.handlePdfSelectionTranslate}
+                    onClearSelection={wordTranslationHook.handleClearSelectionTranslation}
                   />
                 ) : hasBlockingOriginalPaneStatus &&
                   originalPaneStatusMessage ? (
@@ -6790,9 +6632,9 @@ function AppContent() {
                       hoverPid={hoverPid}
                       onHoverPid={setHoverPid}
                       onLocatePid={handleLocatePid}
-                      selectionTranslation={selectionTranslation}
+                      selectionTranslation={wordTranslationHook.selectionTranslation}
                       onClearSelectionTranslation={
-                        handleClearSelectionTranslation
+                        wordTranslationHook.handleClearSelectionTranslation
                       }
                       statusMap={pageProgressMap}
                       onSeekPage={handleSeekPage}
@@ -6867,9 +6709,9 @@ function AppContent() {
                       onHoverPid={setHoverPid}
                       onTranslatePid={handleTranslatePid}
                       onLocatePid={handleLocatePid}
-                      onTranslateText={handleTranslateText}
-                      wordTranslation={wordTranslation}
-                      onClearWordTranslation={handleClearWordTranslation}
+                      onTranslateText={wordTranslationHook.handleTranslateText}
+                      wordTranslation={wordTranslationHook.wordTranslation}
+                      onClearWordTranslation={wordTranslationHook.handleClearWordTranslation}
                       scrollToPage={scrollToTranslationPage}
                       statusMap={[]}
                       annotations={resolvedAnnotations}
