@@ -74,6 +74,11 @@ import {
   loadPdfNavigationPrefs,
   savePdfNavigationPrefs,
 } from "./lib/pdfNavigationPrefs";
+import {
+  splitEpubParagraphsIntoPages,
+  normalizeHref,
+  matchHref,
+} from "./lib/epubPagination";
 import { useSettingsManager } from "./hooks/useSettingsManager";
 import { useTranslationQueue } from "./hooks/useTranslationQueue";
 import { usePdfExtractionCache } from "./hooks/usePdfExtractionCache";
@@ -403,19 +408,6 @@ function AppContent() {
       setPdfScrollAnchor("top");
     },
     [pages.length],
-  );
-
-  const normalizeHref = useCallback((href: string) => href.split("#")[0], []);
-
-  const matchHref = useCallback(
-    (targetHref: string, sourceHref: string) => {
-      const target = normalizeHref(targetHref);
-      const source = normalizeHref(sourceHref);
-      return (
-        target === source || target.endsWith(source) || source.endsWith(target)
-      );
-    },
-    [normalizeHref],
   );
 
   useEffect(() => {
@@ -1153,62 +1145,11 @@ function AppContent() {
 
   const handleEpubParagraphs = useCallback(
     (paragraphs: EpubParagraph[]) => {
-      // Split EPUB paragraphs into virtual pages while keeping chapter boundaries
-      const PARAGRAPHS_PER_PAGE = 20;
-      const epubPages: PageDoc[] = [];
-
-      let pageNum = 1;
-      let chunk: EpubParagraph[] = [];
-      let chunkHref: string | undefined;
-      let chunkTitle: string | undefined;
-
-      const flushChunk = () => {
-        if (chunk.length === 0) return;
-        epubPages.push({
-          page: pageNum,
-          title: chunkTitle,
-          isExtracted: true,
-          paragraphs: chunk.map((p) => ({
-            pid: p.pid,
-            page: pageNum,
-            source: p.source,
-            translation: p.translation,
-            status: p.status,
-            rects: [],
-            epubHref: p.href,
-            sectionTitle: p.sectionTitle,
-          })),
-        });
-        pageNum += 1;
-        chunk = [];
-        chunkHref = undefined;
-        chunkTitle = undefined;
-      };
-
-      for (const paragraph of paragraphs) {
-        const nextHref = paragraph.href;
-        const startsNewSection = Boolean(
-          chunkHref && nextHref && !matchHref(chunkHref, nextHref),
-        );
-        const chunkFull = chunk.length >= PARAGRAPHS_PER_PAGE;
-        if (startsNewSection || chunkFull) {
-          flushChunk();
-        }
-
-        if (chunk.length === 0) {
-          chunkHref = nextHref;
-          chunkTitle = paragraph.sectionTitle;
-        }
-
-        chunk.push(paragraph);
-      }
-
-      flushChunk();
-
+      const epubPages = splitEpubParagraphsIntoPages(paragraphs);
       setPages(epubPages);
       setEpubTotalPages(epubPages.length);
     },
-    [matchHref],
+    [],
   );
 
   const handleEpubPageChange = useCallback((page: number, total: number) => {
