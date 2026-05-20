@@ -5,8 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Gear, HighlighterCircle, House } from "@phosphor-icons/react";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
@@ -40,6 +38,7 @@ import { ThemeToggleButton } from "./components/ThemeToggleButton";
 import { ToastProvider, useToast } from "./components/toast/ToastProvider";
 import { useAppUpdates } from "./hooks/useAppUpdates";
 import { useTheme } from "./hooks/useTheme";
+import { useResizableLayout } from "./hooks/useResizableLayout";
 import { AnnotationsPanel } from "./components/AnnotationsPanel";
 import { HomeView } from "./views/HomeView";
 import {
@@ -97,28 +96,6 @@ import { getDocumentProgressSnapshot } from "./lib/readingProgress";
 import { clampPdfManualScale, type PdfZoomMode } from "./lib/readerLayout";
 import { formatPageCountLabel } from "./lib/pageCountLabel";
 import { getReaderStatusLabel } from "./lib/readerStatus";
-import {
-  READER_PANEL_MIN_HEIGHTS,
-  clampReaderColumnPairSizes,
-  clampReaderRailSectionPairSizes,
-  DEFAULT_READER_PANELS,
-  didReaderRailBecomeVisible,
-  getReaderColumnLayoutKey,
-  getReaderColumnMinWidth,
-  getReaderRailLayoutKey,
-  getReaderWorkspaceMinHeight,
-  getReaderWorkspaceMinWidth,
-  getVisibleRailSections,
-  getVisibleReaderColumns,
-  resolveReaderColumnWeights,
-  resolveReaderRailSectionWeights,
-  toggleReaderPanel,
-  type ReaderColumnKey,
-  type ReaderColumnWeightsByLayout,
-  type ReaderPanelKey,
-  type ReaderRailSectionKey,
-  type ReaderRailSectionWeightsByLayout,
-} from "./lib/readerWorkspace";
 import { getPdfJsWorkerPort } from "./lib/pdfWorker";
 import { buildPageTranslationPayload, hasUsablePageText } from "./lib/pageText";
 import { clampPage, getPagesToTranslate } from "./lib/pageQueue";
@@ -628,11 +605,6 @@ function AppContent() {
   const [translationStatusMessage, setTranslationStatusMessage] = useState<
     string | null
   >(null);
-  const [readerPanels, setReaderPanels] = useState(DEFAULT_READER_PANELS);
-  const [readerColumnWeights, setReaderColumnWeights] =
-    useState<ReaderColumnWeightsByLayout>({});
-  const [readerRailSectionWeights, setReaderRailSectionWeights] =
-    useState<ReaderRailSectionWeightsByLayout>({});
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [missingRecentBook, setMissingRecentBook] = useState<RecentBook | null>(
@@ -708,12 +680,6 @@ function AppContent() {
     useState(false);
   const [pageTranslationInFlightPage, setPageTranslationInFlightPage] =
     useState<number | null>(null);
-  const [activeColumnResizeKey, setActiveColumnResizeKey] = useState<
-    string | null
-  >(null);
-  const [activeRailResizeKey, setActiveRailResizeKey] = useState<string | null>(
-    null,
-  );
   const {
     showReadyUpdateAction,
     aboutUpdateStatusMessage,
@@ -792,41 +758,8 @@ function AppContent() {
   const pdfExtractionCacheFlushTimerRef = useRef<number | null>(null);
   const pdfExtractionCacheFlushQueueRef = useRef<Promise<void>>(Promise.resolve());
   const epubScrollRequestIdRef = useRef(0);
-  const readerShellRef = useRef<HTMLDivElement | null>(null);
   const readerHeaderRef = useRef<HTMLDivElement | null>(null);
-  const columnRefs = useRef<Record<ReaderColumnKey, HTMLElement | null>>({
-    navigation: null,
-    original: null,
-    rail: null,
-  });
-  const railSectionRefs = useRef<
-    Record<ReaderRailSectionKey, HTMLElement | null>
-  >({
-    translation: null,
-    chat: null,
-  });
-  const columnResizeRef = useRef<{
-    pointerId: number;
-    startX: number;
-    leftColumn: ReaderColumnKey;
-    rightColumn: ReaderColumnKey;
-    leftSize: number;
-    rightSize: number;
-    visibleColumns: ReaderColumnKey[];
-    layoutKey: string;
-  } | null>(null);
-  const railResizeRef = useRef<{
-    pointerId: number;
-    startY: number;
-    topSection: ReaderRailSectionKey;
-    bottomSection: ReaderRailSectionKey;
-    topSize: number;
-    bottomSize: number;
-    visibleSections: ReaderRailSectionKey[];
-    layoutKey: string;
-  } | null>(null);
   const didMountPdfNavPrefsRef = useRef(false);
-  const previousReaderPanelsRef = useRef(readerPanels);
   const resolvedAnnotationsRef = useRef<ResolvedSentenceAnnotation[]>([]);
 
   useEffect(() => {
@@ -1551,313 +1484,11 @@ function AppContent() {
       currentFileType === "epub") &&
     translationProgress.totalCount > 0;
 
-  const visibleReaderColumns = useMemo(
-    () => getVisibleReaderColumns(readerPanels),
-    [readerPanels],
-  );
-
-  const visibleRailSections = useMemo(
-    () => getVisibleRailSections(readerPanels),
-    [readerPanels],
-  );
-
-  const currentColumnLayoutKey = useMemo(
-    () => getReaderColumnLayoutKey(visibleReaderColumns),
-    [visibleReaderColumns],
-  );
-
-  const currentRailLayoutKey = useMemo(
-    () => getReaderRailLayoutKey(visibleRailSections),
-    [visibleRailSections],
-  );
-
-  const currentColumnWeights = useMemo(
-    () => resolveReaderColumnWeights(readerColumnWeights, visibleReaderColumns),
-    [readerColumnWeights, visibleReaderColumns],
-  );
-
-  const currentRailSectionWeights = useMemo(
-    () =>
-      resolveReaderRailSectionWeights(
-        readerRailSectionWeights,
-        visibleRailSections,
-      ),
-    [readerRailSectionWeights, visibleRailSections],
-  );
-
-  const workspaceMinWidth = useMemo(
-    () => getReaderWorkspaceMinWidth(readerPanels),
-    [readerPanels],
-  );
-
-  const workspaceMinHeight = useMemo(
-    () => getReaderWorkspaceMinHeight(readerPanels),
-    [readerPanels],
-  );
-
-  const togglePanel = useCallback((panel: ReaderPanelKey) => {
-    setReaderPanels((prev) => toggleReaderPanel(prev, panel));
-  }, []);
-
-  useEffect(() => {
-    const previousPanels = previousReaderPanelsRef.current;
-    previousReaderPanelsRef.current = readerPanels;
-
-    if (
-      currentFileType === "pdf" &&
-      readerPanels.original &&
-      pdfZoomMode !== "fit-width" &&
-      didReaderRailBecomeVisible(previousPanels, readerPanels)
-    ) {
-      setPdfZoomMode("fit-width");
-    }
-  }, [currentFileType, pdfZoomMode, readerPanels]);
-
-  const setColumnElementRef = useCallback(
-    (column: ReaderColumnKey) => (element: HTMLElement | null) => {
-      columnRefs.current[column] = element;
-    },
-    [],
-  );
-
-  const setRailSectionElementRef = useCallback(
-    (section: ReaderRailSectionKey) => (element: HTMLElement | null) => {
-      railSectionRefs.current[section] = element;
-    },
-    [],
-  );
-
-  const getColumnStyle = useCallback(
-    (column: ReaderColumnKey): CSSProperties => {
-      const isVisible = visibleReaderColumns.includes(column);
-
-      if (!isVisible) {
-        return {
-          flex: "0 0 0px",
-          width: 0,
-          minWidth: 0,
-        };
-      }
-
-      return {
-        flex: `${currentColumnWeights[column] ?? 1} 1 0px`,
-        minWidth: `${getReaderColumnMinWidth(column, readerPanels)}px`,
-      };
-    },
-    [currentColumnWeights, readerPanels, visibleReaderColumns],
-  );
-
-  const getRailSectionStyle = useCallback(
-    (section: ReaderRailSectionKey): CSSProperties => {
-      const isVisible = visibleRailSections.includes(section);
-
-      if (!isVisible) {
-        return {
-          flex: "0 0 0px",
-          height: 0,
-          minHeight: 0,
-        };
-      }
-
-      if (visibleRailSections.length === 1) {
-        return {
-          flex: "1 1 0px",
-          minHeight: `${READER_PANEL_MIN_HEIGHTS[section]}px`,
-        };
-      }
-
-      return {
-        flex: `${currentRailSectionWeights[section] ?? 1} 1 0px`,
-        minHeight: `${READER_PANEL_MIN_HEIGHTS[section]}px`,
-      };
-    },
-    [currentRailSectionWeights, visibleRailSections],
-  );
-
-  const handleColumnResizeStart = useCallback(
-    (leftColumn: ReaderColumnKey, rightColumn: ReaderColumnKey) =>
-      (event: ReactPointerEvent<HTMLDivElement>) => {
-        const leftElement = columnRefs.current[leftColumn];
-        const rightElement = columnRefs.current[rightColumn];
-        if (!leftElement || !rightElement) {
-          return;
-        }
-
-        event.preventDefault();
-        columnResizeRef.current = {
-          pointerId: event.pointerId,
-          startX: event.clientX,
-          leftColumn,
-          rightColumn,
-          leftSize: Math.round(leftElement.getBoundingClientRect().width),
-          rightSize: Math.round(rightElement.getBoundingClientRect().width),
-          visibleColumns: visibleReaderColumns,
-          layoutKey: currentColumnLayoutKey,
-        };
-        document.body.classList.add("is-resizing-split-x");
-        setActiveColumnResizeKey(`${leftColumn}:${rightColumn}`);
-
-        try {
-          event.currentTarget.setPointerCapture(event.pointerId);
-        } catch {
-          // Pointer capture is optional here.
-        }
-      },
-    [currentColumnLayoutKey, visibleReaderColumns],
-  );
-
-  useEffect(() => {
-    if (!activeColumnResizeKey) {
-      return;
-    }
-
-    const handlePointerMove = (event: PointerEvent) => {
-      const resizeState = columnResizeRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) {
-        return;
-      }
-
-      event.preventDefault();
-      const nextSizes = clampReaderColumnPairSizes({
-        panels: readerPanels,
-        leftColumn: resizeState.leftColumn,
-        rightColumn: resizeState.rightColumn,
-        leftSize: resizeState.leftSize,
-        rightSize: resizeState.rightSize,
-        delta: event.clientX - resizeState.startX,
-      });
-
-      setReaderColumnWeights((prev) => {
-        const currentWeights = resolveReaderColumnWeights(
-          prev,
-          resizeState.visibleColumns,
-        );
-
-        return {
-          ...prev,
-          [resizeState.layoutKey]: {
-            ...currentWeights,
-            [resizeState.leftColumn]: nextSizes.leftSize,
-            [resizeState.rightColumn]: nextSizes.rightSize,
-          },
-        };
-      });
-    };
-
-    const finishPointerResize = (event: PointerEvent) => {
-      const resizeState = columnResizeRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) {
-        return;
-      }
-
-      event.preventDefault();
-      columnResizeRef.current = null;
-      setActiveColumnResizeKey(null);
-    };
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", finishPointerResize);
-    window.addEventListener("pointercancel", finishPointerResize);
-
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", finishPointerResize);
-      window.removeEventListener("pointercancel", finishPointerResize);
-      document.body.classList.remove("is-resizing-split-x");
-    };
-  }, [activeColumnResizeKey, readerPanels]);
-
-  const handleRailResizeStart = useCallback(
-    (topSection: ReaderRailSectionKey, bottomSection: ReaderRailSectionKey) =>
-      (event: ReactPointerEvent<HTMLDivElement>) => {
-        const topElement = railSectionRefs.current[topSection];
-        const bottomElement = railSectionRefs.current[bottomSection];
-        if (!topElement || !bottomElement) {
-          return;
-        }
-
-        event.preventDefault();
-        railResizeRef.current = {
-          pointerId: event.pointerId,
-          startY: event.clientY,
-          topSection,
-          bottomSection,
-          topSize: Math.round(topElement.getBoundingClientRect().height),
-          bottomSize: Math.round(bottomElement.getBoundingClientRect().height),
-          visibleSections: visibleRailSections,
-          layoutKey: currentRailLayoutKey,
-        };
-        document.body.classList.add("is-resizing-split-y");
-        setActiveRailResizeKey(`${topSection}:${bottomSection}`);
-
-        try {
-          event.currentTarget.setPointerCapture(event.pointerId);
-        } catch {
-          // Pointer capture is optional here.
-        }
-      },
-    [currentRailLayoutKey, visibleRailSections],
-  );
-
-  useEffect(() => {
-    if (!activeRailResizeKey) {
-      return;
-    }
-
-    const handlePointerMove = (event: PointerEvent) => {
-      const resizeState = railResizeRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) {
-        return;
-      }
-
-      event.preventDefault();
-      const nextSizes = clampReaderRailSectionPairSizes({
-        topSection: resizeState.topSection,
-        bottomSection: resizeState.bottomSection,
-        topSize: resizeState.topSize,
-        bottomSize: resizeState.bottomSize,
-        delta: event.clientY - resizeState.startY,
-      });
-
-      setReaderRailSectionWeights((prev) => {
-        const currentWeights = resolveReaderRailSectionWeights(
-          prev,
-          resizeState.visibleSections,
-        );
-
-        return {
-          ...prev,
-          [resizeState.layoutKey]: {
-            ...currentWeights,
-            [resizeState.topSection]: nextSizes.topSize,
-            [resizeState.bottomSection]: nextSizes.bottomSize,
-          },
-        };
-      });
-    };
-
-    const finishPointerResize = (event: PointerEvent) => {
-      const resizeState = railResizeRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) {
-        return;
-      }
-
-      event.preventDefault();
-      railResizeRef.current = null;
-      setActiveRailResizeKey(null);
-    };
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", finishPointerResize);
-    window.addEventListener("pointercancel", finishPointerResize);
-
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", finishPointerResize);
-      window.removeEventListener("pointercancel", finishPointerResize);
-      document.body.classList.remove("is-resizing-split-y");
-    };
-  }, [activeRailResizeKey]);
+  const layout = useResizableLayout({
+    currentFileType,
+    pdfZoomMode,
+    setPdfZoomMode,
+  });
 
   useEffect(() => {
     if (!didMountPdfNavPrefsRef.current) {
@@ -1871,7 +1502,7 @@ function AppContent() {
   useTheme(settings.theme, settings.accentColor);
 
   useEffect(() => {
-    const shell = readerShellRef.current;
+    const shell = layout.readerShellRef.current;
 
     if (appView !== "reader" || !shell) {
       void getCurrentWindow()
@@ -1893,9 +1524,9 @@ function AppContent() {
     const headerHeight = Math.ceil(
       readerHeaderRef.current?.getBoundingClientRect().height ?? 0,
     );
-    const minWidth = Math.ceil(workspaceMinWidth + paddingX);
+    const minWidth = Math.ceil(layout.workspaceMinWidth + paddingX);
     const minHeight = Math.ceil(
-      workspaceMinHeight + paddingY + headerHeight + rowGap,
+      layout.workspaceMinHeight + paddingY + headerHeight + rowGap,
     );
 
     void getCurrentWindow()
@@ -1904,7 +1535,7 @@ function AppContent() {
         minHeight,
       })
       .catch(() => {});
-  }, [appView, workspaceMinHeight, workspaceMinWidth]);
+  }, [appView, layout.workspaceMinHeight, layout.workspaceMinWidth]);
 
   useEffect(() => {
     const trimmedBookTitle = currentBookTitle?.trim();
@@ -6049,14 +5680,14 @@ function AppContent() {
           .flatMap((entry) => entry.paragraphs)
           .find((entry) => entry.pid === pid);
 
-        if (readerPanels.original) {
+        if (layout.readerPanels.original) {
           epubViewerRef.current?.navigateTo(pid);
         } else if (targetParagraph?.epubHref) {
           setPendingEpubNavigationHref(targetParagraph.epubHref);
         }
       }
     },
-    [currentFileType, readerPanels.original, requestTranslationScroll],
+    [currentFileType, layout.readerPanels.original, requestTranslationScroll],
   );
 
   const deleteSentenceAnnotation = useCallback(
@@ -6420,7 +6051,7 @@ function AppContent() {
         requestTranslationScroll(targetPage);
       }
 
-      if (readerPanels.original) {
+      if (layout.readerPanels.original) {
         epubViewerRef.current?.navigateToHref(href);
       } else {
         setPendingEpubNavigationHref(href);
@@ -6430,7 +6061,7 @@ function AppContent() {
       epubHrefToPage,
       matchHref,
       normalizeHref,
-      readerPanels.original,
+      layout.readerPanels.original,
       requestTranslationScroll,
     ],
   );
@@ -6479,7 +6110,7 @@ function AppContent() {
   useEffect(() => {
     if (
       currentFileType !== "epub" ||
-      !readerPanels.original ||
+      !layout.readerPanels.original ||
       !pendingEpubNavigationHref ||
       !epubViewerRef.current
     ) {
@@ -6488,7 +6119,7 @@ function AppContent() {
 
     epubViewerRef.current.navigateToHref(pendingEpubNavigationHref);
     setPendingEpubNavigationHref(null);
-  }, [currentFileType, pendingEpubNavigationHref, readerPanels.original]);
+  }, [currentFileType, pendingEpubNavigationHref, layout.readerPanels.original]);
 
   // Save progress when page changes (works for both PDF and EPUB)
   useEffect(() => {
@@ -6522,14 +6153,14 @@ function AppContent() {
       // Cmd/Ctrl + K: Toggle AI Chat
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        setReaderPanels((prev) => toggleReaderPanel(prev, "chat"));
+        layout.togglePanel("chat");
         return;
       }
 
       // Escape: Close chat panel or go back to home
       if (e.key === "Escape") {
-        if (readerPanels.chat) {
-          setReaderPanels((prev) => {
+        if (layout.readerPanels.chat) {
+          layout.setReaderPanels((prev) => {
             if (
               !prev.chat ||
               Object.values(prev).filter(Boolean).length === 1
@@ -6621,7 +6252,7 @@ function AppContent() {
     handleBackToHome,
     handleOpenFile,
     handlePdfPageChange,
-    readerPanels.chat,
+    layout.readerPanels.chat,
     resolvedPdfScale,
   ]);
 
@@ -6831,8 +6462,8 @@ function AppContent() {
     />
   );
 
-  const nextColumnAfterNavigation = visibleReaderColumns.includes("navigation")
-    ? (visibleReaderColumns.find((column) => column !== "navigation") ?? null)
+  const nextColumnAfterNavigation = layout.visibleReaderColumns.includes("navigation")
+    ? (layout.visibleReaderColumns.find((column) => column !== "navigation") ?? null)
     : null;
   const loadingDocumentLabel = getReaderStatusLabel("loading-document");
   const extractingTextLabel = getReaderStatusLabel("extracting-text");
@@ -6868,7 +6499,7 @@ function AppContent() {
       />
     ) : (
       <Tooltip.Provider delayDuration={300}>
-        <div ref={readerShellRef} className="app-shell app-shell-reader">
+        <div ref={layout.readerShellRef} className="app-shell app-shell-reader">
           <Toolbar.Root
             ref={readerHeaderRef}
             className="app-header"
@@ -6885,7 +6516,7 @@ function AppContent() {
               </ExpandableIconButton>
             </div>
             <div className="header-center">
-              <PanelToggleGroup panels={readerPanels} onToggle={togglePanel} />
+              <PanelToggleGroup panels={layout.readerPanels} onToggle={layout.togglePanel} />
             </div>
             <div className="header-right">
               {showReadyUpdateAction ? (
@@ -6924,14 +6555,14 @@ function AppContent() {
           <main
             className="app-main app-main--workspace"
             style={{
-              minWidth: `${workspaceMinWidth}px`,
-              minHeight: `${workspaceMinHeight}px`,
+              minWidth: `${layout.workspaceMinWidth}px`,
+              minHeight: `${layout.workspaceMinHeight}px`,
             }}
           >
             <section
-              ref={setColumnElementRef("navigation")}
-              className={`pane pane-navigation ${readerPanels.navigation ? "" : "is-hidden"}`}
-              style={getColumnStyle("navigation")}
+              ref={layout.setColumnElementRef("navigation")}
+              className={`pane pane-navigation ${layout.readerPanels.navigation ? "" : "is-hidden"}`}
+              style={layout.getColumnStyle("navigation")}
             >
               <div className="pane-body">
                 {currentFileType === "pdf" ? (
@@ -6975,26 +6606,26 @@ function AppContent() {
                     : "right rail",
                 })}
                 data-dragging={
-                  activeColumnResizeKey ===
+                  layout.activeColumnResizeKey ===
                   `navigation:${nextColumnAfterNavigation}`
                     ? "true"
                     : undefined
                 }
-                onPointerDown={handleColumnResizeStart(
+                onPointerDown={layout.handleColumnResizeStart(
                   "navigation",
                   nextColumnAfterNavigation,
                 )}
               />
             ) : null}
             <section
-              ref={setColumnElementRef("original")}
-              className={`pane pane-original ${readerPanels.original ? "" : "is-hidden"}`}
-              style={getColumnStyle("original")}
+              ref={layout.setColumnElementRef("original")}
+              className={`pane pane-original ${layout.readerPanels.original ? "" : "is-hidden"}`}
+              style={layout.getColumnStyle("original")}
             >
               <div className="pane-body">
                 {currentFileType === "epub" && epubData ? (
                   <div
-                    className={`epub-original-host ${readerPanels.original ? "" : "is-detached"}`}
+                    className={`epub-original-host ${layout.readerPanels.original ? "" : "is-detached"}`}
                   >
                     <PageNavigationToolbar
                       previousLabel={t("reader.previousPage")}
@@ -7089,30 +6720,30 @@ function AppContent() {
                 )}
               </div>
             </section>
-            {visibleReaderColumns.includes("original") &&
-            visibleReaderColumns.includes("rail") ? (
+            {layout.visibleReaderColumns.includes("original") &&
+            layout.visibleReaderColumns.includes("rail") ? (
               <div
                 className="split-resize-handle"
                 role="separator"
                 aria-orientation="vertical"
                 aria-label={t("reader.resizePanels")}
                 data-dragging={
-                  activeColumnResizeKey === "original:rail" ? "true" : undefined
+                  layout.activeColumnResizeKey === "original:rail" ? "true" : undefined
                 }
-                onPointerDown={handleColumnResizeStart("original", "rail")}
+                onPointerDown={layout.handleColumnResizeStart("original", "rail")}
               />
             ) : null}
             <section
-              ref={setColumnElementRef("rail")}
-              className={`pane pane-rail ${visibleReaderColumns.includes("rail") ? "" : "is-hidden"}`}
-              style={getColumnStyle("rail")}
+              ref={layout.setColumnElementRef("rail")}
+              className={`pane pane-rail ${layout.visibleReaderColumns.includes("rail") ? "" : "is-hidden"}`}
+              style={layout.getColumnStyle("rail")}
             >
               <div
-                ref={setRailSectionElementRef("translation")}
+                ref={layout.setRailSectionElementRef("translation")}
                 className={`rail-section rail-section-translation ${
-                  readerPanels.translation ? "" : "is-hidden"
+                  layout.readerPanels.translation ? "" : "is-hidden"
                 }`}
-                style={getRailSectionStyle("translation")}
+                style={layout.getRailSectionStyle("translation")}
               >
                 {pdfDoc || epubData ? (
                   currentFileType === "pdf" ? (
@@ -7277,27 +6908,27 @@ function AppContent() {
                   </div>
                 )}
               </div>
-              {readerPanels.translation && readerPanels.chat ? (
+              {layout.readerPanels.translation && layout.readerPanels.chat ? (
                 <div
                   className="rail-resize-handle"
                   role="separator"
                   aria-orientation="horizontal"
                   aria-label={t("reader.resizeTranslateChat")}
                   data-dragging={
-                    activeRailResizeKey === "translation:chat"
+                    layout.activeRailResizeKey === "translation:chat"
                       ? "true"
                       : undefined
                   }
-                  onPointerDown={handleRailResizeStart("translation", "chat")}
+                  onPointerDown={layout.handleRailResizeStart("translation", "chat")}
                 />
               ) : null}
               <div
-                ref={setRailSectionElementRef("chat")}
-                className={`rail-section rail-section-chat ${readerPanels.chat ? "" : "is-hidden"}`}
-                style={getRailSectionStyle("chat")}
+                ref={layout.setRailSectionElementRef("chat")}
+                className={`rail-section rail-section-chat ${layout.readerPanels.chat ? "" : "is-hidden"}`}
+                style={layout.getRailSectionStyle("chat")}
               >
                 <ChatPanel
-                  isVisible={readerPanels.chat}
+                  isVisible={layout.readerPanels.chat}
                   model={
                     effectivePreset?.model ||
                     getDefaultModelForProvider("openrouter")
