@@ -51,8 +51,17 @@ import {
   resolveLoadedDocumentIdentity,
   type LoadDocumentIdentity,
 } from "./lib/documentIdentity";
-import { extractPageParagraphs } from "./lib/textExtraction";
+import {
+  inspectDocument,
+  loadPdfPageSize,
+  releasePdfDocument,
+  yieldToBrowserPaint,
+  isStructurallySimilarRecentCandidate,
+  readDocumentBytes,
+  type DocumentInspection,
+} from "./lib/documentLoading";
 import { hashBuffer } from "./lib/hash";
+import { extractPageParagraphs } from "./lib/textExtraction";
 import { useAnnotations } from "./hooks/useAnnotations";
 import {
   normalizePdfOutline,
@@ -67,6 +76,7 @@ import {
 } from "./lib/pdfNavigationPrefs";
 import { useSettingsManager } from "./hooks/useSettingsManager";
 import { useTranslationQueue } from "./hooks/useTranslationQueue";
+import { usePdfExtractionCache } from "./hooks/usePdfExtractionCache";
 import { getDocumentProgressSnapshot } from "./lib/readingProgress";
 import { clampPdfManualScale, type PdfZoomMode } from "./lib/readerLayout";
 import { formatPageCountLabel } from "./lib/pageCountLabel";
@@ -77,7 +87,6 @@ import {
   applyCachedPdfExtractionPages,
   type CachedPdfExtractionPage,
 } from "./lib/pdfExtractionHydration";
-import { mergePdfExtractionCachePages } from "./lib/pdfExtractionCacheQueue";
 import {
   buildPdfExtractionPlan,
   chunkPageNumbers,
@@ -86,7 +95,6 @@ import {
 import {
   createProgressivePdfPageSizes,
   mergeProgressivePdfPageSize,
-  type PdfPageSize,
   type PdfPageSizeEntry,
 } from "./lib/pdfPageSizes";
 import { getErrorMessage } from "./lib/errorMessage";
@@ -113,20 +121,7 @@ pdfjsLib.GlobalWorkerOptions.workerPort = getPdfJsWorkerPort();
 
 const ZOOM_LEVELS = [0.75, 1, 1.25, 1.5, 2];
 const PDF_KEYBOARD_ZOOM_STEP = 0.05;
-const PDF_EXTRACTION_CACHE_VERSION = "pdf-extraction-v1";
-const PDF_EXTRACTION_CACHE_BATCH_SIZE = 12;
-const PDF_EXTRACTION_CACHE_FLUSH_MS = 250;
 const PDF_EXTRACTION_HYDRATION_BATCH_SIZE = 24;
-
-type DocumentInspection = {
-  docId: string;
-  filePath: string;
-  fileName: string;
-  fileType: FileType;
-  title: string;
-  totalPages: number;
-  chapterCount?: number;
-};
 
 type CachedPdfExtractionStatus = {
   cachedPageCount: number;
@@ -138,119 +133,6 @@ type PendingReconnectResolution = {
   book: RecentBook;
   candidate: DocumentInspection;
 };
-
-function getDocumentFileType(filePath: string): FileType {
-  return filePath.split(".").pop()?.toLowerCase() === "epub" ? "epub" : "pdf";
-}
-
-async function readDocumentBytes(filePath: string) {
-  const rawBytes = (await invoke("read_pdf_file", { path: filePath })) as number[];
-  return new Uint8Array(rawBytes);
-}
-
-async function inspectPdfDocument(
-  filePath: string,
-  bytes: Uint8Array,
-  docId: string,
-): Promise<DocumentInspection> {
-  const loadingTask = pdfjsLib.getDocument({ data: bytes.slice().buffer });
-  const doc = await loadingTask.promise;
-  try {
-    return {
-      docId,
-      filePath,
-      fileName: getDocumentFileName(filePath),
-      fileType: "pdf",
-      title: getDocumentTitleFromPath(filePath),
-      totalPages: doc.numPages,
-    };
-  } finally {
-    await doc.destroy();
-  }
-}
-
-async function inspectEpubDocument(
-  filePath: string,
-  bytes: Uint8Array,
-  docId: string,
-): Promise<DocumentInspection> {
-  const { default: ePub } = await import("epubjs");
-  const bookData = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(bookData).set(bytes);
-  const book = ePub(bookData);
-
-  try {
-    await book.ready;
-    const metadata = await book.loaded.metadata;
-    const navigation = await book.loaded.navigation;
-    const spineItems = ((book.spine as any)?.items ?? []) as unknown[];
-    return {
-      docId,
-      filePath,
-      fileName: getDocumentFileName(filePath),
-      fileType: "epub",
-      title: metadata.title || getDocumentTitleFromPath(filePath),
-      totalPages: 1,
-      chapterCount: spineItems.length || navigation.toc.length || undefined,
-    };
-  } finally {
-    book.destroy();
-  }
-}
-
-async function inspectDocument(filePath: string): Promise<DocumentInspection> {
-  const bytes = await readDocumentBytes(filePath);
-  const buffer = bytes.buffer.slice(0);
-  const hash = await hashBuffer(buffer);
-  const docId = hash.slice(0, 12);
-  const fileType = getDocumentFileType(filePath);
-
-  if (fileType === "epub") {
-    return inspectEpubDocument(filePath, bytes, docId);
-  }
-
-  return inspectPdfDocument(filePath, bytes, docId);
-}
-
-async function loadPdfPageSize(
-  doc: PDFDocumentProxy,
-  pageNumber: number,
-): Promise<PdfPageSize> {
-  const page = await doc.getPage(pageNumber);
-  try {
-    const viewport = page.getViewport({ scale: 1 });
-    return { width: viewport.width, height: viewport.height };
-  } finally {
-    page.cleanup();
-  }
-}
-
-async function yieldToBrowserPaint() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  await new Promise<void>((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.setTimeout(resolve, 0);
-    });
-  });
-}
-
-function isStructurallySimilarRecentCandidate(
-  book: RecentBook,
-  candidate: DocumentInspection,
-) {
-  if (book.fileType !== candidate.fileType) {
-    return false;
-  }
-
-  if (candidate.fileType === "pdf") {
-    return book.totalPages === candidate.totalPages;
-  }
-
-  return true;
-}
 
 function loadBookTranslationPreferences() {
   if (typeof window === "undefined") {
@@ -434,6 +316,8 @@ function AppContent() {
     resetAnnotationUi,
   } = useAnnotations({ docId, pages, currentPage });
 
+  const { queuePage: queuePdfExtractionCachePage, flush: flushPendingPdfExtractionCache, cacheVersion: PDF_EXTRACTION_CACHE_VERSION } = usePdfExtractionCache();
+
   const pagesRef = useRef<PageDoc[]>([]);
   const pageTranslationsRef = useRef<Record<number, PageTranslationState>>({});
   const currentTargetLanguageRef = useRef(
@@ -449,10 +333,6 @@ function AppContent() {
   const pdfTranslationSessionRef = useRef(0);
   const pdfOutlineRequestIdRef = useRef(0);
   const pdfLoadRequestIdRef = useRef(0);
-  const pendingPdfExtractionCacheRef = useRef<CachedPdfExtractionPage[]>([]);
-  const pendingPdfExtractionCacheDocIdRef = useRef<string | null>(null);
-  const pdfExtractionCacheFlushTimerRef = useRef<number | null>(null);
-  const pdfExtractionCacheFlushQueueRef = useRef<Promise<void>>(Promise.resolve());
   const epubScrollRequestIdRef = useRef(0);
   const readerHeaderRef = useRef<HTMLDivElement | null>(null);
   const didMountPdfNavPrefsRef = useRef(false);
@@ -545,82 +425,6 @@ function AppContent() {
   useEffect(() => {
     pageTranslationsRef.current = pageTranslations;
   }, [pageTranslations]);
-
-  const clearPdfExtractionCacheFlushTimer = useCallback(() => {
-    if (pdfExtractionCacheFlushTimerRef.current !== null) {
-      window.clearTimeout(pdfExtractionCacheFlushTimerRef.current);
-      pdfExtractionCacheFlushTimerRef.current = null;
-    }
-  }, []);
-
-  const flushPendingPdfExtractionCache = useCallback(() => {
-    clearPdfExtractionCacheFlushTimer();
-
-    const docId = pendingPdfExtractionCacheDocIdRef.current;
-    const pages = pendingPdfExtractionCacheRef.current;
-    if (!docId || pages.length === 0) {
-      return;
-    }
-
-    pendingPdfExtractionCacheRef.current = [];
-
-    pdfExtractionCacheFlushQueueRef.current = pdfExtractionCacheFlushQueueRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        await invoke("cache_pdf_extraction_pages", {
-          docId,
-          extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
-          pages,
-        });
-      })
-      .catch((error) => {
-        console.error("Failed to cache extracted PDF pages:", error);
-      });
-  }, [clearPdfExtractionCacheFlushTimer]);
-
-  const queuePdfExtractionCachePage = useCallback(
-    (docId: string, page: CachedPdfExtractionPage) => {
-      if (pendingPdfExtractionCacheDocIdRef.current !== docId) {
-        pendingPdfExtractionCacheDocIdRef.current = docId;
-        pendingPdfExtractionCacheRef.current = [];
-      }
-
-      pendingPdfExtractionCacheRef.current = mergePdfExtractionCachePages(
-        pendingPdfExtractionCacheRef.current,
-        [page],
-      );
-
-      if (
-        pendingPdfExtractionCacheRef.current.length >=
-        PDF_EXTRACTION_CACHE_BATCH_SIZE
-      ) {
-        flushPendingPdfExtractionCache();
-        return;
-      }
-
-      clearPdfExtractionCacheFlushTimer();
-      pdfExtractionCacheFlushTimerRef.current = window.setTimeout(() => {
-        flushPendingPdfExtractionCache();
-      }, PDF_EXTRACTION_CACHE_FLUSH_MS);
-    },
-    [clearPdfExtractionCacheFlushTimer, flushPendingPdfExtractionCache],
-  );
-
-  const releasePdfDocument = useCallback((doc: PDFDocumentProxy | null) => {
-    if (!doc) {
-      return;
-    }
-
-    try {
-      doc.cleanup();
-    } catch {
-      // Ignore cleanup failures during teardown.
-    }
-
-    void doc.destroy().catch(() => {
-      // Ignore destroy failures during teardown.
-    });
-  }, []);
 
   const lastCommittedPdfDocRef = useRef<PDFDocumentProxy | null>(null);
 
