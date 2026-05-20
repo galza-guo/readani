@@ -7308,7 +7308,6 @@ function AppContent() {
                       bulkActionDisabled={
                         !canTranslateAll || isTranslateAllStopRequested
                       }
-                      bulkActionRunning={isTranslateAllRunning}
                       secondaryActionLabel={
                         translateAllUsageLimitPaused ? "Stop" : null
                       }
@@ -7387,7 +7386,6 @@ function AppContent() {
                       bulkActionDisabled={
                         !canTranslateAll || isTranslateAllStopRequested
                       }
-                      bulkActionRunning={isTranslateAllRunning}
                       secondaryActionLabel={
                         translateAllUsageLimitPaused ? "Stop" : null
                       }

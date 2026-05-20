@@ -40,7 +40,6 @@ function renderPdfPane(
     progressDetailLabel?: string | null;
     progressDetailState?: "running" | "stopping" | "waiting" | "paused" | null;
     bulkActionLabel?: string;
-    bulkActionRunning?: boolean;
     secondaryActionLabel?: string | null;
     onSecondaryAction?: () => void;
     canRetryPage?: boolean;
@@ -87,7 +86,6 @@ function renderPdfPane(
         bulkActionLabel={options.bulkActionLabel ?? "Translate All"}
         onBulkAction={() => {}}
         bulkActionDisabled={false}
-        bulkActionRunning={options.bulkActionRunning ?? false}
         secondaryActionLabel={options.secondaryActionLabel}
         onSecondaryAction={options.onSecondaryAction}
         onOpenSettings={() => {}}
@@ -166,7 +164,6 @@ function renderEpubPane(
         bulkActionLabel="Translate All"
         onBulkAction={() => {}}
         bulkActionDisabled={false}
-        bulkActionRunning={false}
         onOpenSettings={() => {}}
         activePid={null}
         hoverPid={null}
@@ -234,18 +231,17 @@ describe("TranslationPane", () => {
     expect(html).toContain("pdf-segment-source-reveal is-visible");
   });
 
-  test("renders footer progress beside the bulk action", () => {
+  test("renders footer progress detail when translation is running", () => {
     const html = renderPdfPane({
       progressLabel: "3/9 pages translated",
       progressDetailLabel: "Translating page 4",
       progressDetailState: "running",
       bulkActionLabel: "Stop Translating All",
-      bulkActionRunning: true,
     });
 
     expect(html).toContain("translation-pane-progress-text");
     expect(html).toContain("translation-pane-progress-detail is-running");
-    expect(html).toContain(">Stop Translating All<");
+    expect(html).toContain(">Translating page 4<");
   });
 
   test("renders extraction progress before translation progress is ready", () => {
@@ -268,7 +264,6 @@ describe("TranslationPane", () => {
       progressDetailLabel: "Network error on page 4. Retrying in 45s",
       progressDetailState: "waiting",
       bulkActionLabel: "Stop Translating All",
-      bulkActionRunning: true,
     });
 
     expect(html).toContain("translation-pane-progress-detail is-waiting");
@@ -276,18 +271,17 @@ describe("TranslationPane", () => {
     expect(html).not.toContain("translation-pane-progress-ellipsis");
   });
 
-  test("renders paused state with Continue and secondary Stop", () => {
+  test("renders paused state with secondary Stop button", () => {
     const html = renderPdfPane({
       progressDetailLabel: "Paused — out of credits or quota.",
       progressDetailState: "paused",
       bulkActionLabel: "Continue",
-      bulkActionRunning: true,
       secondaryActionLabel: "Stop",
       onSecondaryAction: () => {},
     });
 
     expect(html).toContain("translation-pane-progress-detail is-paused");
-    expect(html).toContain(">Continue<");
+    expect(html).toContain(">Paused — out of credits or quota.<");
     expect(html).toContain(">Stop<");
     expect(html).toContain("translation-pane-secondary-action");
     expect(html).not.toContain("translation-pane-progress-ellipsis");

@@ -45,10 +45,6 @@ type TranslationPaneChromeProps = {
   progressLabel?: string | null;
   progressDetailLabel?: string | null;
   progressDetailState?: "running" | "stopping" | "waiting" | "paused" | null;
-  bulkActionLabel: string;
-  onBulkAction: () => void;
-  bulkActionDisabled: boolean;
-  bulkActionRunning: boolean;
   secondaryActionLabel?: string | null;
   onSecondaryAction?: () => void;
   statusMap?: PageProgressStatus[];
@@ -91,7 +87,6 @@ type PdfTranslationPaneProps = {
   bulkActionLabel: string;
   onBulkAction: () => void;
   bulkActionDisabled: boolean;
-  bulkActionRunning: boolean;
   secondaryActionLabel?: string | null;
   onSecondaryAction?: () => void;
   onOpenSettings: () => void;
@@ -136,7 +131,6 @@ type EpubTranslationPaneProps = {
   bulkActionLabel: string;
   onBulkAction: () => void;
   bulkActionDisabled: boolean;
-  bulkActionRunning: boolean;
   secondaryActionLabel?: string | null;
   onSecondaryAction?: () => void;
   onOpenSettings: () => void;
@@ -345,6 +339,9 @@ function TranslationPaneHeaderMenu({
   onTextSizeIndexChange,
   onRedoPage,
   redoPageDisabled,
+  bulkActionLabel,
+  onBulkAction,
+  bulkActionDisabled,
 }: {
   translationEnabled: boolean;
   targetLanguage: TargetLanguage;
@@ -356,6 +353,9 @@ function TranslationPaneHeaderMenu({
   onTextSizeIndexChange: (index: number) => void;
   onRedoPage?: () => void;
   redoPageDisabled?: boolean;
+  bulkActionLabel?: string;
+  onBulkAction?: () => void;
+  bulkActionDisabled?: boolean;
 }) {
   const textSizePercent = Math.round(
     TRANSLATION_TEXT_SIZE_LEVELS[textSizeIndex] * 100,
@@ -437,6 +437,19 @@ function TranslationPaneHeaderMenu({
               disabled={redoPageDisabled}
             >
               <span className="translation-pane-menu-item-text">{t("translation.redoPage")}</span>
+            </button>
+          ) : null}
+          {bulkActionLabel && onBulkAction ? (
+            <button
+              className="translation-pane-menu-item translation-pane-menu-item-end-aligned"
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onBulkAction();
+              }}
+              disabled={bulkActionDisabled}
+            >
+              <span className="translation-pane-menu-item-text">{bulkActionLabel}</span>
             </button>
           ) : null}
         </Popover.Content>
@@ -1421,10 +1434,6 @@ function TranslationPaneFooter({
   progressLabel,
   progressDetailLabel,
   progressDetailState,
-  bulkActionLabel,
-  onBulkAction,
-  bulkActionDisabled,
-  bulkActionRunning: _bulkActionRunning,
   secondaryActionLabel,
   onSecondaryAction,
   statusMap,
@@ -1486,14 +1495,6 @@ function TranslationPaneFooter({
             {secondaryActionLabel}
           </button>
         ) : null}
-        <button
-          className="btn btn-small btn-quiet-action"
-          type="button"
-          onClick={onBulkAction}
-          disabled={bulkActionDisabled}
-        >
-          {bulkActionLabel}
-        </button>
       </div>
     </div>
   );
@@ -1518,7 +1519,6 @@ function PdfTranslationPane({
   bulkActionLabel,
   onBulkAction,
   bulkActionDisabled,
-  bulkActionRunning,
   secondaryActionLabel,
   onSecondaryAction,
   onOpenSettings,
@@ -1828,6 +1828,9 @@ function PdfTranslationPane({
             onTextSizeIndexChange={setTextSizeIndex}
             onRedoPage={() => onRetryPage(currentPage)}
             redoPageDisabled={!canRetryPage}
+            bulkActionLabel={bulkActionLabel}
+            onBulkAction={onBulkAction}
+            bulkActionDisabled={bulkActionDisabled}
           />
         </div>
       </div>
@@ -1977,10 +1980,6 @@ function PdfTranslationPane({
         progressLabel={progressLabel}
         progressDetailLabel={progressDetailLabel}
         progressDetailState={progressDetailState}
-        bulkActionLabel={bulkActionLabel}
-        onBulkAction={onBulkAction}
-        bulkActionDisabled={bulkActionDisabled}
-        bulkActionRunning={bulkActionRunning}
         secondaryActionLabel={secondaryActionLabel}
         onSecondaryAction={onSecondaryAction}
         statusMap={statusMap}
@@ -2048,7 +2047,6 @@ function EpubTranslationPane({
   bulkActionLabel,
   onBulkAction,
   bulkActionDisabled,
-  bulkActionRunning,
   secondaryActionLabel,
   onSecondaryAction,
   onOpenSettings,
@@ -2200,6 +2198,9 @@ function EpubTranslationPane({
             onActiveProviderPresetChange={onActiveProviderPresetChange}
             textSizeIndex={textSizeIndex}
             onTextSizeIndexChange={setTextSizeIndex}
+            bulkActionLabel={bulkActionLabel}
+            onBulkAction={onBulkAction}
+            bulkActionDisabled={bulkActionDisabled}
           />
         </div>
       </div>
@@ -2226,10 +2227,6 @@ function EpubTranslationPane({
         progressLabel={progressLabel}
         progressDetailLabel={progressDetailLabel}
         progressDetailState={progressDetailState}
-        bulkActionLabel={bulkActionLabel}
-        onBulkAction={onBulkAction}
-        bulkActionDisabled={bulkActionDisabled}
-        bulkActionRunning={bulkActionRunning}
         secondaryActionLabel={secondaryActionLabel}
         onSecondaryAction={onSecondaryAction}
         statusMap={statusMap}
@@ -2310,7 +2307,6 @@ export function TranslationPane(props: TranslationPaneProps) {
         bulkActionLabel={props.bulkActionLabel}
         onBulkAction={props.onBulkAction}
         bulkActionDisabled={props.bulkActionDisabled}
-        bulkActionRunning={props.bulkActionRunning}
         secondaryActionLabel={props.secondaryActionLabel}
         onSecondaryAction={props.onSecondaryAction}
         onOpenSettings={props.onOpenSettings}
@@ -2353,7 +2349,6 @@ export function TranslationPane(props: TranslationPaneProps) {
       bulkActionLabel={props.bulkActionLabel}
       onBulkAction={props.onBulkAction}
       bulkActionDisabled={props.bulkActionDisabled}
-      bulkActionRunning={props.bulkActionRunning}
       secondaryActionLabel={props.secondaryActionLabel}
       onSecondaryAction={props.onSecondaryAction}
       onOpenSettings={props.onOpenSettings}
