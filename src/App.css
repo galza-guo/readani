@@ -740,6 +740,7 @@ body.is-resizing-split-y * {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   position: relative;
+  flex: 1;
 }
 
 .document-panel-toolbar,
@@ -935,6 +936,7 @@ body.is-resizing-split-y * {
   min-height: 0;
   min-width: 0;
   flex: 1;
+  height: 100%;
 }
 
 .document-status-dock,
@@ -1223,7 +1225,7 @@ body.is-resizing-split-y * {
 
 .pdf-page {
   position: relative;
-  margin: 0 auto;
+  margin: auto;
   background: white;
   border-radius: 12px;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
@@ -1233,7 +1235,6 @@ body.is-resizing-split-y * {
 .pdf-page-wrapper {
   display: flex;
   justify-content: center;
-  align-items: flex-start;
   min-height: 100%;
 }
 
