@@ -967,6 +967,47 @@ body.is-resizing-split-y * {
   color: var(--ink);
 }
 
+.document-status-activity {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 36%, transparent);
+  animation: document-status-pulse 1.25s ease-out infinite;
+}
+
+.document-status-surface-blocking .document-status-activity {
+  width: 14px;
+  height: 14px;
+}
+
+@keyframes document-status-pulse {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.72;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 38%, transparent);
+  }
+
+  70% {
+    transform: scale(1);
+    opacity: 1;
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+
+  100% {
+    transform: scale(0.9);
+    opacity: 0.72;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .document-status-activity {
+    animation: none;
+  }
+}
+
 .document-status-surface-blocking {
   flex: 1;
   height: 100%;

@@ -15,6 +15,7 @@ export function DocumentStatusSurface({
       aria-live="polite"
       role="status"
     >
+      <span className="document-status-activity" aria-hidden="true" />
       <div className="document-status-message">{message}</div>
       {progress !== null ? (
         <div className="document-status-progress-track" aria-hidden="true">

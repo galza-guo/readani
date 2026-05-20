@@ -26,4 +26,12 @@ describe("DocumentStatusSurface", () => {
     expect(html).toContain("document-status-progress-track");
     expect(html).toContain('style="width:73%"');
   });
+
+  test("includes a visual activity indicator for long-running document work", () => {
+    const html = renderToStaticMarkup(
+      <DocumentStatusSurface message="Opening document" progress={5} />,
+    );
+
+    expect(html).toContain("document-status-activity");
+  });
 });
