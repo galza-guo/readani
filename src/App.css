@@ -514,7 +514,14 @@ body.is-resizing-split-y * {
   gap: 0;
   min-height: 0;
   min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
 }
 
 .app-main.is-split {
@@ -547,17 +554,10 @@ body.is-resizing-split-y * {
 }
 
 .pane {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
   overflow: hidden;
-  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   min-width: 0;
-  transition:
-    border-color 0.18s ease,
-    background 0.18s ease;
 }
 
 .pane-navigation {
@@ -577,9 +577,6 @@ body.is-resizing-split-y * {
 
 .pane.is-hidden {
   min-width: 0 !important;
-  border: 0;
-  box-shadow: none;
-  background: transparent;
   overflow: hidden;
   pointer-events: none;
 }
@@ -643,10 +640,8 @@ body.is-resizing-split-y * {
 
 .split-resize-handle::before {
   background-color: var(--border-strong);
-  opacity: 0;
-  transition:
-    opacity 0.14s ease 0s,
-    background-color 0.14s ease 0s;
+  opacity: 0.9;
+  transition: background-color 0.14s ease 0s;
 }
 
 .rail-resize-handle::before,
@@ -667,12 +662,11 @@ body.is-resizing-split-y * {
 }
 
 .split-resize-handle:hover::before {
-  opacity: 1;
+  background-color: var(--accent-strong);
   transition-delay: 0.18s;
 }
 
 .split-resize-handle[data-dragging="true"]::before {
-  opacity: 1;
   background-color: var(--accent-strong);
   transition-delay: 0s;
 }
