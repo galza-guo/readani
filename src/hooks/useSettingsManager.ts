@@ -1372,9 +1372,6 @@ export function useSettingsManager({ showToast }: UseSettingsManagerParams) {
     handleTestPreset,
     handleTestAllPresets,
     handleFetchPresetModels,
-    handleReaderSettingsChange: undefined as
-      | ((nextSettings: TranslationSettings) => Promise<void>)
-      | undefined,
     handleClearAllTranslationCache,
     handleClearCachedBookTranslations,
     resetSettingsDialogState,
