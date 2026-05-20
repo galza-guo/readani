@@ -14,14 +14,6 @@ function renderSettings(overrides: Partial<SettingsDialogContentProps> = {}) {
   );
 }
 
-function renderSettingsWithProps(props: SettingsDialogContentProps) {
-  return renderToStaticMarkup(
-    <ToastProvider>
-      <SettingsDialogContent {...props} />
-    </ToastProvider>
-  );
-}
-
 const settingsStylesSource = readFileSync(
   resolve(import.meta.dir, "..", "..", "App.css"),
   "utf8"
