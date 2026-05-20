@@ -5172,11 +5172,16 @@ function AppContent() {
           pageNumber,
         );
         const existing = pageTranslationsRef.current[pageNumber];
+        // Only consider the page's own source text as a signal to re-translate.
+        // Adjacent-page context (previousContext / nextContext) changes during
+        // background extraction batch loading and must NOT trigger a
+        // force-refresh: the translation cache key does not include context,
+        // so a context-only change cannot produce a different cached result,
+        // but force-refreshing would bump the request version and silently
+        // discard every in-flight translation until all batches finish.
         const inputChanged =
           Boolean(existing) &&
-          (existing.displayText !== payload.displayText ||
-            existing.previousContext !== payload.previousContext ||
-            existing.nextContext !== payload.nextContext);
+          existing.displayText !== payload.displayText;
         const shouldForceFresh = Boolean(options.forceFresh || inputChanged);
         const translatableParagraphs = getTranslatablePdfParagraphs(pageDoc);
 
