@@ -22,8 +22,6 @@ describe("PdfViewer", () => {
         onResolvedScaleChange={() => {}}
         overlayStatusMessage="Extracting text"
         overlayProgress={81}
-        onSelectionText={() => {}}
-        onClearSelection={() => {}}
       />,
     );
 
@@ -63,6 +61,28 @@ describe("PdfViewer", () => {
     expect(viewerRule).toContain("min-width: 0");
   });
 
+  test("does not render a hidden PDF text layer for original-page selection", () => {
+    const html = renderToStaticMarkup(
+      <PdfViewer
+        pdfDoc={{} as any}
+        pageSizes={[{ width: 100, height: 200 }]}
+        currentPage={1}
+        zoomMode="custom"
+        manualScale={1}
+        scrollAnchor="top"
+        paragraphs={[]}
+        highlightPid={null}
+        onNavigateToPage={() => {}}
+        onRequestPageChange={() => {}}
+        onZoomModeChange={() => {}}
+        onManualScaleChange={() => {}}
+        onResolvedScaleChange={() => {}}
+      />,
+    );
+
+    expect(html).not.toContain('class="pdf-text-layer"');
+  });
+
   test("replaces the compact trigger with the expanded control when opened", () => {
     const html = renderToStaticMarkup(
       <PdfViewer
@@ -80,8 +100,6 @@ describe("PdfViewer", () => {
         onManualScaleChange={() => {}}
         onResolvedScaleChange={() => {}}
         defaultZoomPopoverOpen={true}
-        onSelectionText={() => {}}
-        onClearSelection={() => {}}
       />,
     );
 
@@ -109,8 +127,6 @@ describe("PdfViewer", () => {
         onZoomModeChange={() => {}}
         onManualScaleChange={() => {}}
         onResolvedScaleChange={() => {}}
-        onSelectionText={() => {}}
-        onClearSelection={() => {}}
       />,
     );
 
@@ -162,8 +178,6 @@ describe("PdfViewer", () => {
         onZoomModeChange={() => {}}
         onManualScaleChange={() => {}}
         onResolvedScaleChange={() => {}}
-        onSelectionText={() => {}}
-        onClearSelection={() => {}}
       />,
     );
 
@@ -198,8 +212,6 @@ describe("PdfViewer", () => {
         onZoomModeChange={() => {}}
         onManualScaleChange={() => {}}
         onResolvedScaleChange={() => {}}
-        onSelectionText={() => {}}
-        onClearSelection={() => {}}
       />,
     );
 
@@ -239,8 +251,6 @@ describe("PdfViewer", () => {
         onZoomModeChange={() => {}}
         onManualScaleChange={() => {}}
         onResolvedScaleChange={() => {}}
-        onSelectionText={() => {}}
-        onClearSelection={() => {}}
       />,
     );
 
@@ -273,8 +283,6 @@ describe("PdfViewer", () => {
         onZoomModeChange={() => {}}
         onManualScaleChange={() => {}}
         onResolvedScaleChange={() => {}}
-        onSelectionText={() => {}}
-        onClearSelection={() => {}}
       />,
     );
 

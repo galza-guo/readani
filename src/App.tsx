@@ -13,9 +13,6 @@ import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { NavItem } from "epubjs";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type Update } from "@tauri-apps/plugin-updater";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -41,6 +38,7 @@ import { PanelToggleGroup } from "./components/reader/PanelToggleGroup";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { ThemeToggleButton } from "./components/ThemeToggleButton";
 import { ToastProvider, useToast } from "./components/toast/ToastProvider";
+import { useAppUpdates } from "./hooks/useAppUpdates";
 import { useTheme } from "./hooks/useTheme";
 import { AnnotationsPanel } from "./components/AnnotationsPanel";
 import { HomeView } from "./views/HomeView";
@@ -155,7 +153,6 @@ import {
   getFriendlyProviderError,
   getTranslateAllSlowModeErrorAction,
 } from "./lib/providerErrors";
-import { READANI_RELEASES_URL } from "./lib/release";
 import {
   bumpRequestVersion,
   dequeueNextPage,
@@ -189,8 +186,6 @@ import type {
   PresetTestResult,
   RecentBook,
   Rect,
-  SelectionTranslation,
-  SelectionTranslationResult,
   TranslationFallbackTrace,
   TranslationCacheSummary,
   TranslationPreset,
@@ -401,16 +396,7 @@ const FRONTEND_TIMEOUT_MS = 95_000;
 
 type AppView = "home" | "reader";
 const APP_WINDOW_TITLE = "readani";
-
-type UpdateCheckSource = "automatic" | "manual";
-
-type UpdateState =
-  | { phase: "idle" }
-  | { phase: "checking" }
-  | { phase: "downloading"; version: string }
-  | { phase: "ready"; version: string }
-  | { phase: "installing"; version: string }
-  | { phase: "error"; message: string };
+const APP_UPDATES_ENABLED = import.meta.env.VITE_READANI_APP_UPDATES !== "false";
 
 const PRESET_AUTOSAVE_DELAY_MS = 700;
 const FALLBACK_PROGRESS_EVENT = "translation-fallback-progress";
@@ -454,22 +440,6 @@ function getFriendlyPresetTestResult(
     message: friendlyError.message,
     detail: getProviderErrorDetail(rawError),
   };
-}
-
-function getUpdateErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  if (typeof error === "string") {
-    return error;
-  }
-
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return "Unknown error";
-  }
 }
 
 function invokeWithTimeout<T>(
@@ -711,8 +681,6 @@ function AppContent() {
   >(null);
   const [wordTranslation, setWordTranslation] =
     useState<WordTranslation | null>(null);
-  const [selectionTranslation, setSelectionTranslation] =
-    useState<SelectionTranslation | null>(null);
   const [loadingProgress, setLoadingProgress] = useState<number | null>(null);
   const [epubToc, setEpubToc] = useState<NavItem[]>([]);
   const [epubCurrentChapter, setEpubCurrentChapter] = useState<string>("");
@@ -743,9 +711,18 @@ function AppContent() {
   const [activeRailResizeKey, setActiveRailResizeKey] = useState<string | null>(
     null,
   );
-  const [updateState, setUpdateState] = useState<UpdateState>({
-    phase: "idle",
+  const updates = useAppUpdates({
+    enabled: APP_UPDATES_ENABLED,
+    showToast,
   });
+  const {
+    updateActionsEnabled,
+    showReadyUpdateAction,
+    aboutUpdateStatusMessage,
+    handleCheckForUpdates,
+    handleInstallUpdate,
+    handleOpenLatestRelease,
+  } = updates;
 
   // Annotation state
   const [annotations, setAnnotations] = useState<SentenceAnnotation[]>([]);
@@ -818,8 +795,6 @@ function AppContent() {
   const pdfExtractionCacheFlushTimerRef = useRef<number | null>(null);
   const pdfExtractionCacheFlushQueueRef = useRef<Promise<void>>(Promise.resolve());
   const epubScrollRequestIdRef = useRef(0);
-  const autoUpdateCheckStartedRef = useRef(false);
-  const pendingUpdateRef = useRef<Update | null>(null);
   const readerShellRef = useRef<HTMLDivElement | null>(null);
   const readerHeaderRef = useRef<HTMLDivElement | null>(null);
   const columnRefs = useRef<Record<ReaderColumnKey, HTMLElement | null>>({
@@ -1145,147 +1120,6 @@ function AppContent() {
       unlistenFailure?.();
     };
   }, [showToast]);
-
-  const clearPendingUpdate = useCallback(() => {
-    const currentUpdate = pendingUpdateRef.current;
-    pendingUpdateRef.current = null;
-
-    if (currentUpdate) {
-      void currentUpdate.close().catch(() => {
-        // Ignore updater resource cleanup failures.
-      });
-    }
-  }, []);
-
-  const storePendingUpdate = useCallback((update: Update) => {
-    const previousUpdate = pendingUpdateRef.current;
-    pendingUpdateRef.current = update;
-
-    if (previousUpdate && previousUpdate !== update) {
-      void previousUpdate.close().catch(() => {
-        // Ignore updater resource cleanup failures.
-      });
-    }
-  }, []);
-
-  const handleCheckForUpdates = useCallback(
-    async (source: UpdateCheckSource) => {
-      if (updateState.phase === "checking") {
-        return;
-      }
-
-      if (updateState.phase === "downloading") {
-        if (source === "manual") {
-          showToast({ message: t("update.alreadyDownloading") });
-        }
-        return;
-      }
-
-      if (updateState.phase === "ready") {
-        if (source === "manual") {
-          showToast({
-            message: t("update.readyToInstall"),
-            tone: "success",
-          });
-        }
-        return;
-      }
-
-      if (updateState.phase === "installing") {
-        return;
-      }
-
-      setUpdateState({ phase: "checking" });
-
-      try {
-        const update = await check();
-
-        if (!update) {
-          clearPendingUpdate();
-          setUpdateState({ phase: "idle" });
-
-          if (source === "manual") {
-            showToast({
-              message: t("update.latestVersion"),
-              tone: "success",
-            });
-          }
-          return;
-        }
-
-        storePendingUpdate(update);
-        setUpdateState({ phase: "downloading", version: update.version });
-        showToast({ message: t("update.foundUpdate") });
-        await update.download();
-        setUpdateState({ phase: "ready", version: update.version });
-      } catch (error) {
-        clearPendingUpdate();
-        const message = getUpdateErrorMessage(error);
-        setUpdateState({ phase: "error", message });
-
-        if (source === "manual") {
-          showToast({
-            message: t("update.failedMessage", { message }),
-            tone: "error",
-            durationMs: 5200,
-          });
-        } else {
-          console.error("Background updater failed:", error);
-        }
-      }
-    },
-    [clearPendingUpdate, showToast, storePendingUpdate, updateState.phase],
-  );
-
-  const handleInstallUpdate = useCallback(async () => {
-    const update = pendingUpdateRef.current;
-
-    if (!update || updateState.phase !== "ready") {
-      return;
-    }
-
-    setUpdateState({ phase: "installing", version: update.version });
-
-    try {
-      await update.install();
-      await relaunch();
-    } catch (error) {
-      const message = getUpdateErrorMessage(error);
-      setUpdateState({ phase: "ready", version: update.version });
-      showToast({
-        message: t("update.failedMessage", { message }),
-        tone: "error",
-        durationMs: 5200,
-      });
-    }
-  }, [showToast, updateState.phase]);
-
-  const handleOpenLatestRelease = useCallback(async () => {
-    try {
-      await openUrl(READANI_RELEASES_URL);
-    } catch (error) {
-      showToast({
-        message: t("update.failedMessage", { message: getUpdateErrorMessage(error) }),
-        tone: "error",
-        durationMs: 5200,
-      });
-    }
-  }, [showToast]);
-
-  useEffect(() => {
-    if (autoUpdateCheckStartedRef.current) {
-      return;
-    }
-
-    autoUpdateCheckStartedRef.current = true;
-    void handleCheckForUpdates("automatic");
-  }, [handleCheckForUpdates]);
-
-  useEffect(() => {
-    return () => {
-      clearPendingUpdate();
-    };
-  }, [clearPendingUpdate]);
 
   const releasePdfDocument = useCallback((doc: PDFDocumentProxy | null) => {
     if (!doc) {
@@ -1696,25 +1530,6 @@ function AppContent() {
     translateAllWaitTick,
     translationProgress.isFullyTranslated,
   ]);
-
-  const showReadyUpdateAction = updateState.phase === "ready";
-
-  const aboutUpdateStatusMessage = useMemo(() => {
-    switch (updateState.phase) {
-      case "checking":
-        return t("update.checking");
-      case "downloading":
-        return t("update.downloadingVersion", { version: updateState.version });
-      case "ready":
-        return t("update.updateReady", { version: updateState.version });
-      case "installing":
-        return t("update.installingVersion", { version: updateState.version });
-      case "error":
-        return `Last update error: ${updateState.message}`;
-      default:
-        return null;
-    }
-  }, [updateState]);
 
   const currentPdfPagePayload = useMemo(() => {
     if (currentFileType !== "pdf" || pages.length === 0) {
@@ -2339,7 +2154,6 @@ function AppContent() {
       setPdfScrollAnchor("top");
       setPendingEpubScroll(null);
       setScrollToTranslationPage(null);
-      setSelectionTranslation(null);
       setWordTranslation(null);
       setHoverPid(null);
       setActivePid(null);
@@ -2756,7 +2570,6 @@ function AppContent() {
       setPendingEpubNavigationHref(null);
       setPageSizes([]);
       setPageTranslations({});
-      setSelectionTranslation(null);
       setHoverPid(null);
       setActivePid(null);
       setLoadingProgress(0);
@@ -3136,7 +2949,6 @@ function AppContent() {
     setCurrentBookTitle(null);
     setDocumentStatusMessage(null);
     setTranslationStatusMessage(null);
-    setSelectionTranslation(null);
     setWordTranslation(null);
     setEpubToc([]);
     setEpubCurrentChapter("");
@@ -4047,7 +3859,6 @@ function AppContent() {
           pageTranslationInFlightRef.current = null;
           pageTranslatingRef.current = false;
           setPageTranslationInFlightPage(null);
-          setSelectionTranslation(null);
           setWordTranslation(null);
           setTranslationStatusMessage(null);
           resetTranslateAllSlowModeRuntime();
@@ -4323,7 +4134,6 @@ function AppContent() {
   useEffect(() => {
     if (currentFileType !== "pdf") return;
     setPageTranslations({});
-    setSelectionTranslation(null);
     resetTranslateAllSlowModeRuntime();
     isTranslateAllRunningRef.current = false;
     setIsTranslateAllRunning(false);
@@ -4349,7 +4159,6 @@ function AppContent() {
   useEffect(() => {
     if (currentFileType !== "pdf") return;
 
-    setSelectionTranslation(null);
     setTranslationStatusMessage(null);
     resetTranslateAllSlowModeRuntime();
     isTranslateAllRunningRef.current = false;
@@ -5506,7 +5315,6 @@ function AppContent() {
       pageTranslationInFlightRef.current = null;
       pageTranslatingRef.current = false;
       setPageTranslationInFlightPage(null);
-      setSelectionTranslation(null);
       setWordTranslation(null);
       setTranslationStatusMessage(null);
       resetTranslateAllSlowModeRuntime();
@@ -5676,64 +5484,6 @@ function AppContent() {
     translationProgress.isFullyTranslated,
   ]);
 
-  const handlePdfSelectionTranslate = useCallback(
-    async (selection: { text: string; position: { x: number; y: number } }) => {
-      if (!translationEnabledRef.current) {
-        return;
-      }
-
-      setSelectionTranslation({
-        text: selection.text,
-        position: selection.position,
-        isLoading: true,
-      });
-
-      const sessionId = pdfTranslationSessionRef.current;
-
-      try {
-        const currentPreset = getEffectivePreset(settingsRef.current);
-        if (!currentPreset || !hasPresetTranslationContext(currentPreset)) {
-          throw new Error("No active preset configured.");
-        }
-
-        const result = (await invoke("translate_selection_text", {
-          presetId: currentPreset.id,
-          model: currentPreset.model,
-          targetLanguage: currentTargetLanguageRef.current,
-          text: selection.text,
-        })) as SelectionTranslationResult;
-
-        if (sessionId !== pdfTranslationSessionRef.current) {
-          return;
-        }
-
-        setSelectionTranslation({
-          text: selection.text,
-          position: selection.position,
-          translation: result.translation,
-        });
-        showFallbackSuccessToast(result.fallbackTrace);
-      } catch (error) {
-        if (sessionId !== pdfTranslationSessionRef.current) {
-          return;
-        }
-
-        const friendlyError = getFriendlyProviderError(error);
-
-        setSelectionTranslation({
-          text: selection.text,
-          position: selection.position,
-          error: friendlyError.message,
-        });
-      }
-    },
-    [],
-  );
-
-  const handleClearSelectionTranslation = useCallback(() => {
-    setSelectionTranslation(null);
-  }, []);
-
   const handlePdfPageChange = useCallback(
     (nextPage: number, options?: { anchor?: "top" | "bottom" }) => {
       if (currentFileType !== "pdf" || pages.length === 0) return;
@@ -5744,7 +5494,6 @@ function AppContent() {
       setCurrentPage(clampedPage);
       setHoverPid(null);
       setActivePid(null);
-      setSelectionTranslation(null);
     },
     [currentFileType, currentPage, pages.length],
   );
@@ -7015,6 +6764,7 @@ function AppContent() {
         void handleOpenLatestRelease();
       }}
       open={aboutOpen}
+      updateActionsEnabled={updateActionsEnabled}
       updateStatusMessage={aboutUpdateStatusMessage}
     />
   );
@@ -7262,8 +7012,6 @@ function AppContent() {
                     overlayProgress={
                       hasPdfExtractionOverlay ? loadingProgress : null
                     }
-                    onSelectionText={handlePdfSelectionTranslate}
-                    onClearSelection={handleClearSelectionTranslation}
                   />
                 ) : hasBlockingOriginalPaneStatus &&
                   originalPaneStatusMessage ? (
@@ -7347,10 +7095,6 @@ function AppContent() {
                       hoverPid={hoverPid}
                       onHoverPid={setHoverPid}
                       onLocatePid={handleLocatePid}
-                      selectionTranslation={selectionTranslation}
-                      onClearSelectionTranslation={
-                        handleClearSelectionTranslation
-                      }
                       statusMap={pageProgressMap}
                       onSeekPage={handleSeekPage}
                       annotations={resolvedAnnotations.filter(

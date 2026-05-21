@@ -23,6 +23,7 @@ type AboutDialogProps = {
   onOpenChange: (open: boolean) => void;
   onCheckForUpdates: () => void;
   onOpenLatestRelease: () => void;
+  updateActionsEnabled?: boolean;
   updateStatusMessage?: string | null;
 };
 
@@ -31,6 +32,7 @@ export function AboutDialog({
   onOpenChange,
   onCheckForUpdates,
   onOpenLatestRelease,
+  updateActionsEnabled = true,
   updateStatusMessage,
 }: AboutDialogProps) {
   const [appVersion, setAppVersion] = useState(READANI_VERSION);
@@ -144,25 +146,27 @@ export function AboutDialog({
 
             <p className="about-dialog-copyright">{READANI_COPYRIGHT_LINE}</p>
 
-            {updateStatusMessage ? (
+            {updateActionsEnabled && updateStatusMessage ? (
               <p className="about-dialog-update-status" role="status">
                 {updateStatusMessage}
               </p>
             ) : null}
 
-            <div className="about-dialog-actions">
-              <button className="btn btn-primary" onClick={onCheckForUpdates} type="button">
-                {t("about.checkForUpdate")}
-              </button>
-              <button
-                className="btn"
-                onClick={onOpenLatestRelease}
-                title={READANI_RELEASES_URL}
-                type="button"
-              >
-                {t("about.openLatestRelease")}
-              </button>
-            </div>
+            {updateActionsEnabled ? (
+              <div className="about-dialog-actions">
+                <button className="btn btn-primary" onClick={onCheckForUpdates} type="button">
+                  {t("about.checkForUpdate")}
+                </button>
+                <button
+                  className="btn"
+                  onClick={onOpenLatestRelease}
+                  title={READANI_RELEASES_URL}
+                  type="button"
+                >
+                  {t("about.openLatestRelease")}
+                </button>
+              </div>
+            ) : null}
           </div>
         </Dialog.Content>
       </Dialog.Portal>

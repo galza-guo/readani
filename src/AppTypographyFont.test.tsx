@@ -113,12 +113,16 @@ describe("app typography font roles", () => {
       /(?:^|\n)\.settings-label\.type-field-label,\s*\.settings-toolbar-title\.type-section-title\s*\{([^}]*)\}/
     );
     const pageLabelRule = getRule(
-      /(?:^|\n)\.document-page-label,\s*\.pdf-page-jump-label,\s*\.pdf-page-jump-total,\s*\.pdf-zoom-readout\s*\{([^}]*)\}/
+      /(?:^|\n)\.document-page-label,\s*\.pdf-page-jump-label,\s*\.pdf-zoom-readout\s*\{([^}]*)\}/
+    );
+    const pageJumpTotalRule = getRule(
+      /(?:^|\n)\.pdf-page-jump-total\s*\{([^}]*)\}/
     );
     const panelToggleRule = getRule(/(?:^|\n)\.panel-toggle-btn\s*\{([^}]*)\}/);
 
     expect(settingsLabelRule).toContain("font-size: 15px");
     expect(pageLabelRule).toContain("font-size: var(--type-size-label)");
+    expect(pageJumpTotalRule).toContain("font-size: var(--type-size-label)");
     expect(panelToggleRule).toContain("font-size: var(--type-size-label)");
   });
 });

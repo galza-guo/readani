@@ -183,23 +183,10 @@ export type BatchTranslationResult = {
   fallbackTrace: TranslationFallbackTrace;
 };
 
-export type SelectionTranslationResult = {
-  translation: string;
-  fallbackTrace: TranslationFallbackTrace;
-};
-
 export type WordLookupResult = {
   phonetic?: string;
   definitions: WordDefinition[];
   fallbackTrace: TranslationFallbackTrace;
-};
-
-export type SelectionTranslation = {
-  text: string;
-  translation?: string;
-  position: { x: number; y: number };
-  isLoading?: boolean;
-  error?: string;
 };
 
 export type WordDefinition = {

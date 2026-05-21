@@ -55,6 +55,13 @@ describe("AboutDialog", () => {
     expect(actionsRule).toContain("justify-content: center");
   });
 
+  test("hides update actions entirely when app updates are disabled", () => {
+    expect(aboutDialogSource).toContain("updateActionsEnabled");
+    expect(aboutDialogSource).toContain("updateActionsEnabled && updateStatusMessage");
+    expect(aboutDialogSource).toContain("updateActionsEnabled ? (");
+    expect(aboutDialogSource).toContain('className="about-dialog-actions"');
+  });
+
   test("loads the version from the runtime app metadata with a fallback", () => {
     expect(releaseSource).toContain("getReadaniRuntimeVersion");
     expect(releaseSource).toContain('return await getTauriAppVersion()');

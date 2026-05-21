@@ -95,8 +95,6 @@ function renderPdfPane(
         hoverPid={options.hoverPid ?? null}
         onHoverPid={() => {}}
         onLocatePid={() => {}}
-        selectionTranslation={null}
-        onClearSelectionTranslation={() => {}}
         annotations={options.annotations}
         annotationModeEnabled={options.annotationModeEnabled}
         onToggleAnnotationMode={options.onToggleAnnotationMode}

@@ -52,11 +52,6 @@ type PdfViewerProps = {
   defaultZoomPopoverOpen?: boolean;
   overlayStatusMessage?: string | null;
   overlayProgress?: number | null;
-  onSelectionText: (selection: {
-    text: string;
-    position: { x: number; y: number };
-  }) => void;
-  onClearSelection: () => void;
 };
 
 export function PdfViewer({
@@ -77,8 +72,6 @@ export function PdfViewer({
   defaultZoomPopoverOpen = false,
   overlayStatusMessage,
   overlayProgress,
-  onSelectionText,
-  onClearSelection,
 }: PdfViewerProps) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const zoomDockRef = useRef<HTMLDivElement | null>(null);
@@ -388,8 +381,6 @@ export function PdfViewer({
               paragraphs={paragraphs}
               highlightPid={highlightPid}
               savedHighlightPids={savedHighlightPids}
-              onSelectionText={onSelectionText}
-              onClearSelection={onClearSelection}
             />
           </div>
         </div>

@@ -1284,29 +1284,6 @@ body.is-resizing-split-y * {
   display: block;
 }
 
-.pdf-text-layer {
-  position: absolute;
-  inset: 0;
-  pointer-events: auto;
-  opacity: 0;
-  color: transparent;
-  user-select: text;
-  cursor: text;
-}
-
-.pdf-text-layer-inner,
-.textLayer {
-  position: absolute;
-  inset: 0;
-}
-
-.pdf-text-layer ::selection,
-.pdf-text-layer-inner ::selection,
-.textLayer ::selection {
-  background: rgba(10, 132, 255, 0.28);
-  color: transparent;
-}
-
 .pdf-overlay {
   position: absolute;
   inset: 0;
@@ -2373,43 +2350,6 @@ body.is-resizing-split-y * {
   min-width: 280px;
   max-width: 360px;
   animation: popoverFadeIn 0.15s ease;
-}
-
-.selection-popover {
-  max-width: min(360px, calc(100vw - 32px));
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  box-shadow: var(--shadow-lg);
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.selection-popover-source {
-  font-size: 12px;
-  font-family: var(--font-body);
-  line-height: 1.5;
-  color: var(--ink-muted);
-}
-
-.selection-popover-divider {
-  height: 1px;
-  background: var(--border);
-}
-
-.selection-popover-loading,
-.selection-popover-error,
-.selection-popover-translation {
-  font-size: 14px;
-  font-family: var(--font-body);
-  line-height: 1.6;
-  color: var(--ink);
-}
-
-.selection-popover-error {
-  color: var(--error);
 }
 
 @keyframes popoverFadeIn {

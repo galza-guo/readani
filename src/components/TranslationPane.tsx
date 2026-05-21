@@ -28,7 +28,6 @@ import type {
   PageDoc,
   PageTranslationState,
   Paragraph,
-  SelectionTranslation,
   TargetLanguage,
   TranslationPreset,
   WordTranslation,
@@ -96,8 +95,6 @@ type PdfTranslationPaneProps = {
   hoverPid?: string | null;
   onHoverPid: (pid: string | null) => void;
   onLocatePid: (pid: string, page: number) => void;
-  selectionTranslation: SelectionTranslation | null;
-  onClearSelectionTranslation: () => void;
   statusMap?: PageProgressStatus[];
   onSeekPage?: (page: number) => void;
   // Annotation props
@@ -1528,8 +1525,6 @@ function PdfTranslationPane({
   hoverPid,
   onHoverPid,
   onLocatePid: _onLocatePid,
-  selectionTranslation,
-  onClearSelectionTranslation,
   statusMap,
   onSeekPage,
   annotations,
@@ -1985,45 +1980,6 @@ function PdfTranslationPane({
         onSeekPage={onSeekPage}
       />
 
-      {selectionTranslation ? (
-        <Popover.Root
-          open={true}
-          onOpenChange={(open) => !open && onClearSelectionTranslation()}
-        >
-          <Popover.Anchor
-            style={{
-              position: "fixed",
-              left: selectionTranslation.position.x,
-              top: selectionTranslation.position.y,
-            }}
-          />
-          <Popover.Portal>
-            <Popover.Content
-              className="selection-popover"
-              sideOffset={8}
-              onPointerDownOutside={onClearSelectionTranslation}
-              onEscapeKeyDown={onClearSelectionTranslation}
-            >
-              <div className="selection-popover-source">
-                {selectionTranslation.text}
-              </div>
-              <div className="selection-popover-divider" />
-              {selectionTranslation.isLoading ? (
-                <div className="selection-popover-loading">{t("translation.translating")}</div>
-              ) : selectionTranslation.error ? (
-                <div className="selection-popover-error">
-                  {selectionTranslation.error}
-                </div>
-              ) : (
-                <div className="selection-popover-translation">
-                  {selectionTranslation.translation}
-                </div>
-              )}
-              <Popover.Arrow className="word-popover-arrow" />
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
-      ) : null}
     </div>
   );
 }
@@ -2314,8 +2270,6 @@ export function TranslationPane(props: TranslationPaneProps) {
         hoverPid={props.hoverPid}
         onHoverPid={props.onHoverPid}
         onLocatePid={props.onLocatePid}
-        selectionTranslation={props.selectionTranslation}
-        onClearSelectionTranslation={props.onClearSelectionTranslation}
         statusMap={props.statusMap}
         onSeekPage={props.onSeekPage}
         annotations={props.annotations}

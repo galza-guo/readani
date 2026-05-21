@@ -1174,13 +1174,6 @@ struct BatchTranslationResponse {
     fallback_trace: TranslationFallbackTrace,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SelectionTranslationResponse {
-    translation: String,
-    fallback_trace: TranslationFallbackTrace,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PageCacheLookupInput {
@@ -1733,47 +1726,6 @@ fn clear_all_translation_cache(handle: tauri::AppHandle) -> Result<(), String> {
     remove_file_if_exists(&page_cache_file_path(&handle)?)?;
     remove_file_if_exists(&cache_file_path(&handle)?)?;
     remove_file_if_exists(&cached_book_metadata_file_path(&handle)?)
-}
-
-#[tauri::command(rename_all = "camelCase")]
-async fn translate_selection_text(
-    handle: tauri::AppHandle,
-    preset_id: String,
-    _model: String,
-    target_language: TargetLanguage,
-    text: String,
-) -> Result<SelectionTranslationResponse, String> {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return Err("Selection text is empty.".to_string());
-    }
-
-    let (translation, fallback_trace) =
-        execute_with_preset_fallback(&handle, &preset_id, None, |preset| {
-            let target_language = target_language.clone();
-            let trimmed = trimmed.to_string();
-
-            async move {
-                let provider = preset.to_provider_config();
-                let translation = request_chat_completion(
-                    &provider,
-                    &preset.model,
-                    0.0,
-                    preset_reasoning_mode(&preset),
-                    build_selection_translation_system_prompt(),
-                    &build_selection_translation_prompt(&target_language, trimmed.as_str()),
-                )
-                .await?;
-
-                Ok(translation.trim().to_string())
-            }
-        })
-        .await?;
-
-    Ok(SelectionTranslationResponse {
-        translation,
-        fallback_trace,
-    })
 }
 
 fn build_system_prompt() -> String {
@@ -3266,7 +3218,6 @@ pub fn run() {
             get_translation_cache_summary,
             clear_cached_book_language_translations,
             clear_all_translation_cache,
-            translate_selection_text,
             openrouter_translate,
             openrouter_word_lookup,
             test_translation_preset,

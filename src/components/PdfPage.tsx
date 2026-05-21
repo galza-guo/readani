@@ -1,14 +1,11 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { normalizeSelectionText } from "../lib/pageText";
 import type { Paragraph } from "../types";
 import {
   loadPdfPageViewport,
   renderPdfPageToScratchCanvas,
   syncCanvasToViewport,
 } from "../lib/pdfPageRender";
-
-const TEXT_LAYER_CLASS = "pdf-text-layer";
 
 function isCancelledRenderError(error: unknown) {
   return error instanceof Error && error.name === "RenderingCancelledException";
@@ -23,11 +20,6 @@ type PdfPageProps = {
   paragraphs: Paragraph[];
   highlightPid?: string | null;
   savedHighlightPids?: string[];
-  onSelectionText: (selection: {
-    text: string;
-    position: { x: number; y: number };
-  }) => void;
-  onClearSelection: () => void;
 };
 
 export function PdfPage({
@@ -39,11 +31,8 @@ export function PdfPage({
   paragraphs,
   highlightPid,
   savedHighlightPids,
-  onSelectionText,
-  onClearSelection,
 }: PdfPageProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const textLayerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,20 +92,6 @@ export function PdfPage({
         });
         context.drawImage(scratchCanvas, 0, 0);
 
-        if (cancelled || !textLayerRef.current) {
-          return;
-        }
-
-        const { TextLayerBuilder } =
-          await import("pdfjs-dist/web/pdf_viewer.mjs");
-        const container = textLayerRef.current;
-        container.replaceChildren();
-        container.classList.add(TEXT_LAYER_CLASS);
-        const textLayer = new TextLayerBuilder({ pdfPage: page });
-        textLayer.div.classList.add("pdf-text-layer-inner");
-        await textLayer.render(viewport);
-        if (cancelled) return;
-        container.appendChild(textLayer.div);
       } catch (error) {
         if (!cancelled && !isCancelledRenderError(error)) {
           console.error(`Failed to render PDF page ${pageNumber}:`, error);
@@ -135,7 +110,6 @@ export function PdfPage({
     return () => {
       cancelled = true;
       renderTask?.cancel();
-      textLayerRef.current?.replaceChildren();
       if (canvasRef.current) {
         const canvas = canvasRef.current;
         const context = canvas.getContext("2d");
@@ -145,35 +119,6 @@ export function PdfPage({
       }
     };
   }, [pdfDoc, pageNumber, scale]);
-
-  const handleMouseUp = useCallback(() => {
-    const selection = window.getSelection();
-    const text = normalizeSelectionText(selection?.toString() ?? "");
-
-    if (!selection || selection.rangeCount === 0 || !text) {
-      onClearSelection();
-      return;
-    }
-
-    const range = selection.getRangeAt(0);
-    if (!textLayerRef.current?.contains(range.commonAncestorContainer)) {
-      return;
-    }
-
-    const rect = range.getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) {
-      onClearSelection();
-      return;
-    }
-
-    onSelectionText({
-      text,
-      position: {
-        x: rect.left + rect.width / 2,
-        y: rect.bottom + 8,
-      },
-    });
-  }, [onClearSelection, onSelectionText]);
 
   const highlightRects = highlightPid
     ? paragraphs
@@ -195,10 +140,8 @@ export function PdfPage({
     <div
       className="pdf-page"
       style={{ width: baseWidth * scale, height: baseHeight * scale }}
-      onMouseUp={handleMouseUp}
     >
       <canvas ref={canvasRef} className="pdf-canvas" />
-      <div ref={textLayerRef} className="pdf-text-layer" />
       <div className="pdf-overlay">
         {highlightRects.map((rect, index) =>
           (() => {
