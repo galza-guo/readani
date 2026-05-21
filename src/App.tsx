@@ -46,7 +46,9 @@ import {
   getPresetValidationState,
 } from "./lib/appSettings";
 import {
+  getDocumentFileName,
   getDocumentTitleFromPath,
+  resolveLoadedDocumentIdentity,
   type LoadDocumentIdentity,
 } from "./lib/documentIdentity";
 import {
@@ -54,8 +56,10 @@ import {
   releasePdfDocument,
   yieldToBrowserPaint,
   isStructurallySimilarRecentCandidate,
+  readDocumentBytes,
   type DocumentInspection,
 } from "./lib/documentLoading";
+import { hashBuffer } from "./lib/hash";
 import { useAnnotations } from "./hooks/useAnnotations";
 import {
   type PdfNavTab,
@@ -74,7 +78,6 @@ import {
 import { useSettingsManager } from "./hooks/useSettingsManager";
 import { useTranslationQueue } from "./hooks/useTranslationQueue";
 import { loadPdfFromPath as loadPdfFromPathImpl, type LoadPdfContext } from "./lib/loadPdfDocument";
-import { loadEpubFromPath as loadEpubFromPathImpl, type LoadEpubContext } from "./lib/loadEpubDocument";
 import { usePdfExtractionCache } from "./hooks/usePdfExtractionCache";
 import { getDocumentProgressSnapshot } from "./lib/readingProgress";
 import { clampPdfManualScale, type PdfZoomMode } from "./lib/readerLayout";
@@ -676,69 +679,81 @@ function AppContent() {
     [pdfLoadContext],
   );
 
-  const epubLoadContext = useMemo<LoadEpubContext>(() => ({
-    flushPendingPdfExtractionCache,
-    resetTranslationQueueForNewDocument,
-    wordTranslationClearSelection: wordTranslationHook.handleClearSelectionTranslation,
-    setAppView,
-    setCurrentFilePath,
-    setCurrentFileType,
-    setPdfDoc,
-    setPdfOutline,
-    setEpubToc,
-    setEpubCurrentChapter,
-    setPendingEpubNavigationHref,
-    setPageSizes,
-    setPageTranslations,
-    setHoverPid,
-    setActivePid,
-    setLoadingProgress,
-    setDocumentStatusMessage,
-    setTranslationStatusMessage,
-    setPdfScrollAnchor,
-    setPendingEpubScroll,
-    setScrollToTranslationPage,
-    setEpubData,
-    setDocId,
-    setCurrentPage,
-    setCurrentBookTitle,
-    pdfOutlineRequestIdRef,
-    pdfLoadRequestIdRef,
-  }), [
-    flushPendingPdfExtractionCache,
-    resetTranslationQueueForNewDocument,
-    wordTranslationHook.handleClearSelectionTranslation,
-    setAppView,
-    setCurrentFilePath,
-    setCurrentFileType,
-    setPdfDoc,
-    setPdfOutline,
-    setEpubToc,
-    setEpubCurrentChapter,
-    setPendingEpubNavigationHref,
-    setPageSizes,
-    setPageTranslations,
-    setHoverPid,
-    setActivePid,
-    setLoadingProgress,
-    setDocumentStatusMessage,
-    setTranslationStatusMessage,
-    setPdfScrollAnchor,
-    setPendingEpubScroll,
-    setScrollToTranslationPage,
-    setEpubData,
-    setDocId,
-    setCurrentPage,
-    setCurrentBookTitle,
-    pdfOutlineRequestIdRef,
-    pdfLoadRequestIdRef,
-  ]);
-
   const loadEpubFromPath = useCallback(
-    async (filePath: string, startPage?: number, identity?: LoadDocumentIdentity) => {
-      await loadEpubFromPathImpl(filePath, epubLoadContext, startPage, identity);
+    async (
+      filePath: string,
+      startPage?: number,
+      identity?: LoadDocumentIdentity,
+    ) => {
+      pdfOutlineRequestIdRef.current += 1;
+      pdfLoadRequestIdRef.current += 1;
+      flushPendingPdfExtractionCache();
+      setAppView("reader");
+      setCurrentFilePath(filePath);
+      setCurrentFileType("epub");
+      setPdfDoc(null);
+      setPdfOutline([]);
+      setEpubToc([]);
+      setEpubCurrentChapter("");
+      setPendingEpubNavigationHref(null);
+      setPageSizes([]);
+      setPageTranslations({});
+      wordTranslationHook.handleClearSelectionTranslation();
+      setHoverPid(null);
+      setActivePid(null);
+      setLoadingProgress(0);
+      setDocumentStatusMessage(getReaderStatusLabel("loading-document"));
+      setTranslationStatusMessage(null);
+      setPdfScrollAnchor("top");
+      setPendingEpubScroll(null);
+      setScrollToTranslationPage(null);
+      resetTranslationQueueForNewDocument();
+      await yieldToBrowserPaint();
+
+      try {
+        const bytes = await readDocumentBytes(filePath);
+        const buffer = bytes.buffer.slice(0);
+        const hash = await hashBuffer(buffer);
+        const resolvedIdentity = resolveLoadedDocumentIdentity({
+          hash,
+          filePath,
+          identity,
+        });
+        const nextDocId = resolvedIdentity.docId;
+
+        // Extract filename and title from path
+        const fileName = getDocumentFileName(filePath);
+        const title = resolvedIdentity.title;
+        setCurrentBookTitle(title);
+
+        setEpubData(bytes);
+        setDocId(nextDocId);
+        setCurrentPage(startPage || 1);
+
+        // Add to recent books (will be updated with proper metadata from EPUB)
+        try {
+          await invoke("add_recent_book", {
+            id: nextDocId,
+            filePath: filePath,
+            fileName: fileName,
+            fileType: "epub",
+            title: title,
+            author: null,
+            coverImage: null,
+            totalPages: 1,
+          });
+        } catch (error) {
+          console.error("Failed to add to recent books:", error);
+        }
+      } catch (error) {
+        console.error("Failed to load EPUB:", error);
+        setDocumentStatusMessage(
+          "Failed to load EPUB. The file may have been moved or deleted.",
+        );
+        setLoadingProgress(null);
+      }
     },
-    [epubLoadContext],
+    [flushPendingPdfExtractionCache, resetTranslationQueueForNewDocument],
   );
 
   const handleEpubMetadata = useCallback(
