@@ -817,12 +817,12 @@ function AppContent() {
               radius: 1,
             });
 
-            const cachedExtractionPages = (await invoke(
+            const allCachedExtractionPages = (await invoke(
               "get_cached_pdf_extraction_pages",
               {
                 docId: nextDocId,
                 extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
-                pages: startupHydrationPages,
+                pages: null,
               },
             )) as CachedPdfExtractionPage[];
 
@@ -830,6 +830,10 @@ function AppContent() {
               return;
             }
 
+            const startupHydrationPageSet = new Set(startupHydrationPages);
+            const cachedExtractionPages = allCachedExtractionPages.filter((page) =>
+              startupHydrationPageSet.has(page.page),
+            );
             setPages(
               applyCachedPdfExtractionPages(initialPages, cachedExtractionPages),
             );
@@ -848,6 +852,9 @@ function AppContent() {
               remainingPages,
               PDF_EXTRACTION_HYDRATION_BATCH_SIZE,
             );
+            const cachedExtractionPagesByPage = new Map(
+              allCachedExtractionPages.map((page) => [page.page, page]),
+            );
 
             void (async () => {
               for (const batch of remainingPageBatches) {
@@ -855,14 +862,11 @@ function AppContent() {
                   return;
                 }
 
-                const nextBatch = (await invoke(
-                  "get_cached_pdf_extraction_pages",
-                  {
-                    docId: nextDocId,
-                    extractionVersion: PDF_EXTRACTION_CACHE_VERSION,
-                    pages: batch,
-                  },
-                )) as CachedPdfExtractionPage[];
+                const nextBatch = batch
+                  .map((page) => cachedExtractionPagesByPage.get(page))
+                  .filter((page): page is CachedPdfExtractionPage =>
+                    Boolean(page),
+                  );
 
                 if (isStaleLoad()) {
                   return;

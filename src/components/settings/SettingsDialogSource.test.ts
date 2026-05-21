@@ -10,6 +10,13 @@ function readAppSource() {
   return readFileSync(resolve(import.meta.dir, "..", "..", "App.tsx"), "utf8");
 }
 
+function readSettingsManagerSource() {
+  return readFileSync(
+    resolve(import.meta.dir, "..", "..", "hooks", "useSettingsManager.ts"),
+    "utf8",
+  );
+}
+
 describe("settings dialog focus behavior", () => {
   test("keeps focus on the dialog container when settings opens", () => {
     const settingsDialogSource = readSettingsDialogSource();
@@ -53,10 +60,10 @@ describe("settings dialog focus behavior", () => {
   });
 
   test("app only persists a preset before activation when that preset actually has unsaved changes", () => {
-    const appSource = readAppSource();
+    const settingsManagerSource = readSettingsManagerSource();
 
-    expect(appSource).toContain("const currentSaveState =");
-    expect(appSource).toContain("const shouldPersistDraftBeforeActivation =");
-    expect(appSource).toContain('currentSaveState !== "pristine" && currentSaveState !== "saved"');
+    expect(settingsManagerSource).toContain("const currentSaveState =");
+    expect(settingsManagerSource).toContain("const shouldPersistDraftBeforeActivation =");
+    expect(settingsManagerSource).toContain('currentSaveState !== "pristine" && currentSaveState !== "saved"');
   });
 });

@@ -1498,8 +1498,12 @@ export function useTranslationQueue(
               };
         }
 
-        if (Object.keys(updates).length > 0) {
-          setPageTranslations((prev) => ({ ...prev, ...updates }));
+        const changedUpdates = getChangedPageTranslationUpdates(
+          pageTranslationsRef.current,
+          updates,
+        );
+        if (Object.keys(changedUpdates).length > 0) {
+          setPageTranslations((prev) => ({ ...prev, ...changedUpdates }));
           setTranslationStatusMessage(TRANSLATION_SETUP_REQUIRED_MESSAGE);
         }
         return;
@@ -1609,8 +1613,12 @@ export function useTranslationQueue(
         }
       }
 
-      if (Object.keys(updates).length > 0) {
-        setPageTranslations((prev) => ({ ...prev, ...updates }));
+      const changedUpdates = getChangedPageTranslationUpdates(
+        pageTranslationsRef.current,
+        updates,
+      );
+      if (Object.keys(changedUpdates).length > 0) {
+        setPageTranslations((prev) => ({ ...prev, ...changedUpdates }));
       }
       if (nextPageDocs.size > 0) {
         setPages((prev) =>
@@ -1725,6 +1733,23 @@ export function useTranslationQueue(
     translationEnabled,
   ]);
 
+  const autoTranslatePageNumbers =
+    currentFileType === "pdf"
+      ? getPagesToTranslate(
+          currentPage,
+          pages.length,
+          settingsRef.current.autoTranslateNextPages,
+        )
+      : [];
+  const autoTranslateReadyKey = autoTranslatePageNumbers
+    .map((pageNumber) => {
+      const page = pages.find((entry) => entry.page === pageNumber);
+      return `${pageNumber}:${page?.isExtracted ? 1 : 0}:${
+        page?.paragraphs.length ?? 0
+      }`;
+    })
+    .join("|");
+
   // --- Auto-translate current page effect ---
 
   useEffect(() => {
@@ -1737,20 +1762,14 @@ export function useTranslationQueue(
       translateAllUsageLimitPaused
     )
       return;
-    queuePagesForTranslation(
-      getPagesToTranslate(
-        currentPage,
-        pages.length,
-        settingsRef.current.autoTranslateNextPages,
-      ),
-      {
-        priority: "foreground",
-      },
-    );
+    queuePagesForTranslation(autoTranslatePageNumbers, {
+      priority: "foreground",
+    });
   }, [
+    autoTranslateReadyKey,
     currentFileType,
     currentPage,
-    pages,
+    pages.length,
     pdfDoc,
     queuePagesForTranslation,
     settingsLoaded,
@@ -2860,6 +2879,39 @@ function getPdfBackgroundTranslationMessage(args: {
   }
 
   return "Preparing pages...";
+}
+
+function arePageTranslationStatesEqual(
+  left: PageTranslationState | undefined,
+  right: PageTranslationState,
+): boolean {
+  return (
+    left?.page === right.page &&
+    left.displayText === right.displayText &&
+    left.previousContext === right.previousContext &&
+    left.nextContext === right.nextContext &&
+    left.translatedText === right.translatedText &&
+    left.status === right.status &&
+    left.isCached === right.isCached &&
+    left.activityMessage === right.activityMessage &&
+    left.error === right.error &&
+    left.errorChecks === right.errorChecks
+  );
+}
+
+function getChangedPageTranslationUpdates(
+  current: Record<number, PageTranslationState>,
+  updates: Record<number, PageTranslationState>,
+): Record<number, PageTranslationState> {
+  const changed: Record<number, PageTranslationState> = {};
+
+  for (const [page, update] of Object.entries(updates)) {
+    if (!arePageTranslationStatesEqual(current[Number(page)], update)) {
+      changed[Number(page)] = update;
+    }
+  }
+
+  return changed;
 }
 
 function getPagesToTranslate(

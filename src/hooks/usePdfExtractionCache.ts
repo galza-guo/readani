@@ -6,8 +6,8 @@ import {
 import type { CachedPdfExtractionPage } from "../lib/pdfExtractionHydration";
 
 const CACHE_VERSION = "pdf-extraction-v1";
-const BATCH_SIZE = 12;
-const FLUSH_MS = 250;
+const BATCH_SIZE = 48;
+const FLUSH_MS = 1_000;
 
 export function usePdfExtractionCache() {
   const pendingRef = useRef<CachedPdfExtractionPage[]>([]);

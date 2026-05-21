@@ -149,6 +149,8 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
   useEffect(() => {
     if (!containerRef.current || !fileData) return;
 
+    let cancelled = false;
+
     const loadBook = async () => {
       try {
         setLoading(true);
@@ -177,11 +179,13 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
 
         // Wait for book to be ready
         await book.ready;
+        if (cancelled) return;
         onLoadingProgressRef.current?.(25);
 
         // Get metadata
         const metadata = await book.loaded.metadata;
         const cover = await book.coverUrl();
+        if (cancelled) return;
 
         onMetadataRef.current({
           title: metadata.title || "Untitled",
@@ -192,6 +196,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
 
         // Get table of contents
         const navigation = await book.loaded.navigation;
+        if (cancelled) return;
         tocRef.current = navigation.toc;
         onTocChangeRef.current?.(navigation.toc);
 
@@ -234,10 +239,12 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
 
         // Display first section
         await rendition.display();
+        if (cancelled) return;
         onLoadingProgressRef.current?.(55);
 
         // Extract text for translation (this will report progress 55-100%)
-        await extractParagraphs(book);
+        await extractParagraphs(book, () => cancelled);
+        if (cancelled) return;
 
         setLoading(false);
         onLoadingProgressRef.current?.(null);
@@ -251,6 +258,7 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
     loadBook();
 
     return () => {
+      cancelled = true;
       if (bookRef.current) {
         bookRef.current.destroy();
         bookRef.current = null;
@@ -266,7 +274,10 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
     }
   }, [scale]);
 
-  const extractParagraphs = async (book: Book) => {
+  const extractParagraphs = async (
+    book: Book,
+    isCancelled: () => boolean,
+  ) => {
     const paragraphs: EpubParagraph[] = [];
     let pidCounter = 0;
 
@@ -285,7 +296,9 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
       const spine = book.spine as any;
       if (!spine || !spine.items) {
         console.warn("EPUB spine is empty or undefined");
-        onParagraphsExtractedRef.current(paragraphs);
+        if (!isCancelled()) {
+          onParagraphsExtractedRef.current(paragraphs);
+        }
         return;
       }
 
@@ -293,8 +306,16 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
       let processedItems = 0;
 
       for (const item of spine.items) {
+        if (isCancelled()) {
+          return;
+        }
+
         try {
           const doc = await book.load(item.href);
+          if (isCancelled()) {
+            return;
+          }
+
           const sectionTitle = findSectionTitle(item.href);
           // Handle both Document and string responses
           let textContent: string[] = [];
@@ -345,10 +366,20 @@ export const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function
         processedItems++;
         // Report progress from 55% to 100%
         const progress = 55 + Math.round((processedItems / totalItems) * 45);
-        onLoadingProgressRef.current?.(progress);
+        if (!isCancelled()) {
+          onLoadingProgressRef.current?.(progress);
+        }
+
+        if (processedItems % 4 === 0) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+        }
       }
     } catch (error) {
       console.error("Failed to extract paragraphs:", error);
+    }
+
+    if (isCancelled()) {
+      return;
     }
 
     console.log(`Extracted ${paragraphs.length} paragraphs from EPUB`);
