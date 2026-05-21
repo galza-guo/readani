@@ -2,19 +2,23 @@
 
 ## Release Channels
 
-`readani` now has two separate macOS release lanes from the same codebase:
+`readani` has two separate macOS release lanes from the same codebase:
 
-1. **GitHub Releases (ship now)**  
-   This is the public direct-download path. It produces:
+1. **Mac App Store (official commercial release)**  
+   This is the first official paid release lane. It is blocked on StoreKit subscriptions, paid entitlement checks, managed `readani` AI gateway access, App Store packaging, and review readiness.
+
+2. **GitHub Releases (free BYOK lane)**  
+   This is the public direct-download path. It can ship whenever a free build is useful, but it stays BYOK-only:
    - Windows `.msi`
    - macOS `.dmg`
+   - no subscription UI
+   - no proprietary `readani` gateway access
 
-2. **Mac App Store (prepare now, ship later)**  
-   This stays separate on purpose because Apple treats App Store packaging differently from direct downloads.
+In plain English: the Mac App Store build is the paid product launch, while the GitHub DMG is a free download for people who bring their own translation API key. The two lanes stay separate because Apple treats App Store packaging differently from direct downloads, and because the paid gateway must not leak into free builds by accident.
 
-In plain English: a GitHub DMG is the version people download from the web, while a Mac App Store build goes through Apple’s store rules, provisioning profiles, and extra packaging steps.
+## GitHub Free Release Flow
 
-## Current GitHub Release Flow
+GitHub Releases are allowed before the App Store release, but they are not the official paid launch. Use this lane only for free BYOK builds.
 
 The tag-triggered workflow lives at [`.github/workflows/release.yml`](/Users/guolite/GitHub/ReadAny/.github/workflows/release.yml).
 
@@ -138,7 +142,7 @@ After you download the `.p8` private key file:
 
 If you do not want to set up the API key yet, you can use the fallback `APPLE_ID` + `APPLE_PASSWORD` route for now.
 
-## First GitHub Release
+## Free GitHub Release
 
 Once the secrets are in place:
 
@@ -152,7 +156,7 @@ git tag v1.0.1
 git push origin v1.0.1
 ```
 
-That tag push starts the release workflow automatically.
+That tag push starts the release workflow automatically. Before publishing, confirm the build is BYOK-only and does not expose the managed `readani` gateway or subscription UI.
 
 For updater-enabled releases, the workflow publishes:
 
@@ -165,7 +169,7 @@ For updater-enabled releases, the workflow publishes:
 
 `v1.1.0` is the first public release that includes this updater feed. In plain English: users still install `v1.1.0` manually once, but after that the app can fetch later releases inside the app.
 
-## Future Mac App Store Path
+## Mac App Store Official Release Path
 
 The App Store lane is deliberately separate:
 
@@ -175,7 +179,9 @@ The App Store lane is deliberately separate:
 
 This lane is **not** used by the GitHub Release workflow.
 
-### What App Store builds need later
+This is the lane for the first official commercial release.
+
+### What App Store builds need
 
 For a future Mac App Store submission you will need:
 

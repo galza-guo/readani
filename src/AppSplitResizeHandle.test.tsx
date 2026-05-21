@@ -16,4 +16,12 @@ describe("split resize handle", () => {
     expect(splitHandleDraggingRule).toContain("background-color: var(--accent-strong)");
     expect(splitHandleDraggingRule).toContain("transition-delay: 0s");
   });
+
+  test("keeps reader workspace split handles visible in narrow windows", () => {
+    const narrowRule = appCss.match(/@media \(max-width: 900px\)\s*\{[\s\S]*?\.pdf-nav-resize-handle\s*\{/)
+      ?.[0] ?? "";
+
+    expect(narrowRule).toContain(".app-main:not(.app-main--workspace) .split-resize-handle");
+    expect(narrowRule).not.toContain("\n  .split-resize-handle {\n    display: none;");
+  });
 });

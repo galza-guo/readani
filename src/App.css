@@ -4494,7 +4494,7 @@ body.is-resizing-split-y * {
     grid-template-rows: 1fr 1fr;
   }
 
-  .split-resize-handle {
+  .app-main:not(.app-main--workspace) .split-resize-handle {
     display: none;
   }
 

@@ -88,6 +88,22 @@ PageDoc:
 - Rust backend: `src-tauri/src/lib.rs`
 - Tauri config: `src-tauri/tauri.conf.json`
 
+## Cross-Repo References
+- Shared AI gateway repo: `/Users/guolite/GitHub/PersonalSite`
+- AI gateway setup doc: `/Users/guolite/GitHub/PersonalSite/docs/ai-gateway-setup.md`
+- AI gateway client contract: `/Users/guolite/GitHub/PersonalSite/docs/contracts/ai-gateway-client-contract.md`
+- AI gateway server contract: `/Users/guolite/GitHub/PersonalSite/docs/contracts/ai-gateway-server-client-contract.md`
+- Official `readani` website lives inside that repo as a sub-site, not a separate product:
+  - app routes: `/Users/guolite/GitHub/PersonalSite/app/readani`
+  - shared site components: `/Users/guolite/GitHub/PersonalSite/components/readani`
+  - static assets: `/Users/guolite/GitHub/PersonalSite/public/readani`
+
+## Cross-Repo Change Policy
+- From this repo, you are allowed to make changes in `/Users/guolite/GitHub/PersonalSite` when the work requires AI gateway or official website updates for `readani`.
+- The AI gateway is shared with other apps, so treat it as shared infrastructure: do not make `readani`-specific changes that would break existing gateway behavior for other clients.
+- Prefer additive or well-scoped changes in the shared gateway, and preserve existing contracts unless the task explicitly includes coordinated contract updates.
+- You are also allowed to update the `readani` sub-site inside the PersonalSite repo when release, billing, gateway, or product messaging work requires website changes.
+
 ## Guardrails
 - Do NOT add features outside the MVP spec.
 - Do NOT store OpenRouter API keys in frontend.
